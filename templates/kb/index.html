@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能问答 · FOS_RAG</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --bg:#0f1115; --panel:#171a21; --card:#2a2e37; --border:#2f343f; --border-hi:#3a3f4b; --text:#e6e8ec; --dim:#a6adba; --mute:#6b7280; --accent:#7c9cff; }
+  body { font-family: -apple-system, "PingFang SC", sans-serif; background: var(--bg); color: var(--text); }
+  .topbar { height:54px; display:flex; align-items:center; gap:12px; padding:0 20px; border-bottom:1px solid var(--border); background:var(--panel); }
+  .topbar a { color:var(--dim); text-decoration:none; font-size:13px; }
+  .topbar a:hover { color:var(--accent); }
+  .topbar .spacer { flex:1; }
+  #chat { max-width:800px; margin:0 auto; padding:24px; }
+  .msg { margin-bottom:18px; }
+  .msg.user { text-align:right; }
+  .bubble { display:inline-block; padding:11px 15px; border-radius:12px; max-width:80%; text-align:left; }
+  .msg.ai .bubble { background:var(--card); border:1px solid var(--border); }
+  .msg.user .bubble { background:rgba(124,156,255,.12); }
+  #answer { min-height:40px; }
+  .input-box { position:fixed; bottom:0; left:0; right:0; background:var(--panel); border-top:1px solid var(--border); padding:14px; }
+  .input-inner { max-width:800px; margin:0 auto; display:flex; gap:10px; }
+  textarea { flex:1; background:var(--card); color:var(--text); border:1px solid var(--border-hi); border-radius:10px; padding:10px; font-size:14px; resize:none; outline:none; height:44px; }
+  button { width:44px; background:linear-gradient(135deg,var(--accent),#5b7cfa); border:0; border-radius:10px; color:#fff; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/">← 首页</a>
+  <span class="spacer"></span>
+  <span style="font-size:13px;color:var(--mute)">{{ username }}</span>
+  <a href="/accounts/logout/">退出</a>
+</div>
+<div id="chat">
+  <div id="messages">
+    <div class="msg ai"><div class="bubble"><div id="answer">你好，我是 FOS_RAG 问答助手。请输入你的问题。</div></div></div>
+  </div>
+</div>
+<div class="input-box">
+  <div class="input-inner">
+    <textarea id="input" placeholder="输入问题，Enter 发送…"></textarea>
+    <button id="send">➤</button>
+  </div>
+</div>
+<script>
+(function(){
+  const input=document.getElementById('input'), send=document.getElementById('send');
+  const messages=document.getElementById('messages');
+  input.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();submit();}});
+  send.addEventListener('click',submit);
+  async function submit(){
+    const text=input.value.trim(); if(!text) return;
+    input.value='';
+    // user
+    const um=document.createElement('div'); um.className='msg user';
+    um.innerHTML='<div class="bubble">'+text.replace(/</g,'&lt;')+'</div>';
+    messages.appendChild(um);
+    // ai
+    const am=document.createElement('div'); am.className='msg ai';
+    am.innerHTML='<div class="bubble"><div class="answer">思考中…</div></div>';
+    messages.appendChild(am);
+    const ans=am.querySelector('.answer'); ans.textContent='';
+    const resp=await fetch('/kb/stream/?message='+encodeURIComponent(text),{method:'POST'});
+    const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='';
+    while(true){
+      const{value,done}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      let idx;
+      while((idx=buf.indexOf('\n\n'))>=0){
+        const frame=buf.slice(0,idx); buf=buf.slice(idx+2);
+        let etype='',data='{}';
+        frame.split('\n').forEach(l=>{ if(l.startsWith('event:'))etype=l.slice(6).trim(); if(l.startsWith('data:'))data=l.slice(5).trim(); });
+        if(etype==='token'){ try{ans.textContent+=JSON.parse(data).text;}catch(e){} }
+      }
+    }
+  }
+})();
+</script>
+</body>
+</html>

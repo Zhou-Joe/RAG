@@ -1,0 +1,582 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FOS·RAG — 六种设计方向 · 游乐设施维护</title>
+<meta name="description" content="FOS·RAG 原型：六种源自游乐设施维护语境的设计方向并排对比。">
+
+{# All faces used across the six directions, loaded once. #}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Oswald:wght@500;600;700&family=Space+Mono:wght@400;700&family=Archivo:wght@500;600;700;800&family=VT323&family=Caveat:wght@500;600&family=Share+Tech+Mono&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  /* ════════════════════════════════════════════════════════════
+     PAGE CHROME — neutral picker shell. NOT one of the directions.
+     Each direction is a .specimen.{s1..s6} block with its own scoped
+     CSS custom properties, so colors/fonts never leak between them.
+     ════════════════════════════════════════════════════════════ */
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:system-ui,-apple-system,"PingFang SC",sans-serif;
+    background:#E7E4DB;color:#2A2A28;font-size:15px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  :focus-visible{outline:2px solid #555;outline-offset:3px;border-radius:2px}
+  a{color:inherit;text-decoration:none}
+
+  .picker{max-width:1200px;margin:0 auto;padding:32px 20px 20px}
+  .picker h1{font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#6B6B66;margin-bottom:8px}
+  .picker p{font-size:14px;color:#6B6B66;max-width:78ch}
+  .picker .jump{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .picker .jump a{
+    font-size:13px;padding:8px 14px;border-radius:999px;
+    border:1px solid #C9C5BA;background:#F4F2EC;color:#3A3A36;font-weight:500;
+    transition:background .15s,color .15s;
+  }
+  .picker .jump a:hover{background:#2A2A28;color:#F4F2EC}
+
+  .specimen{margin-top:26px;border-radius:12px;overflow:hidden;border:1px solid #C9C5BA;scroll-margin-top:18px}
+  .spec-tag{
+    font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+    padding:14px 22px;background:#2A2A28;color:#EAE7DE;display:flex;align-items:center;gap:10px;
+  }
+  .spec-tag .num{
+    font-family:"IBM Plex Mono",monospace;background:#EAE7DE;color:#2A2A28;
+    width:22px;height:22px;border-radius:50%;display:inline-grid;place-items:center;font-size:11px;
+  }
+  .spec-tag .pick{margin-left:auto;font-size:12px;font-weight:500;letter-spacing:.02em;text-transform:none;color:#9C9C95}
+
+  /* shared content primitives — structure only; colors via scoped tokens */
+  .inner{padding:clamp(26px,4vw,46px)}
+  .grid2{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(22px,4vw,46px);align-items:center}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .h2{font-size:clamp(26px,3.6vw,36px);line-height:1.1;margin-bottom:14px}
+  .lede{font-size:15px;max-width:48ch;margin-bottom:24px}
+  .cardq{font-size:13px;margin-bottom:8px}
+  .carda{font-size:14px;line-height:1.65}
+  .features{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin-top:30px}
+  .feat{padding:20px 20px 4px 0}
+  .feat:not(:first-child){padding-left:20px}
+  .feat:last-child{padding-right:0}
+  .feat h3{font-size:17px;font-weight:600;line-height:1.3;margin-bottom:6px}
+  .feat p{font-size:13px;line-height:1.55}
+
+  @media (max-width:840px){
+    .grid2{grid-template-columns:1fr;gap:30px}
+    .features{grid-template-columns:1fr}
+    .feat{border-left:0!important;border-top:1px solid var(--rule);padding:16px 0!important}
+    .feat:first-child{border-top:0}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     1 — MAINTENANCE MANUAL  (industrial / safety)
+     hazard stripe · Oswald stencil · mono torque specs
+     ════════════════════════════════════════════════════════════ */
+  .s1{
+    --paper:#F4F2EC;--surface:#fff;--text:#1A1A1A;--dim:#4A4A45;--mute:#76746C;
+    --hazard:#F5C518;--accent:#C2362C;--ok:#2E7D43;--rule:#1A1A1A;--rule-soft:#C5C1B3;
+    --fd:"Oswald",sans-serif;--fb:"Inter",sans-serif;--fm:"JetBrains Mono",monospace;
+    background:var(--paper);color:var(--text);font-family:var(--fb);
+  }
+  .s1 .stripe{height:12px;background:repeating-linear-gradient(135deg,var(--hazard) 0 20px,var(--ink,#1A1A1A) 20px 40px)}
+  .s1 .bar{display:flex;align-items:center;gap:16px;height:54px;padding:0 0 0 6px;background:var(--rule);color:#F4F2EC}
+  .s1 .bar .mk{width:28px;height:28px;background:var(--hazard);color:var(--text);font-family:var(--fd);font-weight:700;display:grid;place-items:center;font-size:16px}
+  .s1 .bar .lg{font-family:var(--fd);font-weight:700;font-size:17px;letter-spacing:.06em}
+  .s1 .bar .lg .d{color:var(--hazard)}
+  .s1 .bar .nv{display:flex;gap:2px;margin-left:6px}
+  .s1 .bar .nv a{font-family:var(--fd);font-weight:500;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#C9C6BC;padding:6px 11px}
+  .s1 .bar .nv a:hover{color:var(--hazard)}
+  .s1 .bar .sp{flex:1}.s1 .bar .au{font-size:12px;color:#9A988F;font-family:var(--fm)}
+  .s1 .bar .au a{color:#F4F2EC;margin-left:8px}
+  .s1 .ey{font-family:var(--fm);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);margin-bottom:16px;display:flex;align-items:center;gap:8px}
+  .s1 .ey .pip{width:8px;height:8px;background:var(--hazard)}
+  .s1 .h2{font-family:var(--fd);font-weight:700;text-transform:uppercase;letter-spacing:.01em}.s1 .h2 .d{color:#D9AA00}
+  .s1 .lede{color:var(--dim)}
+  .s1 .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fd);font-weight:600;font-size:14px;letter-spacing:.05em;text-transform:uppercase;padding:12px 20px;border:2px solid var(--text);box-shadow:4px 4px 0 var(--text);transition:transform .1s,box-shadow .12s;cursor:pointer}
+  .s1 .btn-p{background:var(--hazard);color:var(--text)}.s1 .btn-p:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--text)}
+  .s1 .btn-o{background:transparent;color:var(--text)}.s1 .btn-o:hover{background:var(--text);color:var(--hazard)}
+  .s1 .card{background:var(--surface);border:2px solid var(--text);box-shadow:6px 6px 0 var(--text);position:relative}
+  .s1 .card .ct{position:absolute;top:-1px;right:-1px;background:var(--text);color:var(--hazard);font-family:var(--fm);font-size:10px;padding:4px 11px}
+  .s1 .card .ch{border-bottom:2px solid var(--text);padding:11px 15px;display:flex;justify-content:space-between;font-family:var(--fd);font-weight:700;font-size:13px;text-transform:uppercase}
+  .s1 .card .ch .id{font-family:var(--fm);font-size:10px;color:var(--mute);font-weight:400}
+  .s1 .card .cb{padding:14px 15px}.s1 .card .cardq{font-family:var(--fm);color:var(--mute)}
+  .s1 .card .carda strong{background:rgba(245,197,24,.4);padding:0 2px}
+  .s1 .card .specs{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:12px;border-top:1px solid var(--rule-soft)}
+  .s1 .card .specs div{padding:8px 0;border-bottom:1px solid var(--rule-soft)}
+  .s1 .card .specs div:nth-child(even){padding-left:12px;border-left:1px solid var(--rule-soft)}
+  .s1 .card .specs div:nth-child(odd){padding-right:12px}
+  .s1 .card .specs .k{font-family:var(--fm);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+  .s1 .card .specs .v{font-family:var(--fm);font-size:13px;font-weight:500}
+  .s1 .feat .n{width:26px;height:26px;background:var(--text);color:var(--hazard);font-family:var(--fd);font-weight:700;display:grid;place-items:center;font-size:13px;margin-bottom:10px}
+  .s1 .feat h3{font-family:var(--fd);text-transform:uppercase;letter-spacing:.02em}
+
+  /* ════════════════════════════════════════════════════════════
+     2 — BLUEPRINT  (engineering / technical)
+     cyan whiteprint grid · title block · dimension lines
+     ════════════════════════════════════════════════════════════ */
+  .s2{
+    --paper:#0E3A5F;--surface:rgba(255,255,255,.06);--text:#E8F4FF;--dim:#A9CCE6;--mute:#6E94B4;
+    --line:#7FB8E0;--accent:#FFD56B;--rule:#5A8FB5;--rule-soft:#2A5680;
+    --fd:"Cormorant Garamond",serif;--fb:"Inter",sans-serif;--fm:"IBM Plex Mono",monospace;
+    background:var(--paper);color:var(--text);font-family:var(--fb);
+    background-image:
+      linear-gradient(rgba(127,184,224,.15) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(127,184,224,.15) 1px,transparent 1px),
+      linear-gradient(rgba(127,184,224,.08) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(127,184,224,.08) 1px,transparent 1px);
+    background-size:80px 80px,80px 80px,16px 16px,16px 16px;
+  }
+  .s2 .titlebar{border:1px solid var(--line);background:rgba(255,255,255,.04);margin:0 0 0 0}
+  .s2 .titlebar .tb-row{display:flex;justify-content:space-between;align-items:center;padding:9px 15px;border-bottom:1px solid var(--rule-soft);font-family:var(--fm);font-size:11px;color:var(--mute);letter-spacing:.04em}
+  .s2 .titlebar .tb-row:last-child{border-bottom:0}
+  .s2 .titlebar .tb-row b{color:var(--text);font-weight:500}
+  .s2 .titlebar .tb-top{background:var(--line);color:var(--paper);font-family:var(--fd);font-weight:700;font-size:15px;letter-spacing:.04em;padding:7px 15px}
+  .s2 .nav{display:flex;gap:14px;align-items:center}
+  .s2 .nav a{font-family:var(--fm);font-size:11px;color:var(--dim);letter-spacing:.04em}
+  .s2 .nav a:hover{color:var(--accent)}
+  .s2 .ey{font-family:var(--fm);font-size:11px;letter-spacing:.1em;color:var(--accent);margin-bottom:14px;text-transform:uppercase}
+  .s2 .h2{font-family:var(--fd);font-weight:700;font-size:clamp(28px,4vw,40px);line-height:1.04;margin-bottom:6px}.s2 .h2 .d{color:var(--accent);font-style:italic}
+  .s2 .dim{text-decoration:overline;font-family:var(--fm);font-size:12px;color:var(--line);margin-bottom:16px;display:inline-flex;align-items:center;gap:6px}
+  .s2 .dim::after{content:"⟐";color:var(--accent)}
+  .s2 .lede{color:var(--dim)}
+  .s2 .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fm);font-weight:500;font-size:13px;padding:10px 18px;border:1px solid var(--line);transition:border-color .15s,color .15s,background .15s;cursor:pointer;letter-spacing:.04em}
+  .s2 .btn-p{background:var(--accent);color:var(--paper);border-color:var(--accent)}
+  .s2 .btn-p:hover{background:#E8BE4F;border-color:#E8BE4F}
+  .s2 .btn-o{background:transparent;color:var(--text)}.s2 .btn-o:hover{border-color:var(--accent);color:var(--accent)}
+  .s2 .card{border:1px solid var(--line);background:var(--surface);padding:15px;position:relative}
+  .s2 .card .cb-num{position:absolute;top:-10px;left:14px;background:var(--paper);font-family:var(--fm);font-size:10px;color:var(--line);padding:0 7px}
+  .s2 .card .cardq{font-family:var(--fm);color:var(--mute)}
+  .s2 .card .carda strong{color:var(--accent);font-weight:600}
+  .s2 .card .spec{display:flex;gap:8px;align-items:center;margin-top:10px;font-family:var(--fm);font-size:12px;color:var(--line);padding-top:8px;border-top:1px dashed var(--rule)}
+  .s2 .feat{border-left:1px dashed var(--rule)!important}.s2 .feat:first-child{border-left:0!important;padding-left:0!important}
+  .s2 .feat .n{font-family:var(--fm);font-size:11px;color:var(--accent);letter-spacing:.05em;margin-bottom:8px}
+  .s2 .feat h3{font-family:var(--fd);font-weight:600;font-size:19px}
+
+  /* ════════════════════════════════════════════════════════════
+     3 — INSPECTION TAG  (operations / LOTO)
+     tag-stock status cards · checkbox procedures · padlock
+     ════════════════════════════════════════════════════════════ */
+  .s3{
+    --paper:#F0EDE4;--surface:#fff;--text:#241F18;--dim:#4A443A;--mute:#807A6C;
+    --ok:#2E7D43;--warn:#E0A100;--danger:#C2362C;--rule:#241F18;--rule-soft:#D8D2C4;
+    --fd:"Archivo",sans-serif;--fb:"Inter",sans-serif;--fm:"IBM Plex Mono",monospace;
+    background:var(--paper);color:var(--text);font-family:var(--fb);
+  }
+  .s3 .bar{display:flex;align-items:center;gap:14px;height:56px;padding:0 4px;border-bottom:2px solid var(--rule)}
+  .s3 .bar .lock{font-size:18px;color:var(--danger)}
+  .s3 .bar .lg{font-family:var(--fd);font-weight:800;font-size:16px;text-transform:uppercase;letter-spacing:.01em}
+  .s3 .bar .nv{display:flex;gap:2px;margin-left:8px}
+  .s3 .bar .nv a{font-family:var(--fd);font-weight:600;font-size:12px;text-transform:uppercase;color:var(--dim);padding:6px 11px;border-radius:5px}
+  .s3 .bar .nv a:hover{background:var(--surface);color:var(--danger)}
+  .s3 .bar .sp{flex:1}.s3 .bar .au{font-size:12px;color:var(--mute);font-family:var(--fm)}
+  .s3 .bar .au a{color:var(--danger);margin-left:8px;font-weight:600}
+  .s3 .ey{font-family:var(--fd);font-weight:600;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--danger);margin-bottom:14px}
+  .s3 .h2{font-family:var(--fd);font-weight:800;font-size:clamp(26px,3.6vw,34px);line-height:1.1;text-transform:uppercase;letter-spacing:-.01em}.s3 .h2 .d{color:var(--warn)}
+  .s3 .lede{color:var(--dim)}
+  .s3 .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fd);font-weight:700;font-size:13px;text-transform:uppercase;padding:11px 19px;border:2px solid var(--rule);border-radius:6px;transition:background .12s,color .12s;cursor:pointer;letter-spacing:.02em}
+  .s3 .btn-p{background:var(--ok);color:#fff;border-color:var(--ok)}.s3 .btn-p:hover{background:#246436;border-color:#246436}
+  .s3 .btn-o{background:#fff;color:var(--text)}.s3 .btn-o:hover{background:var(--text);color:#fff}
+  /* status tag card */
+  .s3 .tag{background:var(--surface);border:2px solid var(--rule);border-radius:8px;overflow:hidden}
+  .s3 .tag .th{display:flex;align-items:center;gap:8px;padding:8px 14px;font-family:var(--fd);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#fff}
+  .s3 .tag .th.ok{background:var(--ok)}.s3 .tag .th.danger{background:var(--danger)}
+  .s3 .tag .th .stamp{margin-left:auto;font-family:var(--fm);font-size:10px;background:rgba(255,255,255,.2);padding:2px 7px;border-radius:3px}
+  .s3 .tag .tb{padding:13px 14px}
+  .s3 .tag .cardq{font-family:var(--fm);color:var(--mute)}
+  .s3 .tag .carda strong{color:var(--danger)}
+  .s3 .tag .cite{font-family:var(--fm);font-size:10px;color:var(--mute);margin-top:10px;border-top:1px dashed var(--rule-soft);padding-top:8px}
+  /* checklist feature */
+  .s3 .feat .ck{width:20px;height:20px;border:2px solid var(--rule);border-radius:4px;display:inline-grid;place-items:center;margin-bottom:10px;background:#fff}
+  .s3 .feat .ck.done{background:var(--ok);border-color:var(--ok);color:#fff;font-size:13px}
+  .s3 .feat .ck.todo{border-style:dashed}
+  .s3 .feat h3{font-family:var(--fd);font-weight:700;text-transform:uppercase;font-size:16px}
+  .s3 .stampbig{display:inline-block;margin-top:16px;font-family:var(--fd);font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--ok);border:2px solid var(--ok);padding:4px 11px;border-radius:4px;transform:rotate(-3deg)}
+
+  /* ════════════════════════════════════════════════════════════
+     4 — CONTROL PANEL  (HMI / SCADA)
+     dark console · gauge readouts · status lamps · segmented font
+     ════════════════════════════════════════════════════════════ */
+  .s4{
+    --paper:#10161A;--surface:#181F25;--surface2:#1F2830;--text:#D6E4EE;--dim:#8FA1B0;--mute:#5E7080;
+    --accent:#00D9B0;--accent2:#3AB0FF;--warn:#FFB454;--danger:#FF5C7A;--rule:#2A3540;--rule-soft:#22303B;
+    --fd:"Share Tech Mono",monospace;--fb:"Inter",sans-serif;--fm:"Share Tech Mono",monospace;
+    background:var(--paper);color:var(--text);font-family:var(--fb);
+    background-image:radial-gradient(circle at 20% 0%,rgba(0,217,176,.05),transparent 50%);
+  }
+  .s4 .bar{display:flex;align-items:center;gap:16px;height:54px;padding:0 4px;background:var(--surface);border-bottom:1px solid var(--rule)}
+  .s4 .bar .lg{display:flex;align-items:center;gap:9px;font-family:var(--fd);font-size:16px;letter-spacing:.06em;color:var(--accent)}
+  .s4 .bar .lg .lamp{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:none}
+  .s4 .bar .nv{display:flex;gap:0;margin-left:8px}
+  .s4 .bar .nv a{font-family:var(--fm);font-size:12px;color:var(--dim);padding:6px 12px;border-right:1px solid var(--rule)}
+  .s4 .bar .nv a:last-child{border-right:0}
+  .s4 .bar .nv a:hover{color:var(--accent)}
+  .s4 .bar .sp{flex:1}.s4 .bar .au{font-family:var(--fm);font-size:11px;color:var(--mute)}
+  .s4 .bar .au a{color:var(--accent2);margin-left:10px}
+  .s4 .ey{font-family:var(--fm);font-size:11px;letter-spacing:.1em;color:var(--accent);margin-bottom:14px;text-transform:uppercase}
+  .s4 .h2{font-family:var(--fd);font-weight:400;font-size:clamp(26px,3.4vw,34px);line-height:1.1;letter-spacing:.02em;margin-bottom:6px}
+  .s4 .h2 .d{color:var(--accent)}
+  .s4 .sub{font-family:var(--fm);font-size:12px;color:var(--mute);margin-bottom:18px;letter-spacing:.04em}
+  .s4 .lede{color:var(--dim);font-size:14px;margin-bottom:22px}
+  .s4 .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fm);font-size:13px;padding:11px 18px;border:1px solid var(--accent);color:var(--accent);background:transparent;transition:background .15s,color .15s;cursor:pointer;letter-spacing:.04em}
+  .s4 .btn-p{background:var(--accent);color:var(--paper)}.s4 .btn-p:hover{background:#00B894;color:var(--paper)}
+  .s4 .btn-o{border-color:var(--rule);color:var(--dim)}.s4 .btn-o:hover{border-color:var(--accent2);color:var(--accent2)}
+  /* gauge card */
+  .s4 .panel{background:var(--surface);border:1px solid var(--rule);border-radius:4px;padding:16px}
+  .s4 .panel .ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-family:var(--fm);font-size:11px;color:var(--mute);letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--rule-soft);padding-bottom:8px}
+  .s4 .panel .ph .ch{color:var(--ok,#00D9B0)}
+  .s4 .panel .gauges{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin-bottom:12px}
+  .s4 .panel .g{text-align:center;padding:6px 4px;border-right:1px solid var(--rule-soft)}
+  .s4 .panel .g:last-child{border-right:0}
+  .s4 .panel .g .gv{font-family:var(--fd);font-size:24px;color:var(--accent);line-height:1}
+  .s4 .panel .g .gk{font-family:var(--fm);font-size:9px;color:var(--mute);letter-spacing:.06em;text-transform:uppercase;margin-top:3px}
+  .s4 .panel .cardq{font-family:var(--fm);font-size:11px;color:var(--mute);margin-bottom:6px}
+  .s4 .panel .carda{font-size:13px;line-height:1.6;font-family:var(--fb)}
+  .s4 .panel .carda strong{color:var(--warn)}
+  .s4 .panel .cite{font-family:var(--fm);font-size:10px;color:var(--accent2);margin-top:10px}
+  .s4 .feat .n{font-family:var(--fm);font-size:11px;color:var(--accent);letter-spacing:.06em;margin-bottom:8px}
+  .s4 .feat .n .lamp{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:middle}
+  .s4 .feat h3{font-family:var(--fd);font-weight:400;font-size:18px;letter-spacing:.02em}
+
+  /* ════════════════════════════════════════════════════════════
+     5 — PARTS CATALOG  (reference / exploded diagram)
+     callout bubbles · part-number tables · clean technical ref
+     ════════════════════════════════════════════════════════════ */
+  .s5{
+    --paper:#FBFAF7;--surface:#F2F0EA;--text:#22242A;--dim:#4D515A;--mute:#878B94;
+    --accent:#1F4FA8;--accent2:#C2362C;--rule:#22242A;--rule-soft:#DFDDD4;
+    --fd:"Archivo",sans-serif;--fb:"Inter",sans-serif;--fm:"IBM Plex Mono",monospace;
+    background:var(--paper);color:var(--text);font-family:var(--fb);
+  }
+  .s5 .bar{display:flex;align-items:center;gap:16px;height:56px;padding:0 4px;border-bottom:1px solid var(--rule)}
+  .s5 .bar .lg{font-family:var(--fd);font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:.04em}
+  .s5 .bar .lg .d{color:var(--accent)}
+  .s5 .bar .id{font-family:var(--fm);font-size:11px;color:var(--mute);border:1px solid var(--rule-soft);padding:3px 8px}
+  .s5 .bar .nv{display:flex;gap:14px;margin-left:12px}
+  .s5 .bar .nv a{font-family:var(--fm);font-size:12px;color:var(--dim)}
+  .s5 .bar .nv a:hover{color:var(--accent)}
+  .s5 .bar .sp{flex:1}.s5 .bar .au{font-size:12px;color:var(--mute);font-family:var(--fm)}
+  .s5 .bar .au a{color:var(--accent);margin-left:8px}
+  .s5 .ey{font-family:var(--fm);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+  .s5 .h2{font-family:var(--fd);font-weight:700;font-size:clamp(26px,3.6vw,34px);line-height:1.1;text-transform:uppercase;letter-spacing:-.01em}.s5 .h2 .d{color:var(--accent2)}
+  .s5 .lede{color:var(--dim)}
+  .s5 .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fd);font-weight:600;font-size:13px;text-transform:uppercase;padding:11px 19px;border:1px solid var(--rule);transition:background .12s,color .12s;cursor:pointer;letter-spacing:.03em}
+  .s5 .btn-p{background:var(--accent);color:#fff;border-color:var(--accent)}.s5 .btn-p:hover{background:#163A7C;border-color:#163A7C}
+  .s5 .btn-o{background:transparent;color:var(--text)}.s5 .btn-o:hover{background:var(--text);color:var(--paper)}
+  /* exploded-diagram callout card */
+  .s5 .bom{background:var(--surface);border:1px solid var(--rule);padding:0}
+  .s5 .bom .bh{display:flex;justify-content:space-between;background:var(--text);color:var(--paper);padding:8px 14px;font-family:var(--fd);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  .s5 .bom .bh .pn{font-family:var(--fm);font-weight:400;color:var(--accent2)}
+  .s5 .bom table{width:100%;border-collapse:collapse;font-family:var(--fm);font-size:12px}
+  .s5 .bom th{background:var(--paper);text-align:left;padding:8px 14px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);font-weight:500;border-bottom:1px solid var(--rule)}
+  .s5 .bom td{padding:8px 14px;border-bottom:1px solid var(--rule-soft)}
+  .s5 .bom tr:last-child td{border-bottom:0}
+  .s5 .bom td.pn{color:var(--accent);font-weight:500}
+  .s5 .bom td.qty{text-align:center}
+  .s5 .bom .desc{font-family:var(--fb);color:var(--dim)}
+  .s5 .bom .foot{padding:8px 14px;border-top:1px solid var(--rule);font-family:var(--fm);font-size:10px;color:var(--mute);display:flex;justify-content:space-between}
+  .s5 .feat .callout{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--accent2);color:#fff;font-family:var(--fm);font-size:12px;font-weight:600;margin-bottom:10px}
+  .s5 .feat h3{font-family:var(--fd);font-weight:700;text-transform:uppercase;font-size:16px}
+
+  /* ════════════════════════════════════════════════════════════
+     6 — FIELD NOTEBOOK  (field-tech / utilitarian)
+     dot-grid paper · hand annotation · marker highlight
+     ════════════════════════════════════════════════════════════ */
+  .s6{
+    --paper:#FAFAF5;--surface:#fff;--text:#2B2B26;--dim:#4D4D44;--mute:#8A8A7C;
+    --accent:#E07B00;--accent2:#2E7D43;--rule:#2B2B26;--rule-soft:#D8D8CC;
+    --fd:"Caveat",cursive;--fb:"Inter",sans-serif;--fm:"IBM Plex Mono",monospace;
+    background:var(--paper);color:var(--text);font-family:var(--fb);
+    background-image:radial-gradient(var(--rule-soft) 1px,transparent 1.4px);
+    background-size:18px 18px;
+  }
+  .s6 .bar{display:flex;align-items:center;gap:14px;height:54px;padding:0 4px;border-bottom:2px dashed var(--rule)}
+  .s6 .bar .lg{font-family:var(--fd);font-size:30px;color:var(--text);line-height:1}
+  .s6 .bar .lg .d{color:var(--accent)}
+  .s6 .bar .nv{display:flex;gap:10px;margin-left:6px}
+  .s6 .bar .nv a{font-family:var(--fd);font-size:20px;color:var(--dim)}
+  .s6 .bar .nv a:hover{color:var(--accent)}
+  .s6 .bar .sp{flex:1}.s6 .bar .au{font-family:var(--fd);font-size:18px;color:var(--mute)}
+  .s6 .bar .au a{color:var(--accent);margin-left:8px}
+  .s6 .ey{font-family:var(--fd);font-size:22px;color:var(--accent);margin-bottom:6px}
+  .s6 .h2{font-family:var(--fd);font-weight:600;font-size:clamp(34px,5vw,48px);line-height:1;margin-bottom:6px}.s6 .h2 .d{color:var(--accent)}
+  .s6 .under{font-family:var(--fd);font-size:20px;color:var(--dim);margin-bottom:18px}
+  .s6 .lede{color:var(--dim);font-size:15px;margin-bottom:22px;background:rgba(224,123,0,.14);padding:2px 4px;display:inline-block}
+  .s6 .btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--fd);font-size:22px;padding:6px 16px;border:2px solid var(--rule);border-radius:8px;transition:background .12s,color .12s;cursor:pointer}
+  .s6 .btn-p{background:var(--accent);color:#fff;border-color:var(--accent)}.s6 .btn-p:hover{background:#C56A00;border-color:#C56A00}
+  .s6 .btn-o{background:#fff;color:var(--text)}.s6 .btn-o:hover{background:var(--text);color:var(--accent)}
+  .s6 .note{background:var(--surface);border:1px solid var(--rule);border-radius:3px;padding:16px;transform:rotate(-.6deg);box-shadow:2px 3px 0 var(--rule-soft);font-family:var(--fb)}
+  .s6 .note .cardq{font-family:var(--fd);font-size:20px;color:var(--accent)}
+  .s6 .note .carda{font-size:14px;line-height:1.65}
+  .s6 .note .carda strong{background:rgba(224,123,0,.22);padding:0 3px}
+  .s6 .note .cite{font-family:var(--fd);font-size:16px;color:var(--mute);margin-top:10px;border-top:1px dashed var(--rule);padding-top:8px}
+  .s6 .feat .n{font-family:var(--fd);font-size:22px;color:var(--accent);margin-bottom:2px}
+  .s6 .feat h3{font-family:var(--fd);font-weight:600;font-size:24px}
+  .s6 .feat p{font-size:13px}
+</style>
+</head>
+<body>
+
+<!-- ════════════ PICKER CHROME ════════════ -->
+<div class="picker">
+  <h1>FOS·RAG · 设计方向选择（六种 · 游乐设施维护）</h1>
+  <p>同一份内容，六种源自<span style="color:#1F4FA8">游乐设施维护</span>语境的视觉方向并排展示。覆盖工业安全、工程图纸、操作标签、HMI 控制台、零件目录、现场笔记六种语调。滚动浏览，选定其一。</p>
+  <div class="jump">
+    <a href="#s1">1 · 维护手册 Maintenance Manual</a>
+    <a href="#s2">2 · 蓝图 Blueprint</a>
+    <a href="#s3">3 · 检查挂牌 Inspection Tag</a>
+    <a href="#s4">4 · 控制台 Control Panel</a>
+    <a href="#s5">5 · 零件目录 Parts Catalog</a>
+    <a href="#s6">6 · 现场笔记 Field Notebook</a>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     1 — MAINTENANCE MANUAL
+     ════════════════════════════════════════════════════════════ -->
+<section class="specimen s1" id="s1">
+  <div class="spec-tag"><span class="num">1</span>维护手册 · Maintenance Manual<span class="pick">安全黄黑斑马纹 · Oswald 工业体 · 等宽扭矩规格</span></div>
+  <div class="s1 stripe" style="--ink:#1A1A1A"></div>
+  <div>
+    <div class="bar inner" style="padding-top:0;padding-bottom:0">
+      <span class="mk">F</span><span class="lg">FOS<span class="d">·</span>RAG</span>
+      <nav class="nv"><a href="/kb/ask/">检索</a><a href="/kb/manage/">手册</a><a href="/dashboard/">日志</a></nav>
+      <span class="sp"></span><span class="au">{{ user.username|default:"GUEST" }}{% if user.is_authenticated %} · <a href="/accounts/logout/">退出</a>{% endif %}{% if not user.is_authenticated %} · <a href="/accounts/login/">登录</a>{% endif %}</span>
+    </div>
+    <div class="inner">
+      <div class="grid2">
+        <div>
+          <div class="ey"><span class="pip"></span>检索增强问答 · 维护技术文档</div>
+          <h2 class="h2">游乐设施<br>维护手册<span class="d">·</span>智能检索</h2>
+          <p class="lede">上传手册与点检表，自动解析向量化；随后用自然语言提问，得到逐字流式、带页码出处的回答。</p>
+          <div class="row"><a class="btn btn-p" href="/kb/ask/">开始检索 →</a><a class="btn btn-o" href="/kb/manage/">管理手册</a></div>
+        </div>
+        <div class="card">
+          <span class="ct">SPEC</span>
+          <div class="ch"><span>样本检索</span><span class="id">DOC-MAN-1042</span></div>
+          <div class="cb">
+            <p class="cardq">问 · 制动钳螺栓复检扭矩？</p>
+            <p class="carda">M16 复检扭矩 <strong>120 N·m</strong>，对角分两次拧紧；每 <strong>500 h</strong>复检。</p>
+            <div class="specs">
+              <div><div class="k">紧固件</div><div class="v">M16×60</div></div>
+              <div><div class="k">扭矩</div><div class="v">120 N·m</div></div>
+              <div><div class="k">频次</div><div class="v">500 h</div></div>
+              <div><div class="k">锁源</div><div class="v">LOTO-03</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="features">
+        <div class="feat"><div class="n">1</div><h3>上传手册</h3><p>拖入 PDF / 图纸 / 点检表。</p></div>
+        <div class="feat"><div class="n">2</div><h3>解析索引</h3><p>OCR 转 Markdown，分块写入向量库。</p></div>
+        <div class="feat"><div class="n">3</div><h3>流式问答</h3><p>逐字返回带页码出处的回答。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════
+     2 — BLUEPRINT
+     ════════════════════════════════════════════════════════════ -->
+<section class="specimen s2" id="s2">
+  <div class="spec-tag"><span class="num">2</span>蓝图 · Blueprint<span class="pick">青色晒图纸 · 标题栏 · 尺寸标注线</span></div>
+  <div class="inner">
+    <div class="titlebar" style="margin-bottom:30px">
+      <div class="tb-top">游乐设施维护手册 · 检索系统</div>
+      <div class="tb-row"><span>图号 DWG · FOS-RAG-001</span><span style="margin-left:auto"></span><nav class="nav"><a href="/kb/ask/">检索</a><a href="/kb/manage/">手册</a><a href="/dashboard/">日志</a></nav></div>
+      <div class="tb-row"><span>绘制 DRAWN · ZAI</span><span>校对 CHK · LM</span><span>批准 APPR · CW</span><span style="margin-left:auto">日期 · {{ user.username|default:"ANON" }}{% if not user.is_authenticated %} · <a href="/accounts/login/">登录</a>{% endif %}{% if user.is_authenticated %} · <a href="/accounts/logout/">退出</a>{% endif %}</span></div>
+    </div>
+    <div class="grid2">
+      <div>
+        <div class="ey">— SECTION A · 检索增强 —</div>
+        <h2 class="h2">维护手册<span class="d">·</span>智能检索</h2>
+        <span class="dim">SCALE 1:1 · TORQUE 120 N·m</span>
+        <p class="lede" style="margin-top:10px">将设备手册与图纸入库，系统解析并向量化；随后以自然语言检索扭矩、间隙、排故步骤。</p>
+        <div class="row"><a class="btn btn-p" href="/kb/ask/">开始检索 →</a><a class="btn btn-o" href="/kb/manage/">管理手册</a></div>
+      </div>
+      <div class="card">
+        <span class="cb-num">DETAIL B / 制动钳</span>
+        <p class="cardq">QUERY · 制动钳螺栓复检扭矩</p>
+        <p class="carda">M16 螺栓复检扭矩 <strong>120 N·m</strong>，对角分两次；500 运行小时复检。</p>
+        <div class="spec">⟐ 紧固 M16×60 · 扭矩 120 N·m · 见 P.42</div>
+      </div>
+    </div>
+    <div class="features">
+      <div class="feat"><div class="n">№ 01 UPLOAD</div><h3>上传手册</h3><p>拖入 PDF / 图纸 / 点检表。</p></div>
+      <div class="feat"><div class="n">№ 02 INDEX</div><h3>解析索引</h3><p>OCR + 分块 + 向量索引。</p></div>
+      <div class="feat"><div class="n">№ 03 QUERY</div><h3>流式问答</h3><p>逐字返回带出处回答。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════
+     3 — INSPECTION TAG
+     ════════════════════════════════════════════════════════════ -->
+<section class="specimen s3" id="s3">
+  <div class="spec-tag"><span class="num">3</span>检查挂牌 · Inspection Tag<span class="pick">状态色标牌 · 复选点检 · 挂锁锁源</span></div>
+  <div>
+    <div class="bar inner" style="padding-top:0;padding-bottom:0">
+      <span class="lock">🔒</span><span class="lg">FOS·RAG</span>
+      <nav class="nv"><a href="/kb/ask/">检索</a><a href="/kb/manage/">手册</a><a href="/dashboard/">日志</a></nav>
+      <span class="sp"></span><span class="au">{{ user.username|default:"GUEST" }}{% if user.is_authenticated %} · <a href="/accounts/logout/">退出</a>{% endif %}{% if not user.is_authenticated %} · <a href="/accounts/login/">登录</a>{% endif %}</span>
+    </div>
+    <div class="inner">
+      <div class="grid2">
+        <div>
+          <div class="ey">▸ LOTO · 检索增强问答</div>
+          <h2 class="h2">维护手册<span class="d">·</span>智能检索</h2>
+          <p class="lede">上传手册与点检表，解析向量化后自然语言检索；每个回答附来源页，便于现场核对与挂牌作业。</p>
+          <div class="row"><a class="btn btn-p" href="/kb/ask/">开始检索 →</a><a class="btn btn-o" href="/kb/manage/">管理手册</a></div>
+          <span class="stampbig">✓ PASSED · 已就绪</span>
+        </div>
+        <div>
+          <div class="tag">
+            <div class="th ok">✓ 答复 OK<span class="stamp">PASSED</span></div>
+            <div class="tb">
+              <p class="cardq">Q · 制动钳螺栓复检扭矩？</p>
+              <p class="carda">M16 复检扭矩 <strong>120 N·m</strong>，对角分两次；每 500 h 复检。</p>
+              <p class="cite">出处 · 制动系统手册 P.42 · 锁源 LOTO-03</p>
+            </div>
+          </div>
+          <div class="tag" style="margin-top:12px">
+            <div class="th danger">⚠ 注意 DANGER<span class="stamp">LOCKOUT</span></div>
+            <div class="tb"><p class="carda" style="margin:0">作业前必须断电并挂牌上锁，核实零能量状态。</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="features">
+        <div class="feat"><span class="ck done">✓</span><h3>断电挂牌</h3><p>LOTO 程序，核实零能量。</p></div>
+        <div class="feat"><span class="ck done">✓</span><h3>检查液压</h3><p>压力 6–8 MPa，蓄能器 3.5。</p></div>
+        <div class="feat"><span class="ck todo"></span><h3>扭矩复检</h3><p>M16 → 120 N·m，待执行。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════
+     4 — CONTROL PANEL
+     ════════════════════════════════════════════════════════════ -->
+<section class="specimen s4" id="s4">
+  <div class="spec-tag"><span class="num">4</span>控制台 · Control Panel<span class="pick">深色 HMI · 仪表读数 · 状态灯 · 段码字体</span></div>
+  <div>
+    <div class="bar inner" style="padding-top:0;padding-bottom:0">
+      <span class="lg"><span class="lamp"></span>FOS·RAG</span>
+      <nav class="nv"><a href="/kb/ask/">检索</a><a href="/kb/manage/">手册</a><a href="/dashboard/">日志</a></nav>
+      <span class="sp"></span><span class="au">OP: {{ user.username|default:"GUEST" }}{% if user.is_authenticated %} · <a href="/accounts/logout/">LOGOUT</a>{% endif %}{% if not user.is_authenticated %} · <a href="/accounts/login/">LOGIN</a>{% endif %}</span>
+    </div>
+    <div class="inner">
+      <div class="grid2">
+        <div>
+          <div class="ey">// SYSTEM ONLINE · RAG READY</div>
+          <h2 class="h2">维护手册<span class="d">·</span>智能检索</h2>
+          <div class="sub">UNIT-01 · KB: 3 · DOCS: 74 · STATUS: <span style="color:var(--accent)">NOMINAL</span></div>
+          <p class="lede">向手册知识库提问，得到逐字流式、可追溯的回答。仪表实时显示检索与索引状态。</p>
+          <div class="row"><a class="btn btn-p" href="/kb/ask/">开始检索 →</a><a class="btn btn-o" href="/kb/manage/">管理手册</a></div>
+        </div>
+        <div class="panel">
+          <div class="ph"><span>实时读数 · LIVE</span><span class="ch">● ONLINE</span></div>
+          <div class="gauges">
+            <div class="g"><div class="gv">120</div><div class="gk">N·m</div></div>
+            <div class="g"><div class="gv">7.2</div><div class="gk">MPa</div></div>
+            <div class="g"><div class="gv">486</div><div class="gk">小时</div></div>
+          </div>
+          <p class="cardq">Q · 制动钳螺栓复检扭矩？</p>
+          <p class="carda">M16 复检扭矩 <strong>120 N·m</strong>；距下次复检 <strong>14 h</strong>。</p>
+          <p class="cite">▸ REF · brake-manual.pdf · P.42</p>
+        </div>
+      </div>
+      <div class="features">
+        <div class="feat"><div class="n"><span class="lamp"></span>01 · UPLOAD</div><h3>上传手册</h3><p>拖入 PDF / 图纸。</p></div>
+        <div class="feat"><div class="n"><span class="lamp" style="background:var(--accent2);box-shadow:0 0 8px var(--accent2)"></span>02 · INDEX</div><h3>解析索引</h3><p>OCR + 分块 + 向量化。</p></div>
+        <div class="feat"><div class="n"><span class="lamp" style="background:var(--warn);box-shadow:0 0 8px var(--warn)"></span>03 · STREAM</div><h3>流式问答</h3><p>逐字返回带出处回答。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════
+     5 — PARTS CATALOG
+     ════════════════════════════════════════════════════════════ -->
+<section class="specimen s5" id="s5">
+  <div class="spec-tag"><span class="num">5</span>零件目录 · Parts Catalog<span class="pick">爆炸图引线气泡 · 零件号表 · 技术参考</span></div>
+  <div>
+    <div class="bar inner" style="padding-top:0;padding-bottom:0">
+      <span class="lg">FOS<span class="d">·</span>RAG</span><span class="id">CAT 2024 · REV B</span>
+      <nav class="nv"><a href="/kb/ask/">检索</a><a href="/kb/manage/">手册</a><a href="/dashboard/">日志</a></nav>
+      <span class="sp"></span><span class="au">{{ user.username|default:"GUEST" }}{% if user.is_authenticated %} · <a href="/accounts/logout/">退出</a>{% endif %}{% if not user.is_authenticated %} · <a href="/accounts/login/">登录</a>{% endif %}</span>
+    </div>
+    <div class="inner">
+      <div class="grid2">
+        <div>
+          <div class="ey">— SECTION 04 · 制动系统 —</div>
+          <h2 class="h2">维护手册<span class="d">·</span>智能检索</h2>
+          <p class="lede">将手册、图纸与零件清单入库，自然语言检索零件号、扭矩与更换标准。每个回答附出处页与零件号。</p>
+          <div class="row"><a class="btn btn-p" href="/kb/ask/">开始检索 →</a><a class="btn btn-o" href="/kb/manage/">管理手册</a></div>
+        </div>
+        <div class="bom">
+          <div class="bh"><span>制动钳 · BILL OF MATERIALS</span><span class="pn">DWG-1042</span></div>
+          <table>
+            <tr><th>项</th><th>零件号</th><th>描述</th><th>数</th></tr>
+            <tr><td>①</td><td class="pn">BRA-M16-60</td><td class="desc">制动钳螺栓</td><td class="qty">8</td></tr>
+            <tr><td>②</td><td class="pn">SEAL-048</td><td class="desc">活塞密封圈</td><td class="qty">2</td></tr>
+            <tr><td>③</td><td class="pn">PAD-HC-12</td><td class="desc">刹车片总成</td><td class="qty">4</td></tr>
+          </table>
+          <div class="foot"><span>扭矩 120 N·m · M16</span><span>见 P.42</span></div>
+        </div>
+      </div>
+      <div class="features">
+        <div class="feat"><span class="callout">1</span><h3>上传手册</h3><p>拖入 PDF / 图纸 / BOM。</p></div>
+        <div class="feat"><span class="callout">2</span><h3>解析索引</h3><p>OCR + 分块 + 向量索引。</p></div>
+        <div class="feat"><span class="callout">3</span><h3>流式问答</h3><p>逐字返回带零件号回答。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════
+     6 — FIELD NOTEBOOK
+     ════════════════════════════════════════════════════════════ -->
+<section class="specimen s6" id="s6">
+  <div class="spec-tag"><span class="num">6</span>现场笔记 · Field Notebook<span class="pick">点阵纸 · 手写批注 · 荧光笔高亮</span></div>
+  <div>
+    <div class="bar inner" style="padding-top:0;padding-bottom:0">
+      <span class="lg">FOS<span class="d">·</span>RAG</span>
+      <nav class="nv"><a href="/kb/ask/">检索</a><a href="/kb/manage/">手册</a><a href="/dashboard/">日志</a></nav>
+      <span class="sp"></span><span class="au">{{ user.username|default:"访客" }}{% if user.is_authenticated %} · <a href="/accounts/logout/">退出</a>{% endif %}{% if not user.is_authenticated %} · <a href="/accounts/login/">登录</a>{% endif %}</span>
+    </div>
+    <div class="inner">
+      <div class="grid2">
+        <div>
+          <div class="ey">— 现场笔记 · —</div>
+          <h2 class="h2">维护手册<span class="d">·</span>智能检索</h2>
+          <div class="under">把手册装进口袋，问一句就答。</div>
+          <p class="lede">上传手册与点检表，自然语言检索扭矩、间隙、排故步骤——逐字流式，带页码出处。</p>
+          <div class="row"><a class="btn btn-p" href="/kb/ask/">开始检索 →</a><a class="btn btn-o" href="/kb/manage/">管理手册</a></div>
+        </div>
+        <div class="note">
+          <p class="cardq">制动钳螺栓复检扭矩？</p>
+          <p class="carda">M16 复检扭矩 <strong>120 N·m</strong>，对角分两次；每 500 h 复检一次。记得挂牌！🔒</p>
+          <p class="cite">— 见 制动系统手册 P.42</p>
+        </div>
+      </div>
+      <div class="features">
+        <div class="feat"><div class="n">① 上传</div><h3>上传手册</h3><p>拖入 PDF / 图纸。</p></div>
+        <div class="feat"><div class="n">② 索引</div><h3>解析向量化</h3><p>分块写入向量库。</p></div>
+        <div class="feat"><div class="n">③ 问答</div><h3>流式问答</h3><p>逐字返回带出处回答。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div style="padding:28px 20px 44px;text-align:center;font-size:13px;color:#6B6B66">
+  末端 · 六种方向展示完毕 · 告诉 ZCode 你选 1 / 2 / 3 / 4 / 5 / 6（或混搭）
+</div>
+
+</body>
+</html>

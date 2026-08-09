@@ -1,0 +1,119 @@
+{% extends "kb/_base.html" %}
+{% block title %}{{ doc.original_name }} · 文档查看{% endblock %}
+
+{% block content %}
+<div class="doc-viewer-head">
+  <a class="btn sm outline" href="/kb/manage/{{ doc.kb.slug }}/">← 返回管理</a>
+  <span class="dv-title" title="{{ doc.original_name }}">{{ doc.original_name }}</span>
+  <span class="dv-meta">{{ doc.kb.name }}</span>
+</div>
+
+{% if html_body %}
+<div class="doc-viewer" id="docViewer">{{ html_body|safe }}</div>
+{% else %}
+<div class="fos-tag" style="margin-top:18px">
+  <div class="th warn">⚠ 暂无内容 NOTICE<span class="stamp">空</span></div>
+  <div class="tb"><p style="font-size:13px">该文档尚未生成可查看的正文（可能仍在 OCR 处理中）。</p></div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* 来源出处批量高亮：根据 ?h= 携带的多个文本片段，在正文里逐个做
+   去空白后的子串匹配，命中的片段包一层 <mark class="cite-hit">，
+   滚动到首个命中处。单个片段太长匹配不到时，渐进缩短再试。 */
+(function(){
+  var targets = {{ highlights_json|safe }} || [];
+  // 过滤太短的（避免误高亮）
+  targets = targets.filter(function(t){ return t && t.length >= 3; });
+  if (!targets.length) return;
+
+  function norm(s){ return (s||'').replace(/\s+/g,'').toLowerCase(); }
+  var needles = targets.map(norm).filter(function(n){ return n.length >= 3; });
+  if (!needles.length) return;
+
+  var root = document.querySelector('.doc-viewer');
+  if (!root) return;
+
+  // 把单个文本节点里命中的区间包成 <mark>，返回是否命中
+  function highlightInNode(tn, needle){
+    var raw = tn.nodeValue;
+    var nrm = norm(raw);
+    var idx = nrm.indexOf(needle);
+    if (idx < 0) return null;
+    // 归一化区间映射回原文下标（norm 去掉了空白）
+    var ri, ni = 0, startR = -1, endR = -1;
+    for (ri = 0; ri < raw.length && ni < nrm.length; ri++){
+      if (/\s/.test(raw[ri])) continue;
+      if (ni === idx) startR = ri;
+      if (ni === idx + needle.length - 1){ endR = ri + 1; break; }
+      ni++;
+    }
+    if (startR < 0 || endR < 0) return null;
+    var frag = document.createDocumentFragment();
+    if (startR > 0) frag.appendChild(document.createTextNode(raw.slice(0, startR)));
+    var mark = document.createElement('mark');
+    mark.className = 'cite-hit';
+    mark.textContent = raw.slice(startR, endR);
+    frag.appendChild(mark);
+    if (endR < raw.length) frag.appendChild(document.createTextNode(raw.slice(endR)));
+    tn.parentNode.replaceChild(frag, tn);
+    return mark;
+  }
+
+  // 收集所有文本节点（跳过 script/style）
+  function collectTextNodes(node, out){
+    if (!node) return;
+    if (node.nodeType === Node.TEXT_NODE){ out.push(node); return; }
+    if (node.nodeName === 'SCRIPT' || node.nodeName === 'STYLE') return;
+    for (var i=0;i<node.childNodes.length;i++) collectTextNodes(node.childNodes[i], out);
+  }
+
+  var firstHit = null;
+  var totalHits = 0;
+  var missed = [];
+
+  needles.forEach(function(needle){
+    // 该片段的命中数
+    var hitThis = 0;
+    // 第一轮：用完整 needle 匹配
+    var nodes = [];
+    collectTextNodes(root, nodes);
+    for (var i=0;i<nodes.length;i++){
+      var m = highlightInNode(nodes[i], needle);
+      if (m){ hitThis++; if (!firstHit) firstHit = m; }
+    }
+    // 第二轮：完整未中 → 渐进缩短（12→8→6 字）再试，适配跨标签/换行的排版差异
+    if (hitThis === 0 && needle.length > 6){
+      [12, 8, 6].forEach(function(len){
+        if (hitThis > 0) return;
+        var short = needle.slice(0, len);
+        if (short.length < 3) return;
+        nodes = [];
+        collectTextNodes(root, nodes);
+        for (var j=0;j<nodes.length;j++){
+          var m2 = highlightInNode(nodes[j], short);
+          if (m2){ hitThis++; if (!firstHit) firstHit = m2; }
+        }
+      });
+    }
+    if (hitThis === 0) missed.push(needle);
+    totalHits += hitThis;
+  });
+
+  if (totalHits > 0 && firstHit){
+    firstHit.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+  if (missed.length){
+    // 部分片段未定位：非阻断提示
+    var t = document.createElement('div');
+    t.className = 'toast toast-err show';
+    t.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%)';
+    t.textContent = missed.length + ' 个片段未在文档中精确定位（可能被改写）';
+    document.body.appendChild(t);
+    setTimeout(function(){ t.classList.remove('show'); setTimeout(function(){ t.remove(); }, 300); }, 3500);
+  }
+})();
+</script>
+{% endblock %}

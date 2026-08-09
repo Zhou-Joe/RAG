@@ -1,0 +1,212 @@
+{% extends "kb/_base.html" %}
+{% block title %}{{ kb.name }} · 知识库管理{% endblock %}
+{% block content %}
+<a class="btn sm outline" href="/kb/manage/">← 返回列表</a>
+<h1>{{ kb.name }}</h1>
+<p class="fos-sub">{{ kb.description|default:"（无描述）" }}
+  · 文档 <span id="kbDocCount">{{ docs_total }}</span>
+  · 向量块 <span id="kbChunkCount">{{ chunks_total }}</span></p>
+
+{% if messages %}
+<div class="msgs">
+  {% for m in messages %}<div class="msg-{{ m.tags }}">{{ m }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<h2 style="font-family:var(--fd);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px">上传文档</h2>
+<div class="upload-area">
+  <form method="post" enctype="multipart/form-data" id="uploadForm">
+    {% csrf_token %}
+    <label class="upload-label" for="fileInput">点击选择文件（PDF / Markdown / TXT）</label>
+    <input type="file" name="file" id="fileInput" accept=".pdf,.md,.markdown,.txt">
+    <div id="fileName" style="margin-top:8px;font-size:12px;color:var(--dim)"></div>
+    <button class="btn primary" type="submit" id="uploadBtn" style="margin-top:10px;display:none">开始上传</button>
+  </form>
+</div>
+
+<h2 style="font-family:var(--fd);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.04em;margin:20px 0 10px">文档列表</h2>
+<div class="doc-list" id="docList">
+  {% for doc in docs %}
+  <div class="doc-item" data-doc-id="{{ doc.id }}" data-status="{{ doc.status }}">
+    <div style="flex:1">
+      <div class="doc-name">{{ doc.original_name }}</div>
+      <div class="doc-detail" data-detail>
+        {% if doc.status == 'completed' %}
+          <span class="doc-badge badge-completed">✓ 已完成</span> · {{ doc.chunk_count }} 个片段
+        {% elif doc.status == 'failed' %}
+          <span class="doc-badge badge-failed">✗ 失败</span> {{ doc.error_msg|truncatechars:80 }}
+        {% elif doc.status == 'pending' %}
+          <span class="doc-badge badge-pending">⏳ 待处理</span>
+        {% else %}
+          <span class="spinner"></span> {{ doc.stage_detail|default:doc.get_status_display }}
+        {% endif %}
+      </div>
+      {% if doc.status != 'completed' and doc.status != 'failed' %}
+      <div class="progress-bar"><div class="progress-fill" style="width:
+        {% if doc.status == 'pending' %}0%{% elif doc.status == 'ocr' %}25%{% elif doc.status == 'indexing' %}75%{% else %}0%{% endif %}"></div></div>
+      {% endif %}
+    </div>
+    <button type="button" class="btn sm danger doc-del-btn" title="删除此文档及其向量"
+            data-doc-id="{{ doc.id }}" data-name="{{ doc.original_name }}">删除</button>
+  </div>
+  {% empty %}
+  <div class="empty">还没有文档，上传第一份吧。</div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const KB_SLUG = '{{ kb.slug }}';
+const fileInput = document.getElementById('fileInput');
+const fileName = document.getElementById('fileName');
+const uploadBtn = document.getElementById('uploadBtn');
+const docList = document.getElementById('docList');
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) {
+    fileName.textContent = '已选：' + fileInput.files[0].name;
+    uploadBtn.style.display = 'inline-flex';
+  }
+});
+
+/* ---------- 无刷新删除文档（AJAX） ---------- */
+// 从 cookie 取 CSRF token（Django 默认 csrftoken cookie 对 JS 可见）
+function getCSRFToken(){
+  const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+// 更新顶部 KB 统计
+function updateKbStats(docCount, chunkCount){
+  const dc = document.getElementById('kbDocCount');
+  const cc = document.getElementById('kbChunkCount');
+  if (dc) dc.textContent = docCount;
+  if (cc) cc.textContent = chunkCount;
+}
+
+// 列表空了 → 显示空态
+function ensureEmptyState(){
+  if (!docList.querySelector('.doc-item')) {
+    let empty = docList.querySelector('.empty');
+    if (!empty) {
+      empty = document.createElement('div');
+      empty.className = 'empty'; empty.textContent = '还没有文档，上传第一份吧。';
+      docList.appendChild(empty);
+    }
+  }
+}
+
+async function deleteDoc(btn){
+  const docId = btn.dataset.docId;
+  const name = btn.dataset.name || '该文档';
+  if (!confirm('确定删除文档「' + name + '」？\n将同时删除其向量索引，且不可恢复。')) return;
+  btn.disabled = true;
+  const oldText = btn.textContent;
+  btn.textContent = '删除中…';
+  try {
+    const resp = await fetch(`/kb/manage/${KB_SLUG}/doc/${docId}/delete/`, {
+      method: 'POST',
+      headers: {
+        'X-CSRFToken': getCSRFToken(),
+        'X-Requested-With': 'XMLHttpRequest',  // 告知后端走 AJAX（返回 JSON）
+      },
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    // 实时移除该行
+    const row = btn.closest('.doc-item');
+    if (row) row.remove();
+    // 实时更新统计
+    updateKbStats(data.doc_count, data.chunk_count);
+    ensureEmptyState();
+  } catch(err) {
+    btn.disabled = false;
+    btn.textContent = oldText;
+    alert('删除失败：' + (err.message || err));
+  }
+}
+
+function bindDelete(btn){
+  if (btn.dataset.bound) return;
+  btn.dataset.bound = '1';
+  btn.addEventListener('click', () => deleteDoc(btn));
+}
+// 绑定页面已渲染的删除按钮
+document.querySelectorAll('.doc-del-btn').forEach(bindDelete);
+
+// 状态图标
+const STATUS_ICON = {completed:'✓',failed:'✗',pending:'⏳',ocr:'🔍',indexing:'🔢'};
+
+// 渲染单行文档
+function renderDocRow(d) {
+  let row = document.querySelector(`[data-doc-id="${d.id}"]`);
+  const isNew = !row;
+  if (isNew) {
+    row = document.createElement('div');
+    row.className = 'doc-item';
+    row.dataset.docId = d.id;
+    row.innerHTML = '<div style="flex:1"><div class="doc-name"></div><div class="doc-detail"></div></div>';
+    // 新建行也带上删除按钮（与后端渲染行一致）
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'btn sm danger doc-del-btn'; btn.title = '删除此文档及其向量';
+    btn.dataset.docId = d.id; btn.dataset.name = d.name; btn.textContent = '删除';
+    row.appendChild(btn);
+    bindDelete(btn);
+    // 插到列表最前面
+    if (docList.firstChild) docList.insertBefore(row, docList.firstChild);
+    else docList.appendChild(row);
+  }
+  row.dataset.status = d.status;
+  const nameEl = row.querySelector('.doc-name');
+  nameEl.textContent = '📄 ' + d.name;
+  const detailEl = row.querySelector('[data-detail]') || row.querySelector('.doc-detail');
+
+  // 清空并重建
+  let inner = row.querySelector('div[style="flex:1"]');
+  let html = `<div class="doc-name">${d.name}</div>`;
+
+  if (d.status === 'completed') {
+    html += `<div class="doc-detail"><span class="doc-badge badge-completed">✓ 已完成</span> · ${d.chunk_count} 个片段</div>`;
+  } else if (d.status === 'failed') {
+    html += `<div class="doc-detail"><span class="doc-badge badge-failed">✗ 失败</span> ${d.error || '处理失败'}</div>`;
+    html += `<div class="progress-bar"><div class="progress-fill err" style="width:100%"></div></div>`;
+  } else {
+    const icon = d.status === 'pending' ? '<span class="doc-badge badge-pending">⏳ 待处理</span>' : '<span class="spinner"></span>';
+    const text = d.stage_detail || d.status_display || '处理中…';
+    html += `<div class="doc-detail">${icon} ${d.status !== 'pending' ? text : ''}</div>`;
+    html += `<div class="progress-bar"><div class="progress-fill" style="width:${d.progress}%"></div></div>`;
+  }
+  inner.innerHTML = html;
+}
+
+// 轮询
+async function poll() {
+  try {
+    const resp = await fetch(`/kb/manage/${KB_SLUG}/status/`);
+    const data = await resp.json();
+    // 更新每行
+    data.docs.forEach(renderDocRow);
+    // 更新 KB 统计
+    const dc = document.getElementById('kbDocCount');
+    const cc = document.getElementById('kbChunkCount');
+    if (dc) dc.textContent = data.doc_count;
+    if (cc) cc.textContent = data.chunk_count;
+    // 还有处理中的 → 继续轮询
+    const stillProcessing = data.docs.some(d => ['pending','ocr','indexing'].includes(d.status));
+    if (stillProcessing) setTimeout(poll, 2000);
+  } catch(e) {
+    setTimeout(poll, 5000);
+  }
+}
+
+// 页面加载时检查是否有处理中的文档
+const hasProcessing = document.querySelectorAll('[data-status="pending"],[data-status="ocr"],[data-status="indexing"]').length > 0;
+if (hasProcessing) setTimeout(poll, 2000);
+
+// 上传后也立即开始轮询（捕捉新文档）
+document.getElementById('uploadForm').addEventListener('submit', () => {
+  setTimeout(poll, 1500);
+});
+</script>
+{% endblock %}

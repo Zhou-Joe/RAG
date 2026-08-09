@@ -1,0 +1,124 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FOS·RAG — 游乐设施维护手册 · 智能检索</title>
+<meta name="description" content="游乐设施维护手册的检索增强问答系统。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/fos.css' %}">
+<style>
+  /* Landing-specific layout (uses shared tokens from fos.css) */
+  .home-hero{padding:14px 0 36px}
+  .home-hero-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(24px,4vw,46px);align-items:center}
+  .home-cta{display:flex;gap:12px;flex-wrap:wrap}
+  .home-stamp{margin-top:18px}
+  .home-checklist{margin-top:0}
+  .home-sample{margin-top:36px}
+  .home-sample .ct{font-family:var(--fd);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--danger);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .home-sample .ct .pip{width:8px;height:8px;background:var(--warn)}
+  .home-carda strong{background:var(--warn-soft);padding:0 2px}
+  .home-cite{font-family:var(--fm);font-size:10px;color:var(--mute);margin-top:10px;border-top:1px dashed var(--rule-soft);padding-top:8px}
+  .home-foot-row{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:22px}
+  @media (max-width:840px){.home-hero-grid{grid-template-columns:1fr;gap:30px}}
+</style>
+</head>
+<body>
+
+<div class="fos-topbar" style="position:relative">
+  <span class="lock">🔒</span>
+  <span class="brand">FOS<span class="dot">·</span>RAG</span>
+  <nav id="nav" aria-label="主导航">
+    <a href="/kb/manage/">手册</a>
+    <a href="/kb/ask/">检索</a>
+    <a href="/dashboard/">日志</a>
+  </nav>
+  <span class="sp"></span>
+  <span class="auth">
+    {% if user.is_authenticated %}
+      <span class="who">{{ user.username }}</span>
+      <a href="/accounts/logout/">退出</a>
+    {% else %}
+      <a href="/accounts/login/">登录</a>
+    {% endif %}
+  </span>
+  <button class="fos-nav-toggle" id="navToggle" aria-label="菜单" aria-expanded="false">☰</button>
+</div>
+
+<div class="fos-container">
+
+  <!-- HERO -->
+  <section class="home-hero">
+    <div class="home-hero-grid">
+      <div>
+        <div class="fos-eyebrow">▸ LOTO · 检索增强问答 · 维护技术文档</div>
+        <h1 class="fos-hero-title">游乐设施<br>维护手册<span class="dot">·</span>智能检索</h1>
+        <p class="fos-lede">上传设备手册、图纸与点检表，系统自动解析、分块、向量化；随后用自然语言向手册知识库提问，得到逐字流式、带页码出处的回答——扭矩、间隙、锁源（LOTO）、排故步骤，一问即答。</p>
+        <div class="home-cta">
+          <a class="btn primary" href="/kb/ask/">开始检索 →</a>
+          <a class="btn outline" href="/kb/manage/">管理手册 →</a>
+        </div>
+        <div class="home-stamp"><span class="fos-stamp">✓ 系统就绪</span></div>
+      </div>
+
+      <!-- sample answer tag card -->
+      <aside class="fos-tag" aria-label="样本检索结果">
+        <div class="th ok">✓ 答复 OK<span class="stamp">SAMPLE</span></div>
+        <div class="tb">
+          <p class="cardq" style="font-family:var(--fm);font-size:12px;color:var(--mute);margin-bottom:8px">问 · 过山车制动钳螺栓复检扭矩是多少？</p>
+          <p class="home-carda">M16 制动钳固定螺栓，复检扭矩 <strong>120 N·m</strong>，用扭矩扳手按对角顺序分两次拧紧；每 <strong>500 运行小时</strong>或季度检修时复检一次。</p>
+          <p class="home-cite">出处 · 制动系统维护手册 P.42 · 锁源 LOTO-03</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS — checklist (real sequence) -->
+  <section class="fos-section">
+    <div class="fos-eyebrow">▸ 工作原理</div>
+    <h2 style="font-family:var(--fd);font-weight:800;font-size:22px;text-transform:uppercase;margin-bottom:18px">三步，从手册到可问答的知识库</h2>
+    <div class="fos-checklist home-checklist">
+      <div class="feat">
+        <span class="ck done">✓</span>
+        <h3>上传手册</h3>
+        <p>拖入 PDF / 图纸 / 点检表，按设备或机型归档。</p>
+      </div>
+      <div class="feat">
+        <span class="ck done">✓</span>
+        <h3>解析向量化</h3>
+        <p>OCR 把扫描件转为 Markdown，分块并生成向量索引。</p>
+      </div>
+      <div class="feat">
+        <span class="ck" style="border-style:dashed"></span>
+        <h3>流式问答</h3>
+        <p>检索相关片段交给大模型，逐字返回带页码出处的回答。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- SAMPLE QA with a DANGER tag (honest safety caveat) -->
+  <section class="home-sample fos-section">
+    <div class="fos-tag">
+      <div class="th danger">⚠ 注意 DANGER<span class="stamp">作业前</span></div>
+      <div class="tb">
+        <p style="font-size:14px;line-height:1.65">检索结果供参考，作业前务必核对原始手册并执行断电挂牌（LOTO）程序，核实设备处于零能量状态。</p>
+        <div class="home-foot-row">
+          <a class="btn sm primary" href="/kb/ask/">进入检索</a>
+          <a class="btn sm outline" href="/dashboard/">运行日志</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer class="fos-footer">FOS·RAG · 游乐设施维护手册检索增强问答 · Inspection Tag 方向</footer>
+
+<script>
+(function(){var t=document.getElementById('navToggle'),n=document.getElementById('nav');if(!t||!n)return;t.addEventListener('click',function(){var o=n.classList.toggle('open');t.setAttribute('aria-expanded',o?'true':'false');});})();
+</script>
+</body>
+</html>

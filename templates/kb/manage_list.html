@@ -1,0 +1,122 @@
+{% extends "kb/_base.html" %}
+{% block title %}手册管理 · FOS_RAG{% endblock %}
+{% block content %}
+<h1>手册管理</h1>
+
+<div class="actions">
+  <button class="btn primary" onclick="document.getElementById('createForm').style.display='block'">＋ 新建手册库</button>
+  <a class="btn outline" href="/kb/ask/">去检索</a>
+</div>
+
+<div id="createForm" style="display:none;margin-bottom:20px;">
+  <form method="post" class="card">
+    {% csrf_token %}
+    <div class="field"><label>名称</label><input name="name" required placeholder="如：过山车维护手册" autofocus></div>
+    <button class="btn primary" type="submit">创建</button>
+  </form>
+</div>
+
+{% if messages %}
+<div class="msgs">
+  {% for m in messages %}<div class="msg-{{ m.tags }}">{{ m }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<div class="kb-grid">
+  {% for kb in kbs %}
+  <div class="kb-card" data-slug="{{ kb.slug }}">
+    <div class="pbody">
+      <div class="kb-name" data-name>{{ kb.name }}</div>
+      {% with counts=kb.aggregate_counts %}
+      <div class="kb-stats">
+        <span class="stat"><span class="v">{{ counts.0 }}</span><span class="k">文档</span></span>
+        <span class="stat"><span class="v">{{ counts.1 }}</span><span class="k">向量块</span></span>
+      </div>
+      {% endwith %}
+      <div class="kb-rename" data-rename hidden>
+        <div class="field"><label>名称</label>
+          <input type="text" data-rn-name value="{{ kb.name }}"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn sm primary" type="button" data-rn-save>保存</button>
+          <button class="btn sm outline" type="button" data-rn-cancel>取消</button>
+        </div>
+      </div>
+      <div class="kb-actions" data-actions>
+        <a class="btn sm" href="/kb/manage/{{ kb.slug }}/">管理</a>
+        <a class="btn sm outline" href="/kb/ask/?kb={{ kb.slug }}">检索</a>
+        <button class="btn sm" type="button" data-rn-toggle>改名</button>
+        <form method="post" action="/kb/manage/{{ kb.slug }}/delete/" style="display:inline"
+              onsubmit="return confirm('确定删除「{{ kb.name }}」？\n{{ kb.aggregate_counts.0 }} 份文档及所有向量数据将丢失。')">
+          {% csrf_token %}
+          <button class="btn sm danger" type="submit">删除</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="empty">还没有手册库，点击「新建手册库」创建第一个。</div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* 就地改名（AJAX，无刷新） */
+function getCSRFToken(){
+  const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+document.querySelectorAll('.kb-card').forEach(card => {
+  const slug = card.dataset.slug;
+  const toggleBtn = card.querySelector('[data-rn-toggle]');
+  const panel = card.querySelector('[data-rename]');
+  const actions = card.querySelector('[data-actions]');
+  const nameInput = card.querySelector('[data-rn-name]');
+  const saveBtn = card.querySelector('[data-rn-save]');
+  const cancelBtn = card.querySelector('[data-rn-cancel]');
+  const nameEl = card.querySelector('[data-name]');
+  if (!toggleBtn) return;
+
+  let origName = nameInput.value;
+
+  toggleBtn.addEventListener('click', () => {
+    origName = nameInput.value;
+    panel.hidden = false;
+    actions.hidden = true;
+    nameInput.focus();
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    nameInput.value = origName;
+    panel.hidden = true; actions.hidden = false;
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    const name = nameInput.value.trim();
+    if (!name) { alert('名称不能为空'); nameInput.focus(); return; }
+    saveBtn.disabled = true; const old = saveBtn.textContent; saveBtn.textContent = '保存中…';
+    try {
+      const fd = new FormData();
+      fd.set('name', name);
+      fd.set('csrfmiddlewaretoken', getCSRFToken());
+      const resp = await fetch('/kb/manage/' + encodeURIComponent(slug) + '/rename/', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: fd,
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.message || '保存失败');
+      nameEl.textContent = data.name;
+      nameInput.value = data.name;
+      panel.hidden = true; actions.hidden = false;
+    } catch (e) {
+      alert('改名失败：' + (e.message || e));
+    } finally {
+      saveBtn.disabled = false; saveBtn.textContent = old;
+    }
+  });
+});
+</script>
+{% endblock %}

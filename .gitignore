@@ -1,0 +1,33 @@
+# ── 敏感配置 / 密钥（绝不进仓库）──
+.env
+.env.*
+!.env.example
+
+# ── 运行时数据 ──
+db.sqlite3
+db.sqlite3-journal
+data/
+media/
+logs/
+*.sqlite3
+
+# ── 真实文档（客户机密，不上传）──
+pdf files/
+
+# ── IDE 内部文件 ──
+.zcode/
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# ── 编辑器 / 系统 ──
+.vscode/
+.idea/
+.DS_Store
+*.swp

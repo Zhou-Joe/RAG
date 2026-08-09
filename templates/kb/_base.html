@@ -1,0 +1,51 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}FOS_RAG{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/fos.css' %}">
+<style>
+  /* Back-compat aliases so existing child templates keep working.
+     Child pages use the old variable names; we map them to the new tokens. */
+  :root{
+    --bg:var(--paper);--panel:var(--paper);--card:var(--surface);--elev:var(--surface);
+    --border:var(--rule-soft);--border-hi:var(--rule);
+    --text:var(--text);--dim:var(--dim);--mute:var(--mute);
+    --accent:var(--danger);--accent2:var(--warn);--soft:var(--accent-soft);
+    --green:var(--ok);--red:var(--danger);--amber:var(--warn);
+  }
+  h1{font-family:var(--fd);font-weight:800;font-size:22px;text-transform:uppercase;letter-spacing:-.01em;margin-bottom:16px}
+</style>
+</head>
+<body>
+<div class="fos-topbar" style="position:relative">
+  <span class="lock">🔒</span>
+  <a class="brand" href="/">FOS<span class="dot">·</span>RAG</a>
+  <nav id="nav" aria-label="主导航">
+    <a href="/kb/manage/">手册</a>
+    <a href="/kb/ask/">检索</a>
+    <a href="/dashboard/">日志</a>
+    {% if user.is_staff %}<a href="/kb/settings/">设置</a><a href="/admin/">后台</a>{% endif %}
+  </nav>
+  <span class="sp"></span>
+  <span class="auth">
+    <span class="who">{{ user.username }}</span>
+    {% if user.is_authenticated %}<a href="/accounts/logout/">退出</a>{% else %}<a href="/accounts/login/">登录</a>{% endif %}
+  </span>
+  <button class="fos-nav-toggle" id="navToggle" aria-label="菜单" aria-expanded="false">☰</button>
+</div>
+<div class="fos-container">
+  {% block content %}{% endblock %}
+</div>
+{% block scripts %}{% endblock %}
+<script>
+// mobile nav toggle
+(function(){var t=document.getElementById('navToggle'),n=document.getElementById('nav');if(!t||!n)return;t.addEventListener('click',function(){var o=n.classList.toggle('open');t.setAttribute('aria-expanded',o?'true':'false');});})();
+</script>
+</body>
+</html>
