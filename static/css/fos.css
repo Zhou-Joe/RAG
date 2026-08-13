@@ -134,6 +134,7 @@ a{color:inherit;text-decoration:none}
 /* ── Document list ── */
 .doc-list{margin-top:14px}
 .doc-item{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--rule-soft)}
+.doc-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0}
 .doc-del-form{display:inline;margin-left:auto;flex-shrink:0}
 .doc-name{flex:1;font-size:13px;font-weight:500}
 .doc-detail{font-family:var(--fm);font-size:12px;color:var(--dim);margin-top:3px;display:flex;align-items:center;gap:6px}
@@ -356,6 +357,54 @@ a{color:inherit;text-decoration:none}
   .fos-checklist .feat{border-left:0!important;border-top:1px solid var(--rule-soft);padding:16px 0!important}
   .fos-checklist .feat:first-child{border-top:0}
   .stat-cards{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ── 配置卡片：当前命中预设徽标 + 命中行高亮 ── */
+.cfg-active-tag{display:inline-flex;align-items:center;gap:5px;font-family:var(--fd);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.03em;padding:4px 11px;border-radius:5px;border:2px solid;margin-bottom:12px}
+.cfg-active-tag.match{background:var(--ok-soft);color:var(--ok);border-color:var(--ok)}
+.cfg-active-tag.custom{background:var(--warn-soft);color:#8a6300;border-color:var(--warn)}
+.cfg-active-tag .at-name{font-weight:800;letter-spacing:.02em;text-transform:none}
+.preset-item{display:flex;align-items:center;gap:8px;padding:9px 8px;border-bottom:1px solid var(--rule-soft);flex-wrap:wrap}
+.preset-item.active{background:var(--ok-soft);border-left:3px solid var(--ok);padding-left:8px;border-radius:0 5px 5px 0}
+.preset-item.active .preset-active-stamp{display:inline-flex;align-items:center;font-family:var(--fd);font-weight:800;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#fff;background:var(--ok);padding:2px 7px;border-radius:3px}
+.preset-active-stamp{display:none}
+.preset-item .preset-item-name{font-weight:600;font-size:13px;color:var(--text)}
+.preset-item .preset-item-time{font-family:var(--fm);font-size:10px;color:var(--mute);margin-right:auto}
+.preset-actions{display:flex;gap:6px}
+.preset-empty{padding:14px 4px;color:var(--mute);font-size:12px;font-family:var(--fm)}
+.cfg-new-btn{font-family:var(--fd);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:6px 13px;border-radius:5px;border:2px solid var(--rule);background:var(--ok);color:#fff;cursor:pointer;transition:background .15s}
+.cfg-new-btn:hover{background:#246436;border-color:#246436}
+
+/* ── 模态框 ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(36,31,24,.55);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:1000;overflow:auto}
+.modal-overlay[hidden]{display:none}
+.modal-dialog{background:var(--paper);border:2px solid var(--rule);border-radius:10px;width:100%;max-width:520px;box-shadow:6px 6px 0 var(--warn)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:2px solid var(--rule);background:var(--surface);border-radius:8px 8px 0 0}
+.modal-title{font-family:var(--fd);font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.03em;color:var(--text)}
+.modal-close{background:none;border:none;font-size:18px;color:var(--mute);cursor:pointer;padding:2px 8px;border-radius:4px;line-height:1}
+.modal-close:hover{background:var(--accent-soft);color:var(--danger)}
+.modal-body{padding:16px}
+.modal-body .field{margin-bottom:12px}
+
+
+/* ── 配置卡片：常驻有效值摘要 + 按需展开编辑面板 ── */
+.cfg-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px;margin-bottom:4px}
+.cfg-summary .cfg-row{display:flex;align-items:center;gap:6px;padding:6px 0;border-bottom:1px dashed var(--rule-soft);font-family:var(--fm);font-size:12.5px;min-width:0}
+.cfg-summary .cfg-row:last-child,.cfg-summary .cfg-row:nth-last-child(2):nth-child(odd){border-bottom:0}
+.cfg-summary .cfg-row .ck{font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.03em;font-size:10px;white-space:nowrap;flex-shrink:0}
+.cfg-summary .cfg-row .cv{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.cfg-summary .cfg-row .cv.secret{font-family:var(--fm);color:var(--mute)}
+.cfg-summary .cfg-row .cv.secret.set{color:var(--ok);font-weight:700}
+.cfg-summary .cfg-row .cv.fallback{color:var(--mute);font-style:italic;font-weight:400}
+.cfg-edit-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0 6px;padding-top:14px;border-top:1px solid var(--rule-soft)}
+.cfg-edit-head .lbl{font-family:var(--fd);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}
+.cfg-edit-toggle{font-family:var(--fd);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:5px 13px;border-radius:5px;border:2px solid var(--rule);background:var(--paper);color:var(--text);cursor:pointer;transition:background .15s,color .15s}
+.cfg-edit-toggle:hover{background:var(--text);color:var(--paper)}
+.cfg-edit-panel{max-height:0;overflow:hidden;transition:max-height .28s ease,opacity .2s ease;opacity:0}
+.cfg-edit-panel.open{max-height:900px;opacity:1;margin-top:4px}
+.cfg-edit-panel .field:first-child{margin-top:6px}
+@media (prefers-reduced-motion:reduce){
+  .cfg-edit-panel{transition:none}
 }
 
 /* ── Reduced motion ── */

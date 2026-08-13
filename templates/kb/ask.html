@@ -467,14 +467,16 @@ pd.DataFrame.to_excel = _patched_to_excel
   // 当前会话内【单次 LLM 调用】的最大输入/输出 token（取各轮最大值的最大）；
   // 用于估测本地部署模型需要开多大的上下文窗口
   let sessionMax = { in: 0, out: 0 };
+  // 页面加载即渲染 token 表格骨架（0/0），避免初始为空让人觉得功能缺失。
+  // token 用量仅在当前页面会话内累计、刷新即重置（未持久化）。
+  renderTokenUsage();
 
   function renderTokenUsage(){
     if (!convTitleEl) return;
-    const t = sessionTokens.in + sessionTokens.out;
-    if (t === 0) { convTitleEl.innerHTML = ''; return; }
+    // 即使累计为 0 也渲染表格骨架（0/0），避免刷新/切会话后表格「消失」让人以为坏了。
     // 精致小表格：累计(入/出) + 单次最大(入/出)
     convTitleEl.innerHTML =
-      '<table class="tok-tbl" title="token 用量统计">' +
+      '<table class="tok-tbl" title="token 用量统计（仅当前页面会话累计，刷新后重置）">' +
         '<thead><tr><th></th>' +
           '<th>累计</th>' +
           '<th title="本会话内单次 LLM 调用的最大值。本地部署模型时，上下文窗口建议 ≥ 单次最大入 × 1.5~2">单次最大</th>' +
@@ -497,7 +499,7 @@ pd.DataFrame.to_excel = _patched_to_excel
     currentThreadId = genThreadId();   // 预生成；服务端 get_or_create 时落地
     sessionTokens = { in: 0, out: 0 };
     sessionMax = { in: 0, out: 0 };
-    if (convTitleEl) convTitleEl.textContent = '新对话';
+    renderTokenUsage();
     messages.innerHTML = '<div class="msg ai"><div class="bubble"><div class="answer">新对话已开始，输入你的问题。</div></div></div>';
     // 取消侧边栏高亮
     document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
@@ -562,13 +564,13 @@ pd.DataFrame.to_excel = _patched_to_excel
       sessionMax = { in: 0, out: 0 };
       document.querySelectorAll('.conv-item').forEach(x => x.classList.remove('active'));
       el.classList.add('active');
-      if (convTitleEl) convTitleEl.textContent = el.dataset.title || '';
+      renderTokenUsage();
       // 拉取历史消息
       try {
         const r = await fetch('/kb/conv/' + encodeURIComponent(thread) + '/messages/');
         const data = await r.json();
         if (data.kb_slug) { /* no dropdown anymore; agent picks KB automatically */ }
-        if (convTitleEl) convTitleEl.textContent = data.title || '';
+        renderTokenUsage();
         messages.innerHTML = '';
         (data.messages || []).forEach(m => {
           const div = document.createElement('div');

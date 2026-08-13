@@ -153,11 +153,19 @@ class SiteConfig(models.Model):
         return {f: getattr(self, f) for f in fl}
 
     def apply(self, data: dict, fields: list[str] | None = None) -> None:
-        """从 dict 批量写入指定字段（默认全部）（用于从预设加载）。"""
+        """从 dict 批量写入指定字段（默认全部）（用于从预设加载）。
+
+        数值字段收到空串时规范化为 None，避免把 "" 写进 FloatField/IntegerField
+        导致保存时报 'expected a number but got ""'。
+        """
         fl = fields or [f for f, _t in _SITECONFIG_FIELDS]
+        num_fields = {f for f, t in _SITECONFIG_FIELDS if t in ("int", "float")}
         for f in fl:
             if f in data:
-                setattr(self, f, data[f])
+                val = data[f]
+                if f in num_fields and (val == "" or val is None):
+                    val = None
+                setattr(self, f, val)
 
 
 # SiteConfig 的 (字段名, 类型) 列表，供 snapshot/apply 与预设共用

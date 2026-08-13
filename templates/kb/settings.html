@@ -2,7 +2,7 @@
 {% block title %}站点配置 · FOS_RAG{% endblock %}
 {% block content %}
 <h1>站点配置</h1>
-<p class="fos-sub">编辑 LLM / 向量化 / 检索 / OCR 服务参数。空字段自动回退到 .env 默认值；保存后下一次请求即生效，无需重启。</p>
+<p class="fos-sub">管理各服务的预设配置。点「新建配置」创建预设并填写参数；预设列表里点「加载」切换当前生效配置、点「修改」改预设参数。空字段自动回退到 .env 默认值。</p>
 
 {% if messages %}
 <div class="msgs">
@@ -10,110 +10,10 @@
 </div>
 {% endif %}
 
-<form method="post" id="cfgForm">
 {% csrf_token %}
 
-  <!-- LLM -->
-  <div class="fos-tag" style="margin-bottom:18px">
-    <div class="th danger">⚠ LLM 大模型配置<span class="stamp">问答核心</span></div>
-    <div class="tb">
-      <div class="field"><label>Base URL</label><input name="llm_base_url" value="{{ eff.llm.base_url }}" placeholder="{{ placeholders.LLM_BASE_URL }}"></div>
-      <div class="field"><label>API Key</label><input name="llm_api_key" type="password" value="{{ eff.llm.api_key }}" placeholder="{{ placeholders.LLM_API_KEY }} (留空用 .env)"></div>
-      <div class="field"><label>模型</label><input name="llm_model" value="{{ eff.llm.model }}" placeholder="{{ placeholders.LLM_MODEL }}"></div>
-      <div class="field"><label>温度</label><input name="llm_temperature" type="number" step="0.1" min="0" max="2" value="{{ eff.llm.temperature }}" placeholder="{{ placeholders.LLM_TEMPERATURE }}"></div>
-      <div class="preset-block">
-        <form method="post" class="preset-save-form">
-          {% csrf_token %}<input type="hidden" name="action" value="preset_save"><input type="hidden" name="category" value="llm">
-          <input name="preset_name" class="preset-name-input" placeholder="存为 LLM 预设（如 DeepSeek）…" required>
-          <button class="btn sm outline" type="submit">存为预设</button>
-        </form>
-        {% for p in presets_by_cat.llm %}
-        <div class="preset-item"><span class="preset-item-name">{{ p.name }}</span><span class="preset-item-time">{{ p.updated_at|date:"m-d H:i" }}</span>
-          <form method="post" class="preset-act">{% csrf_token %}<input type="hidden" name="action" value="preset_load"><input type="hidden" name="preset_id" value="{{ p.id }}"><button class="btn sm primary" type="submit">加载</button></form>
-          <form method="post" class="preset-act" onsubmit="return confirm('删除预设「{{ p.name }}」？')">{% csrf_token %}<input type="hidden" name="action" value="preset_delete"><input type="hidden" name="preset_id" value="{{ p.id }}"><button class="btn sm danger" type="submit">删</button></form>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-
-  <!-- Embedding -->
-  <div class="fos-tag" style="margin-bottom:18px">
-    <div class="th warn">⚠ 向量模型配置<span class="stamp">向量化</span></div>
-    <div class="tb">
-      <div style="font-family:var(--fd);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--warn);margin-bottom:10px">▸ 更改嵌入模型后，已索引文档需要重新向量化</div>
-      <div class="field"><label>Base URL</label><input name="embedding_base_url" value="{{ eff.embedding.base_url }}" placeholder="{{ placeholders.EMBEDDING_BASE_URL }}"></div>
-      <div class="field"><label>API Key</label><input name="embedding_api_key" type="password" value="{{ eff.embedding.api_key }}" placeholder="{{ placeholders.EMBEDDING_API_KEY }} (留空用 .env)"></div>
-      <div class="field"><label>模型</label><input name="embedding_model" value="{{ eff.embedding.model }}" placeholder="{{ placeholders.EMBEDDING_MODEL }}"></div>
-      <div class="field"><label>维度</label><input name="embedding_dimensions" type="number" value="{{ eff.embedding.dimensions }}" placeholder="{{ placeholders.EMBEDDING_DIMENSIONS }}"></div>
-      <div class="preset-block">
-        <form method="post" class="preset-save-form">
-          {% csrf_token %}<input type="hidden" name="action" value="preset_save"><input type="hidden" name="category" value="embedding">
-          <input name="preset_name" class="preset-name-input" placeholder="存为向量模型预设（如 SiliconFlow）…" required>
-          <button class="btn sm outline" type="submit">存为预设</button>
-        </form>
-        {% for p in presets_by_cat.embedding %}
-        <div class="preset-item"><span class="preset-item-name">{{ p.name }}</span><span class="preset-item-time">{{ p.updated_at|date:"m-d H:i" }}</span>
-          <form method="post" class="preset-act">{% csrf_token %}<input type="hidden" name="action" value="preset_load"><input type="hidden" name="preset_id" value="{{ p.id }}"><button class="btn sm primary" type="submit">加载</button></form>
-          <form method="post" class="preset-act" onsubmit="return confirm('删除预设「{{ p.name }}」？')">{% csrf_token %}<input type="hidden" name="action" value="preset_delete"><input type="hidden" name="preset_id" value="{{ p.id }}"><button class="btn sm danger" type="submit">删</button></form>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-
-  <!-- Retrieval -->
-  <div class="fos-tag" style="margin-bottom:18px">
-    <div class="th ok">✓ 检索参数<span class="stamp">分块/Top-K</span></div>
-    <div class="tb">
-      <div class="field"><label>分块大小 (chunk_size)</label><input name="kb_chunk_size" type="number" value="{{ eff.retrieval.chunk_size }}" placeholder="{{ placeholders.KB_CHUNK_SIZE }}"></div>
-      <div class="field"><label>分块重叠 (chunk_overlap)</label><input name="kb_chunk_overlap" type="number" value="{{ eff.retrieval.chunk_overlap }}" placeholder="{{ placeholders.KB_CHUNK_OVERLAP }}"></div>
-      <div class="field"><label>Top K (检索条数)</label><input name="kb_top_k" type="number" value="{{ eff.retrieval.top_k }}" placeholder="{{ placeholders.KB_TOP_K }}"></div>
-      <div class="preset-block">
-        <form method="post" class="preset-save-form">
-          {% csrf_token %}<input type="hidden" name="action" value="preset_save"><input type="hidden" name="category" value="retrieval">
-          <input name="preset_name" class="preset-name-input" placeholder="存为检索参数预设…" required>
-          <button class="btn sm outline" type="submit">存为预设</button>
-        </form>
-        {% for p in presets_by_cat.retrieval %}
-        <div class="preset-item"><span class="preset-item-name">{{ p.name }}</span><span class="preset-item-time">{{ p.updated_at|date:"m-d H:i" }}</span>
-          <form method="post" class="preset-act">{% csrf_token %}<input type="hidden" name="action" value="preset_load"><input type="hidden" name="preset_id" value="{{ p.id }}"><button class="btn sm primary" type="submit">加载</button></form>
-          <form method="post" class="preset-act" onsubmit="return confirm('删除预设「{{ p.name }}」？')">{% csrf_token %}<input type="hidden" name="action" value="preset_delete"><input type="hidden" name="preset_id" value="{{ p.id }}"><button class="btn sm danger" type="submit">删</button></form>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-
-  <!-- MinerU -->
-  <div class="fos-tag" style="margin-bottom:18px">
-    <div class="th danger">⚠ MinerU OCR 配置<span class="stamp">PDF 解析</span></div>
-    <div class="tb">
-      <div class="field"><label>API Base</label><input name="mineru_api_base" value="{{ eff.mineru.api_base }}" placeholder="{{ placeholders.MINERU_API_BASE }}"></div>
-      <div class="field"><label>API Key</label><input name="mineru_api_key" type="password" value="{{ eff.mineru.api_key }}" placeholder="{{ placeholders.MINERU_API_KEY }} (留空用 .env)"></div>
-      <div class="field"><label>Backend</label><input name="mineru_backend" value="{{ eff.mineru.backend }}" placeholder="{{ placeholders.MINERU_BACKEND }}"></div>
-      <div class="field"><label>语言</label><input name="mineru_lang" value="{{ eff.mineru.lang }}" placeholder="{{ placeholders.MINERU_LANG }}"></div>
-      <div class="preset-block">
-        <form method="post" class="preset-save-form">
-          {% csrf_token %}<input type="hidden" name="action" value="preset_save"><input type="hidden" name="category" value="mineru">
-          <input name="preset_name" class="preset-name-input" placeholder="存为 MinerU 预设…" required>
-          <button class="btn sm outline" type="submit">存为预设</button>
-        </form>
-        {% for p in presets_by_cat.mineru %}
-        <div class="preset-item"><span class="preset-item-name">{{ p.name }}</span><span class="preset-item-time">{{ p.updated_at|date:"m-d H:i" }}</span>
-          <form method="post" class="preset-act">{% csrf_token %}<input type="hidden" name="action" value="preset_load"><input type="hidden" name="preset_id" value="{{ p.id }}"><button class="btn sm primary" type="submit">加载</button></form>
-          <form method="post" class="preset-act" onsubmit="return confirm('删除预设「{{ p.name }}」？')">{% csrf_token %}<input type="hidden" name="action" value="preset_delete"><input type="hidden" name="preset_id" value="{{ p.id }}"><button class="btn sm danger" type="submit">删</button></form>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-
-  <div class="actions">
-    <button class="btn primary" type="submit">保存配置</button>
-    <span class="fos-stamp" style="transform:none" id="saveIndicator" hidden>保存中…</span>
-  </div>
-</form>
+<!-- 各服务模块卡片（JS 按配置渲染徽标 + 摘要 + 预设列表） -->
+<div id="cfgModules"></div>
 
 <!-- 测试连接 -->
 <div class="fos-tag" style="margin-top:24px">
@@ -137,15 +37,276 @@
     <p style="font-size:13px;line-height:1.65">API 密钥以<strong>明文</strong>存储于数据库，敏感度等同于 <code>.env</code> 文件。请确保数据库访问受控，并定期轮换密钥。</p>
   </div>
 </div>
+
+<!-- 模态框：新建/修改预设时弹出 -->
+<div class="modal-overlay" id="cfgModal" hidden>
+  <div class="modal-dialog">
+    <div class="modal-head">
+      <span class="modal-title" id="modalTitle">新建配置</span>
+      <button class="modal-close" type="button" onclick="closeModal()" aria-label="关闭">✕</button>
+    </div>
+    <form id="modalForm" class="modal-body">
+      {% csrf_token %}
+      <input type="hidden" name="action" id="modalAction" value="preset_create">
+      <input type="hidden" name="category" id="modalCategory" value="">
+      <input type="hidden" name="preset_id" id="modalPresetId" value="">
+      <div class="field" id="modalNameField">
+        <label>预设名称</label>
+        <input name="preset_name" id="modalPresetName" placeholder="如 DeepSeek、SiliconFlow…" required>
+      </div>
+      <div id="modalFields"></div>
+      <div class="actions" style="margin-top:8px">
+        <button class="btn primary" type="submit" id="modalSubmit">保存</button>
+        <button class="btn outline" type="button" onclick="closeModal()">取消</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
+{{ eff|json_script:"__EFF__" }}
+{{ active_by_cat|json_script:"__ACTIVE__" }}
+{{ presets_by_cat|json_script:"__PRESETS__" }}
+{{ placeholders|json_script:"__PLACEHOLDERS__" }}
 <script>
 // CSRF token（全局复用）
-const CSRF = document.querySelector('#cfgForm [name=csrfmiddlewaretoken]').value;
-function getCookie(n){const m=document.cookie.match(new RegExp(n+'=([^;]+)'));return m?m[1]:'';}
+const CSRF = document.querySelector('[name=csrfmiddlewaretoken]').value;
+window.__EFF__ = JSON.parse(document.getElementById('__EFF__').textContent);
+window.__ACTIVE__ = JSON.parse(document.getElementById('__ACTIVE__').textContent);
+window.__PRESETS__ = JSON.parse(document.getElementById('__PRESETS__').textContent);
+const PLACEHOLDERS = JSON.parse(document.getElementById('__PLACEHOLDERS__').textContent);
 
-/* ---------- Toast 通知（无刷新反馈） ---------- */
+/* ---------- 各模块元信息：字段定义、摘要字段、预设列表 ---------- */
+// 模块顺序 + 显示信息
+const MODULES = [
+  {cat:'llm',       title:'LLM 大模型配置', headCls:'danger', stamp:'问答核心'},
+  {cat:'embedding', title:'向量模型配置',   headCls:'warn',   stamp:'向量化', warn:'▸ 更改嵌入模型后，已索引文档需要重新向量化'},
+  {cat:'retrieval', title:'检索参数',       headCls:'ok',     stamp:'分块/Top-K'},
+  {cat:'mineru',    title:'MinerU OCR 配置',headCls:'danger', stamp:'PDF 解析'},
+];
+// 编辑/摘要用的字段：(表单字段名, 显示名, 类型: text/password/int/float, placeholder 环境变量名)
+const CAT_FIELDS = {
+  llm: [['llm_base_url','Base URL','text','LLM_BASE_URL'],['llm_api_key','API Key','password','LLM_API_KEY'],['llm_model','模型','text','LLM_MODEL'],['llm_temperature','温度','float','LLM_TEMPERATURE']],
+  embedding: [['embedding_base_url','Base URL','text','EMBEDDING_BASE_URL'],['embedding_api_key','API Key','password','EMBEDDING_API_KEY'],['embedding_model','模型','text','EMBEDDING_MODEL'],['embedding_dimensions','维度','int','EMBEDDING_DIMENSIONS']],
+  retrieval: [['kb_chunk_size','分块大小','int','KB_CHUNK_SIZE'],['kb_chunk_overlap','分块重叠','int','KB_CHUNK_OVERLAP'],['kb_top_k','Top K','int','KB_TOP_K']],
+  mineru: [['mineru_api_base','API Base','text','MINERU_API_BASE'],['mineru_api_key','API Key','password','MINERU_API_KEY'],['mineru_backend','Backend','text','MINERU_BACKEND'],['mineru_lang','语言','text','MINERU_LANG']],
+};
+// 摘要展示用的 eff 短键（config.py 解析后的键名）
+const SUMMARY_KEYS = {
+  llm: [['Base URL','base_url',false],['模型','model',false],['API Key','api_key',true],['温度','temperature',false]],
+  embedding: [['Base URL','base_url',false],['模型','model',false],['API Key','api_key',true],['维度','dimensions',false]],
+  retrieval: [['分块大小','chunk_size',false],['分块重叠','chunk_overlap',false],['Top K','top_k',false]],
+  mineru: [['API Base','api_base',false],['Backend','backend',false],['语言','lang',false],['API Key','api_key',true]],
+};
+// 表单字段名 → 预设 data 里的键（一致，预设 data 用原始字段名）
+
+function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+/* ---------- 渲染摘要 ---------- */
+function renderSummary(cat){
+  const box = document.querySelector('.cfg-summary[data-cat="'+cat+'"]');
+  if (!box) return;
+  const catEff = (window.__EFF__||{})[cat] || {};
+  let html = '';
+  for (const [label, key, isSecret] of SUMMARY_KEYS[cat]){
+    const val = catEff[key];
+    let cell;
+    if (isSecret){
+      const set = val && String(val).trim() !== '';
+      cell = '<span class="cv secret'+(set?' set':'')+'">'+(set?'已配置':'未设置')+'</span>';
+    } else if (val === '' || val === null || val === undefined){
+      cell = '<span class="cv fallback">（未设置）</span>';
+    } else {
+      cell = '<span class="cv" title="'+escapeHtml(val)+'">'+escapeHtml(val)+'</span>';
+    }
+    html += '<div class="cfg-row"><span class="ck">'+label+'</span>'+cell+'</div>';
+  }
+  box.innerHTML = html;
+}
+
+/* ---------- 渲染当前命中预设徽标 + 列表行高亮 ---------- */
+function renderActiveTag(cat){
+  const tag = document.querySelector('.cfg-active-tag[data-cat="'+cat+'"]');
+  if (!tag) return;
+  const hit = (window.__ACTIVE__||{})[cat];
+  if (hit && hit.id){
+    tag.className = 'cfg-active-tag match';
+    tag.innerHTML = '✓ 当前使用：<span class="at-name">'+escapeHtml(hit.name)+'</span>';
+  } else {
+    tag.className = 'cfg-active-tag custom';
+    tag.innerHTML = '✎ 自定义（不匹配任何已存预设）';
+  }
+}
+
+/* ---------- 渲染某分类的预设列表 ---------- */
+function renderPresetList(cat){
+  const block = document.querySelector('.preset-block[data-cat="'+cat+'"]');
+  if (!block) return;
+  const presets = (window.__PRESETS__||{})[cat] || [];
+  const activeId = (window.__ACTIVE__||{})[cat] && String(window.__ACTIVE__[cat].id);
+  if (!presets.length){
+    block.innerHTML = '<div class="preset-empty">暂无预设，点上方「新建配置」创建</div>';
+    return;
+  }
+  let html = '';
+  for (const p of presets){
+    const isActive = String(p.id) === activeId;
+    html += '<div class="preset-item'+(isActive?' active':'')+'" data-pid="'+p.id+'">'
+      + '<span class="preset-item-name">'+escapeHtml(p.name)+'</span>'
+      + '<span class="preset-active-stamp">当前使用</span>'
+      + '<span class="preset-item-time">'+escapeHtml(p.updated_at)+'</span>'
+      + '<div class="preset-actions">'
+      + (isActive ? '' : '<button class="btn sm primary" type="button" onclick="loadPreset('+p.id+')">加载</button>')
+      + '<button class="btn sm outline" type="button" onclick="openEditModal(\''+cat+'\','+p.id+')">修改</button>'
+      + '<button class="btn sm danger" type="button" onclick="deletePreset('+p.id+',\''+escapeHtml(p.name).replace(/'/g,"\\'")+'\')">删</button>'
+      + '</div></div>';
+  }
+  block.innerHTML = html;
+}
+
+/* ---------- 渲染整个页面 ---------- */
+function renderAll(){
+  const host = document.getElementById('cfgModules');
+  let html = '';
+  for (const m of MODULES){
+    html += '<div class="fos-tag cfg-module" data-cat="'+m.cat+'" style="margin-bottom:18px">'
+      + '<div class="th '+m.headCls+'">'+(m.headCls==='ok'?'✓':'⚠')+' '+m.title+'<span class="stamp">'+m.stamp+'</span></div>'
+      + '<div class="tb">'
+      + (m.warn ? '<div style="font-family:var(--fd);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--warn);margin-bottom:10px">'+m.warn+'</div>' : '')
+      + '<div class="cfg-active-tag" data-cat="'+m.cat+'"></div>'
+      + '<div class="cfg-summary" data-cat="'+m.cat+'"></div>'
+      + '<div class="cfg-edit-head"><span class="lbl">预设列表</span>'
+      + '<button class="cfg-new-btn" type="button" onclick="openCreateModal(\''+m.cat+'\')">+ 新建配置</button></div>'
+      + '<div class="preset-block" data-cat="'+m.cat+'"></div>'
+      + '</div></div>';
+  }
+  host.innerHTML = html;
+  for (const m of MODULES){
+    renderSummary(m.cat);
+    renderActiveTag(m.cat);
+    renderPresetList(m.cat);
+  }
+}
+
+/* ---------- 模态框：新建 ---------- */
+function openCreateModal(cat){
+  document.getElementById('modalAction').value = 'preset_create';
+  document.getElementById('modalCategory').value = cat;
+  document.getElementById('modalPresetId').value = '';
+  document.getElementById('modalTitle').textContent = '新建配置 · '+moduleName(cat);
+  document.getElementById('modalNameField').style.display = '';
+  document.getElementById('modalPresetName').value = '';
+  document.getElementById('modalSubmit').textContent = '创建';
+  buildModalFields(cat, {});
+  showModal();
+}
+/* ---------- 模态框：修改某预设 ---------- */
+function openEditModal(cat, pid){
+  const p = ((window.__PRESETS__||{})[cat]||[]).find(x => String(x.id)===String(pid));
+  if (!p) return;
+  document.getElementById('modalAction').value = 'preset_update';
+  document.getElementById('modalCategory').value = cat;
+  document.getElementById('modalPresetId').value = pid;
+  document.getElementById('modalTitle').textContent = '修改预设 · '+escapeHtml(p.name);
+  document.getElementById('modalNameField').style.display = 'none';
+  document.getElementById('modalPresetName').value = p.name;
+  document.getElementById('modalSubmit').textContent = '保存修改';
+  buildModalFields(cat, p.data || {});
+  showModal();
+}
+function moduleName(cat){return (MODULES.find(m=>m.cat===cat)||{}).title||cat;}
+
+// 为模态框构造该分类的输入字段，用 data 预填
+function buildModalFields(cat, data){
+  const host = document.getElementById('modalFields');
+  const fields = CAT_FIELDS[cat] || [];
+  let html = '';
+  for (const [fname, label, ftype, envName] of fields){
+    const val = data[fname];
+    const ph = (PLACEHOLDERS[envName] || '') + (ftype==='password'?' (留空用 .env)':'');
+    const typeAttr = ftype==='password'?'type="password"':(ftype==='int'||ftype==='float'?'type="number"':'type="text"');
+    const stepAttr = ftype==='float'?' step="0.1"':'';
+    const valAttr = (val!==undefined && val!==null && val!=='') ? ' value="'+escapeHtml(val)+'"' : '';
+    html += '<div class="field"><label>'+label+'</label><input name="'+fname+'" '+typeAttr+stepAttr+' placeholder="'+escapeHtml(ph)+'"'+valAttr+'></div>';
+  }
+  host.innerHTML = html;
+}
+
+function showModal(){ document.getElementById('cfgModal').hidden = false; }
+function closeModal(){ document.getElementById('cfgModal').hidden = true; }
+
+/* ---------- AJAX：统一提交 ---------- */
+async function submitModal(){
+  const form = document.getElementById('modalForm');
+  const fd = new FormData(form);
+  fd.set('csrfmiddlewaretoken', CSRF);
+  const btn = document.getElementById('modalSubmit');
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = '…';
+  try {
+    const r = await fetch('/kb/settings/', {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'}});
+    const data = await r.json();
+    if (data.ok){
+      toast(data.message || '完成', true);
+      if (data.active_by_cat) window.__ACTIVE__ = data.active_by_cat;
+      if (data.eff) window.__EFF__ = data.eff;
+      // 刷新预设列表（create/update 后列表可能变化）—— 重新拉取需刷新整个 presets
+      // 后端未在响应里返回完整 presets，故刷新页面以同步。简化：仅刷新受影响分类。
+      if (data.category){ await refreshPresets(data.category); }
+      if (data.category){ renderPresetList(data.category); renderActiveTag(data.category); }
+      closeModal();
+    } else {
+      toast(data.message || '操作失败', false);
+    }
+  } catch(e){ toast('网络错误：'+e, false); }
+  finally { btn.disabled = false; btn.textContent = orig; }
+}
+
+// 拉取最新预设列表（按分类）以更新 window.__PRESETS__
+async function refreshPresets(cat){
+  try {
+    const r = await fetch('/kb/settings/presets/', {headers:{'X-Requested-With':'XMLHttpRequest'}});
+    const data = await r.json();
+    if (data.ok && data.presets_by_cat){ window.__PRESETS__ = data.presets_by_cat; }
+  } catch(e){}
+}
+
+async function loadPreset(pid){
+  const fd = new FormData();
+  fd.set('csrfmiddlewaretoken', CSRF);
+  fd.set('action','preset_load');
+  fd.set('preset_id', pid);
+  try {
+    const r = await fetch('/kb/settings/', {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'}});
+    const data = await r.json();
+    if (data.ok){
+      toast(data.message || '已加载', true);
+      if (data.active_by_cat) window.__ACTIVE__ = data.active_by_cat;
+      if (data.eff) window.__EFF__ = data.eff;
+      for (const m of MODULES){ renderActiveTag(m.cat); renderPresetList(m.cat); renderSummary(m.cat); }
+    } else { toast(data.message || '加载失败', false); }
+  } catch(e){ toast('网络错误：'+e, false); }
+}
+
+async function deletePreset(pid, name){
+  if (!confirm('删除预设「'+name+'」？')) return;
+  const fd = new FormData();
+  fd.set('csrfmiddlewaretoken', CSRF);
+  fd.set('action','preset_delete');
+  fd.set('preset_id', pid);
+  try {
+    const r = await fetch('/kb/settings/', {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'}});
+    const data = await r.json();
+    if (data.ok){
+      toast(data.message || '已删除', true);
+      if (data.active_by_cat) window.__ACTIVE__ = data.active_by_cat;
+      await refreshPresets('');
+      for (const m of MODULES){ renderActiveTag(m.cat); renderPresetList(m.cat); }
+    } else { toast(data.message || '删除失败', false); }
+  } catch(e){ toast('网络错误：'+e, false); }
+}
+
+/* ---------- Toast 通知 ---------- */
 function toast(msg, ok=true){
   let host = document.getElementById('toastHost');
   if (!host){ host = document.createElement('div'); host.id='toastHost'; document.body.appendChild(host); }
@@ -157,127 +318,15 @@ function toast(msg, ok=true){
   setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(), 300); }, 3500);
 }
 
-/* ---------- 字段名 → 分类映射（用于加载预设后更新对应 input） ---------- */
-const FIELD_MAP = {
-  llm_base_url:'llm_base_url', llm_api_key:'llm_api_key', llm_model:'llm_model', llm_temperature:'llm_temperature',
-  embedding_base_url:'embedding_base_url', embedding_api_key:'embedding_api_key', embedding_model:'embedding_model', embedding_dimensions:'embedding_dimensions',
-  kb_chunk_size:'kb_chunk_size', kb_chunk_overlap:'kb_chunk_overlap', kb_top_k:'kb_top_k',
-  mineru_api_base:'mineru_api_base', mineru_api_key:'mineru_api_key', mineru_backend:'mineru_backend', mineru_lang:'mineru_lang',
-};
-// 把 eff 对象（嵌套 {llm:{...},embedding:{...},...}）展平为 {field: value}
-function flattenEff(eff){
-  const flat = {};
-  for (const cat of Object.values(eff))
-    for (const [k,v] of Object.entries(cat))
-      if (k in FIELD_MAP) flat[k] = v;
-  return flat;
-}
-// 用返回的 eff 更新主表单里的 input 值
-function updateFormFromEff(eff){
-  const flat = flattenEff(eff);
-  for (const [field, val] of Object.entries(flat)){
-    const inp = document.querySelector('#cfgForm [name="'+field+'"]');
-    if (inp) inp.value = (val===null||val===undefined) ? '' : val;
-  }
-}
-
-/* ---------- 拦截所有 POST 表单 → AJAX ---------- */
-// 分类 → 该分类的主表单字段名（存预设时从主表单实时取当前值）
-const CAT_FIELDS = {
-  llm: ['llm_base_url','llm_api_key','llm_model','llm_temperature'],
-  embedding: ['embedding_base_url','embedding_api_key','embedding_model','embedding_dimensions'],
-  retrieval: ['kb_chunk_size','kb_chunk_overlap','kb_top_k'],
-  mineru: ['mineru_api_base','mineru_api_key','mineru_backend','mineru_lang'],
-};
-
-async function ajaxSubmit(form, btn){
-  const fd = new FormData(form);
-  fd.set('csrfmiddlewaretoken', CSRF);
-  // 如果是 preset_save：从主表单 #cfgForm 实时复制该分类字段的当前值
-  // （不再依赖服务端渲染的 stale hidden input）
-  if (fd.get('action') === 'preset_save'){
-    const cat = fd.get('category');
-    const fields = CAT_FIELDS[cat] || [];
-    const cfgForm = document.getElementById('cfgForm');
-    for (const fname of fields){
-      const inp = cfgForm.querySelector('[name="'+fname+'"]');
-      fd.set(fname, inp ? inp.value : '');
-    }
-  }
-  if (btn){ btn.disabled = true; const orig = btn.textContent; btn.textContent = '…'; btn.dataset.orig = orig; }
-  try {
-    const r = await fetch('/kb/settings/', {
-      method: 'POST', body: fd, headers: {'X-Requested-With': 'XMLHttpRequest'},
-    });
-    const data = await r.json();
-    if (data.ok){
-      toast(data.message || '完成', true);
-      // 加载/保存后：更新表单字段为最新生效值
-      if (data.eff) updateFormFromEff(data.eff);
-      // 预设保存成功：清空名称输入，并把新预设加入列表
-      if (data.preset_id && data.category){
-        const nameInput = form.querySelector('[name=preset_name]');
-        if (nameInput) nameInput.value = '';
-        addPresetToList(data.category, data.preset_id, data.preset_name, data.updated_at);
-      }
-      // 预设删除成功：从 DOM 移除该预设行
-      if (data.preset_id && !data.preset_name){
-        const row = form.closest('.preset-item'); if (row) row.remove();
-      }
-    } else {
-      toast(data.message || '操作失败', false);
-    }
-  } catch(e){
-    toast('网络错误：' + e, false);
-  } finally {
-    if (btn){ btn.disabled = false; if (btn.dataset.orig) btn.textContent = btn.dataset.orig; }
-  }
-}
-
-// 新增预设后，把它插入到对应分类的预设列表（避免刷新才能看到）
-function addPresetToList(category, id, name, time){
-  const block = document.querySelector('.preset-block[data-cat="'+category+'"]');
-  if (!block) return;
-  let list = block.querySelector('.preset-list');
-  if (!list){ list = document.createElement('div'); list.className='preset-list'; block.appendChild(list); }
-  // 避免重复
-  if (list.querySelector('[data-pid="'+id+'"]')) return;
-  const item = document.createElement('div');
-  item.className = 'preset-item'; item.dataset.pid = id;
-  item.innerHTML = '<span class="preset-item-name">'+name+'</span><span class="preset-item-time">'+time+'</span>';
-  const fLoad = document.createElement('form'); fLoad.method='post'; fLoad.className='preset-act';
-  fLoad.innerHTML = '<input type="hidden" name="csrfmiddlewaretoken" value="'+CSRF+'"><input type="hidden" name="action" value="preset_load"><input type="hidden" name="preset_id" value="'+id+'"><button class="btn sm primary" type="submit">加载</button>';
-  const fDel = document.createElement('form'); fDel.method='post'; fDel.className='preset-act';
-  fDel.innerHTML = '<input type="hidden" name="csrfmiddlewaretoken" value="'+CSRF+'"><input type="hidden" name="action" value="preset_delete"><input type="hidden" name="preset_id" value="'+id+'"><button class="btn sm danger" type="submit">删</button>';
-  fDel.onsubmit = (e)=>{ if(!confirm('删除预设「'+name+'」？')){e.preventDefault();} };
-  item.appendChild(fLoad); item.appendChild(fDel);
-  list.appendChild(item);
-  bindForm(fLoad); bindForm(fDel);
-}
-
-// 给单个 form 绑定 AJAX 提交
-function bindForm(form){
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = form.querySelector('button[type=submit]');
-    await ajaxSubmit(form, btn);
-  });
-}
-
-// 页面加载：拦截所有 settings 页的 form
+/* ---------- 初始化 ---------- */
 document.addEventListener('DOMContentLoaded', () => {
-  // 给每个 preset-block 加 data-cat 标识（用于 addPresetToList 定位）
-  const blocks = document.querySelectorAll('.preset-block');
-  const catOrder = ['llm','embedding','retrieval','mineru'];
-  blocks.forEach((b,i)=>{ if(catOrder[i]) b.dataset.cat = catOrder[i]; });
-  // 绑定主表单 + 所有预设表单
-  document.querySelectorAll('form[method=post], #cfgForm').forEach(bindForm);
-  // 主表单原本是默认提交，确保也被拦截
-  const cfgForm = document.getElementById('cfgForm');
-  if (cfgForm) cfgForm.addEventListener('submit', (e)=> e.preventDefault());
+  renderAll();
+  document.getElementById('modalForm').addEventListener('submit', (e)=>{ e.preventDefault(); submitModal(); });
+  // 点遮罩关闭
+  document.getElementById('cfgModal').addEventListener('click', (e)=>{ if (e.target.id==='cfgModal') closeModal(); });
 });
 
-/* ---------- 连接测试（原有，保持） ---------- */
+/* ---------- 连接测试 ---------- */
 async function testConn(target){
   const out=document.getElementById('testResults');
   out.innerHTML='<span class="spinner"></span> 测试中…';

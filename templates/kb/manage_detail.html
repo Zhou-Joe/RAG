@@ -46,8 +46,14 @@
         {% if doc.status == 'pending' %}0%{% elif doc.status == 'ocr' %}25%{% elif doc.status == 'indexing' %}75%{% else %}0%{% endif %}"></div></div>
       {% endif %}
     </div>
-    <button type="button" class="btn sm danger doc-del-btn" title="删除此文档及其向量"
-            data-doc-id="{{ doc.id }}" data-name="{{ doc.original_name }}">删除</button>
+    <div class="doc-actions">
+      {% if doc.status == 'completed' and doc.html_content %}
+      <a class="btn sm outline" href="{% url 'kb:document_html' doc.id %}" target="_blank" rel="noopener"
+         title="在新标签打开 OCR 后的全文 HTML 版本">阅读全文</a>
+      {% endif %}
+      <button type="button" class="btn sm danger doc-del-btn" title="删除此文档及其向量"
+              data-doc-id="{{ doc.id }}" data-name="{{ doc.original_name }}">删除</button>
+    </div>
   </div>
   {% empty %}
   <div class="empty">还没有文档，上传第一份吧。</div>
@@ -168,6 +174,24 @@ function renderDocRow(d) {
 
   if (d.status === 'completed') {
     html += `<div class="doc-detail"><span class="doc-badge badge-completed">✓ 已完成</span> · ${d.chunk_count} 个片段</div>`;
+    // 已完成 → 补「阅读全文」链接（OCR 后的 HTML 全文，新标签打开）
+    let actions = row.querySelector('.doc-actions');
+    if (!actions) {
+      actions = document.createElement('div');
+      actions.className = 'doc-actions';
+      // 移到删除按钮前（删除按钮已在行末）
+      const delBtn = row.querySelector('.doc-del-btn');
+      if (delBtn) row.insertBefore(actions, delBtn); else row.appendChild(actions);
+    }
+    if (!actions.querySelector('.doc-read-link')) {
+      const a = document.createElement('a');
+      a.className = 'btn sm outline doc-read-link';
+      a.href = `/kb/doc/${d.id}/html/`;
+      a.target = '_blank'; a.rel = 'noopener';
+      a.title = '在新标签打开 OCR 后的全文 HTML 版本';
+      a.textContent = '阅读全文';
+      actions.appendChild(a);
+    }
   } else if (d.status === 'failed') {
     html += `<div class="doc-detail"><span class="doc-badge badge-failed">✗ 失败</span> ${d.error || '处理失败'}</div>`;
     html += `<div class="progress-bar"><div class="progress-fill err" style="width:100%"></div></div>`;

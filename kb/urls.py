@@ -21,6 +21,7 @@ urlpatterns = [
     # 站点配置（仅 staff）
     path("settings/", views.site_settings, name="settings"),
     path("settings/test/", views.settings_test, name="settings_test"),
+    path("settings/presets/", views.settings_presets, name="settings_presets"),
 
     # 会话历史
     path("conv/<str:thread_id>/messages/", views.conversation_messages, name="conv_messages"),

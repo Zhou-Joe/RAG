@@ -484,6 +484,44 @@ _CONFIG_FIELDS = [
 ]
 
 
+def _active_preset_map(cfg):
+    """计算每个分类当前命中的预设（基于原始 DB 值的精确全字段匹配）。
+
+    返回 {category: {"id": preset_id, "name": preset_name} | None}。
+    匹配必须用 SiteConfig 原始 DB 值（snapshot 那层），不能用 config.py 解析后的
+    eff —— 预设存的是原始值（空串=回退 .env），混用 eff 会误判「空串」与「显式值」相等。
+
+    匹配规则：该分类全部字段逐一相等（含 API Key；None 与 "" 视为不相等）。
+    若多个预设同时命中（理论上是重复预设），取第一个。
+    """
+    from .models import ConfigPreset, PRESET_CATEGORIES
+    result = {}
+    presets = list(ConfigPreset.objects.all())
+    for cat, fields in PRESET_CATEGORIES.items():
+        cur = cfg.snapshot(fields)  # 原始 DB 值
+        hit = None
+        for p in presets:
+            if p.category != cat:
+                continue
+            data = p.data or {}
+            # 逐字段比对原始值：None/"" 视为同义（都表示「未设置/回退」），
+            # 其余按规范化字符串相等。
+            if all(_raw_eq(cur.get(f), data.get(f)) for f in fields):
+                hit = p
+                break
+        result[cat] = {"id": hit.id, "name": hit.name} if hit else None
+    return result
+
+
+def _raw_eq(a, b):
+    """原始 DB 值相等：None 与 "" 互为相等（均表「未设置」），其余按字符串规范化。"""
+    a_blank = a is None or a == ""
+    b_blank = b is None or b == ""
+    if a_blank or b_blank:
+        return a_blank and b_blank
+    return str(a).strip() == str(b).strip()
+
+
 @_is_staff
 def site_settings(request):
     """站点配置页：GET 渲染，POST 保存配置 / 保存为预设 / 加载预设 / 删除预设。"""
@@ -518,6 +556,56 @@ def site_settings(request):
     if request.method == "POST":
         action = request.POST.get("action", "save")
 
+        # ---- 新建空壳预设（只起名，不填值，不改动当前配置）----
+        if action == "preset_create":
+            name = (request.POST.get("preset_name") or "").strip()
+            category = request.POST.get("category", "")
+            if not name:
+                msg = "请填写预设名称。"
+                if is_ajax: return _json_response(False, msg)
+                messages.error(request, msg); return redirect("kb:settings")
+            if category not in PRESET_CATEGORIES:
+                msg = "分类无效。"
+                if is_ajax: return _json_response(False, msg)
+                messages.error(request, msg); return redirect("kb:settings")
+            fields = PRESET_CATEGORIES[category]
+            # 空壳：该分类字段全部为空（文本→""，数值→None），不改 SiteConfig。
+            # 必须按字段真实类型置空，否则 load 时把 "" 写进 FloatField/IntegerField 会报错。
+            ftypes = dict((f, t) for f, t in _SITECONFIG_FIELDS)
+            empty_snap = {f: ("" if ftypes.get(f, "text") in ("text", "password") else None)
+                          for f in fields}
+            preset = ConfigPreset.objects.create(name=name, category=category, data=empty_snap)
+            msg = f"已新建空预设「{name}」，请点「修改」填写参数。"
+            if is_ajax:
+                return _json_response(True, msg,
+                                      extra={"preset_id": preset.id, "preset_name": name,
+                                             "category": category, "updated_at": "刚刚",
+                                             "active_by_cat": _active_preset_map(cfg)})
+            messages.success(request, msg); return redirect("kb:settings")
+
+        # ---- 修改某个预设（按 id，只更新该预设的快照，不改动当前生效配置）----
+        if action == "preset_update":
+            pid = request.POST.get("preset_id")
+            preset = ConfigPreset.objects.filter(id=pid).first()
+            if not preset:
+                msg = "预设不存在。"
+                if is_ajax: return _json_response(False, msg)
+                messages.error(request, msg); return redirect("kb:settings")
+            fields = PRESET_CATEGORIES.get(preset.category, [])
+            # 用一个临时 cfg 接收表单值，再 snapshot 进预设（不动数据库里的 SiteConfig）
+            from .models import SiteConfig
+            tmp = SiteConfig()
+            _apply_form_to_cfg(tmp, request.POST)
+            preset.data = tmp.snapshot(fields)
+            preset.save()
+            msg = f"预设「{preset.name}」已更新。"
+            if is_ajax:
+                return _json_response(True, msg,
+                                      extra={"preset_id": preset.id, "preset_name": preset.name,
+                                             "category": preset.category, "updated_at": "刚刚",
+                                             "active_by_cat": _active_preset_map(cfg)})
+            messages.success(request, msg); return redirect("kb:settings")
+
         # ---- 保存为预设（按分类）：只存该分类的字段 ----
         if action == "preset_save":
             name = (request.POST.get("preset_name") or "").strip()
@@ -539,9 +627,11 @@ def site_settings(request):
             )
             msg = f"{dict(ConfigPreset.Category.choices)[category]} 预设「{name}」已{'创建' if created else '更新'}。"
             if is_ajax:
+                cfg.refresh_from_db()
                 return _json_response(True, msg, eff=_current_eff(),
                                       extra={"preset_id": preset.id, "preset_name": name,
-                                             "category": category, "updated_at": "刚刚"})
+                                             "category": category, "updated_at": "刚刚",
+                                             "active_by_cat": _active_preset_map(cfg)})
             messages.success(request, msg); return redirect("kb:settings")
 
         # ---- 加载预设：只覆盖该分类字段 ----
@@ -556,7 +646,10 @@ def site_settings(request):
             cfg.apply(preset.data, fields)
             cfg.save()
             msg = f"已加载预设「{preset.name}」（下一次请求即生效）。"
-            if is_ajax: return _json_response(True, msg, eff=_current_eff())
+            if is_ajax:
+                cfg.refresh_from_db()
+                return _json_response(True, msg, eff=_current_eff(),
+                                      extra={"active_by_cat": _active_preset_map(cfg)})
             messages.success(request, msg); return redirect("kb:settings")
 
         # ---- 删除预设 ----
@@ -568,7 +661,9 @@ def site_settings(request):
                 name = preset.name
                 preset.delete()
                 msg = f"预设「{name}」已删除。"
-            if is_ajax: return _json_response(True, msg, extra={"preset_id": pid})
+            if is_ajax:
+                return _json_response(True, msg,
+                                      extra={"preset_id": pid, "active_by_cat": _active_preset_map(cfg)})
             messages.success(request, msg); return redirect("kb:settings")
 
         # ---- 默认：保存当前配置 ----
@@ -576,7 +671,10 @@ def site_settings(request):
             _apply_form_to_cfg(cfg, request.POST)
             cfg.save()
             msg = "配置已保存（下一次请求即生效）。"
-            if is_ajax: return _json_response(True, msg, eff=_current_eff())
+            if is_ajax:
+                cfg.refresh_from_db()
+                return _json_response(True, msg, eff=_current_eff(),
+                                      extra={"active_by_cat": _active_preset_map(cfg)})
             messages.success(request, msg)
         except (ValueError, TypeError) as e:
             msg = f"保存失败：{e}"
@@ -584,7 +682,7 @@ def site_settings(request):
             messages.error(request, msg)
         return redirect("kb:settings")
 
-    # GET：渲染有效值 + .env 默认占位 + 按分类分组的预设
+    # GET：渲染有效值 + .env 默认占位 + 按分类分组的预设 + 各分类当前命中预设
     from . import config as cfg_mod
     eff = {
         "llm": cfg_mod.llm_settings(),
@@ -593,17 +691,37 @@ def site_settings(request):
         "mineru": cfg_mod.mineru_settings(),
     }
     placeholders = {env: getattr(dj_settings, env, "") for _f, _m, _t, env in _CONFIG_FIELDS}
-    # 按分类分组预设，传给模板
-    from collections import defaultdict
-    presets_by_cat = defaultdict(list)
-    for p in ConfigPreset.objects.all():
-        presets_by_cat[p.category].append(p)
+    # 预设序列化为纯 dict（供前端 json_script 序列化与编辑时预填）
     return render(request, "kb/settings.html", {
         "eff": eff,
         "placeholders": placeholders,
         "cfg": cfg,
-        "presets_by_cat": dict(presets_by_cat),
+        "presets_by_cat": _presets_as_json(),
+        "active_by_cat": _active_preset_map(cfg),
     })
+
+
+def _presets_as_json():
+    """把所有 ConfigPreset 序列化为按分类分组的纯 dict 列表。"""
+    from .models import ConfigPreset
+    from collections import defaultdict
+    out = defaultdict(list)
+    for p in ConfigPreset.objects.all().order_by("category", "name"):
+        out[p.category].append({
+            "id": p.id,
+            "name": p.name,
+            "category": p.category,
+            "data": p.data or {},
+            "updated_at": p.updated_at.strftime("%m-%d %H:%M"),
+        })
+    return dict(out)
+
+
+@_is_staff
+@require_http_methods(["GET"])
+def settings_presets(request):
+    """返回所有预设的 JSON（供前端 create/update/delete 后刷新列表）。"""
+    return JsonResponse({"ok": True, "presets_by_cat": _presets_as_json()})
 
 
 def _apply_form_to_cfg(cfg, post):
