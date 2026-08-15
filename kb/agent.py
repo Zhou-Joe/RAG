@@ -61,6 +61,10 @@ def _get_llm(llm_cfg: dict) -> ChatOpenAI:
         api_key=llm_cfg["api_key"],
         base_url=llm_cfg["base_url"],
         temperature=llm_cfg["temperature"],
+        # 流式模式下显式请求 usage（stream_options.include_usage）。
+        # OpenAI 兼容服务（LM Studio/本地模型）默认不在流式 chunk 里带 usage，
+        # 不开这个 usage_metadata 恒为空 → 前端 token 统计显示 0。
+        stream_usage=True,
     )
 
 
