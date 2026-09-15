@@ -36,7 +36,7 @@ def rerank(query: str, documents: list[str], top_n: int | None = None) -> list[d
         payload["top_n"] = top_n
     try:
         r = httpx.post(
-            cfg["base_url"].rstrip("/") + "/rerank",
+            (cfg["base_url"].rstrip("/") if cfg["base_url"].rstrip("/").endswith("/rerank") else cfg["base_url"].rstrip("/") + "/rerank"),
             json=payload,
             headers={"Authorization": f"Bearer {cfg['api_key'] or 'local-no-key'}"},
             timeout=15,

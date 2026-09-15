@@ -137,6 +137,10 @@ def _get_llm(llm_cfg: dict) -> ChatOpenAI:
         # Ask OpenAI-compatible local servers (LM Studio included) to include
         # usage in the final streaming chunk, otherwise UI token counts stay 0.
         stream_usage=True,
+        max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
+        extra_body=settings.LLM_EXTRA_BODY,
+        timeout=180,
+        max_retries=0,
     )
 
 
@@ -272,7 +276,8 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
 6. 回答须准确、客观，语言专业且易于理解。
 7. 若知识库中无相关内容，如实说明，不得编造（禁止幻觉）。
 
-当用户要求数据分析、统计、汇总，或导出 Excel/表格/文件时：
+如果用户只要求「列个表格」「整理成表格」，直接返回简洁的 Markdown 表格，不调用 write_analysis，不生成 Python 或下载文件。表格按资料中真实条目组织，避免重复双语和冗长前言；不要把未检索到的条目补齐。
+只有用户明确要求计算分析、画图、下载或导出 Excel/CSV/文件时：
 - 先取数据：若是要某张表/清单的【完整】内容（如「导出受力部件表」「列出全部故障代码」），优先用 kb_fetch_doc（contains=关键词）一次性抓全；若是查某个具体指标，用 kb_search；若是查登记台账信息，用 tracker_lookup。
 - 再调用 write_analysis，传入完整可运行的 Python 代码（code 参数）。
 - 代码会在用户浏览器的 Pyodide 沙箱里运行，可用 pandas、numpy、matplotlib。
@@ -345,15 +350,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             _prov.annotate_results(results)
         except Exception:
             pass
-        # 证据收集（供答案核实步对照；每条截断防爆 token）
-        for r in results:
-            if len(evidence_sink) >= 30:
-                break
-            evidence_sink.append({
-                "source": r.get("source", ""),
-                "page": r.get("page_label", ""),
-                "text": (r.get("text") or "")[:600],
-            })
+        # 保存完整来源快照；核对预算不足时拒绝发布，不静默截断条件。
+        from .publication import bind_evidence
+        for item in bind_evidence(results, target):
+            if item not in evidence_sink:
+                evidence_sink.append(item)
         blocks = []
         img_hits: list[tuple[str, str]] = []  # (doc_id, 图片名)——视觉模式用
         # 记录来源出处（供前端渲染可点击链接 → 文档查看页高亮）。
@@ -574,14 +575,10 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             _prov.annotate_results(results)
         except Exception:
             pass
-        for r in results:
-            if len(evidence_sink) >= 30:
-                break
-            evidence_sink.append({
-                "source": r.get("source", ""),
-                "page": r.get("page_label", ""),
-                "text": (r.get("text") or "")[:600],
-            })
+        from .publication import bind_evidence
+        for item in bind_evidence(results, target):
+            if item not in evidence_sink:
+                evidence_sink.append(item)
 
         # 记录来源出处（与 kb_search 同一 cite_sink 逻辑：按文档去重，合并 highlights）
         import re as _re
@@ -770,11 +767,20 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         """
         return f"已生成分析脚本（{filename}），将在浏览器沙箱中运行。"
 
+    def request_verified_export(filename: str = "verified.csv") -> str:
+        """请求导出已核对表格为 CSV。先在最终回答中写一个完整 Markdown 表格。
+
+        只登记导出意图，核对通过后由固定模板生成文件。无需也不接受 Python 代码。
+        """
+        return "已登记导出请求。请在最终回答给出一个完整表格；仅核对通过后才能生成 CSV。"
+
     # 复用进程级持久化 checkpointer；thread_id（在 thread_config 里）区分不同会话
     return create_agent(
         model=_get_llm(llm_cfg),
-        tools=[list_knowledge_bases, kb_search, kb_fetch_doc, tracker_lookup, write_analysis],
-        system_prompt=system_prompt,
+        tools=([list_knowledge_bases, kb_search, kb_fetch_doc, tracker_lookup, request_verified_export]
+               if llm_cfg.get("qa_enhance") else
+               [list_knowledge_bases, kb_search, kb_fetch_doc, tracker_lookup, write_analysis]),
+        system_prompt=system_prompt + ("\n增强模式：必须检索原文；历史回答只帮助理解，不是事实依据。展示有出处的文本或 Markdown 表格。需导出时调用 request_verified_export 并在最终回答给出一个完整表格。仅在核对通过后生成 CSV，不得声称文件已经生成。此模式不执行自由生成脚本。台账建议和视觉推断须回原文检索核对。" if llm_cfg.get("qa_enhance") else ""),
         checkpointer=checkpointer,
         name=f"kb_agent_{kb_slug}",
     )
@@ -797,7 +803,10 @@ async def run_agent_stream(
             cfg = config["llm"]
             top_k = config["top_k"]
             department = config.get("department") or ""
-        checkpointer = await _get_checkpointer()
+        enhance = bool(cfg.get("qa_enhance"))
+        # Rebuild each turn from bounded published history. Old checkpoints can
+        # retain tens of thousands of tool tokens and resume interrupted work.
+        checkpointer = None
         # 本轮检索的来源出处累积器（kb_search 往里追加；流结束发出 citations 事件）
         citations: list[dict] = []
         # 本轮检索证据累积器（带页码的命中片段；答案核实步对照用）
@@ -816,7 +825,7 @@ async def run_agent_stream(
         if enhance:
             yield SSE_STEP, {"stage": "query_plan", "status": "start"}
             from .qa_steps import plan_query
-            plan_text, p_usage = await plan_query(cfg, message)
+            plan_text, p_usage = await plan_query(cfg, message, history=(config or {}).get("published_history", []))
             usage_in += p_usage["input_tokens"]
             usage_out += p_usage["output_tokens"]
             max_in = max(max_in, p_usage["input_tokens"])
@@ -825,7 +834,7 @@ async def run_agent_stream(
                 agent_input = (f"【问题理解与检索规划】\n{plan_text}\n\n"
                                f"【用户问题】\n{message}")
                 yield SSE_STEP, {"stage": "query_plan", "status": "done",
-                                 "detail": plan_text}
+                                 "detail": "问题规划完成"}
             else:
                 yield SSE_STEP, {"stage": "query_plan", "status": "skip",
                                  "detail": "无需规划（闲聊）或规划不可用"}
@@ -846,13 +855,15 @@ async def run_agent_stream(
         emitted_reasoning = False
         # run_id -> {"code":..., "filename":...}，捕获 write_analysis 工具的入参
         pending_code: dict[str, dict] = {}
+        export_filename = None
         # 完整回答文本（核实步用）与管线阶段翻转标记
         full_text: list[str] = []
+        final_complete = False
         search_step_on = False
         answer_step_on = False
 
         async for event in agent.astream_events(
-            {"messages": [{"role": "user", "content": agent_input}]},
+            {"messages": (config or {}).get("published_history", []) + [{"role": "user", "content": agent_input}]},
             config=thread_config,
             version="v2",
         ):
@@ -870,13 +881,15 @@ async def run_agent_stream(
                     content = getattr(chunk, "content", None)
                     if isinstance(content, str) and content:
                         pending_reasoning.append(content)
-                        full_text.append(content)
+                        if not enhance:
+                            full_text.append(content)
                         if not answer_step_on:
                             answer_step_on = True
                             if search_step_on:
                                 yield SSE_STEP, {"stage": "hybrid_search", "status": "done"}
                             yield SSE_STEP, {"stage": "answer_generation", "status": "start"}
-                        yield SSE_TOKEN, {"text": content}
+                        if not enhance:
+                            yield SSE_TOKEN, {"text": content}
 
             elif etype == "on_chat_model_end":
                 output = data.get("output")
@@ -891,7 +904,16 @@ async def run_agent_stream(
                 if call_out > max_out:
                     max_out = call_out
                 tool_calls = getattr(output, "tool_calls", None) or []
-                if tool_calls and not emitted_reasoning:
+                finish_reason = (getattr(output, "response_metadata", None) or {}).get("finish_reason")
+                if finish_reason in ("length", "content_filter"):
+                    if enhance:
+                        yield SSE_VERIFY, {"ok": False, "issues": ["输出截断，未发布草稿。"]}
+                    yield SSE_ERROR, {"message": "模型输出被截断，回答未完成；已显示的内容不能作为完整表格。请缩小范围后重试。", "code": "incomplete_output"}
+                    return
+                if enhance:
+                    full_text = [] if tool_calls else [getattr(output, "content", "") or "" ]
+                    final_complete = not tool_calls and (getattr(output, "response_metadata", None) or {}).get("finish_reason") not in ("length", "content_filter")
+                if tool_calls and not emitted_reasoning and not enhance:
                     emitted_reasoning = True
                     reason = _reason_from_tool_calls(tool_calls)
                     if pending_reasoning:
@@ -907,6 +929,9 @@ async def run_agent_stream(
                 if not search_step_on:
                     search_step_on = True
                     yield SSE_STEP, {"stage": "hybrid_search", "status": "start"}
+                if enhance and name == "request_verified_export":
+                    export_args = data.get("input") or {}
+                    export_filename = export_args.get("filename", "verified.csv") if isinstance(export_args, dict) else "verified.csv"
                 # 捕获 write_analysis 的入参，供 on_tool_end 发出 code_run
                 if name == "write_analysis":
                     serial = data.get("serializable_input") or {}
@@ -932,7 +957,7 @@ async def run_agent_stream(
                 # write_analysis 结束 → 发出 code_run，前端在 Pyodide 沙箱执行
                 if name == "write_analysis" and run_id in pending_code:
                     pc = pending_code.pop(run_id)
-                    if pc.get("code"):
+                    if pc.get("code") and not enhance:
                         yield SSE_CODE_RUN, {
                             "code": pc["code"],
                             "filename": pc["filename"],
@@ -941,45 +966,52 @@ async def run_agent_stream(
                     "tool": name,
                     "run_id": run_id,
                     "status": "done",
-                    "output_preview": _preview(output),
+                    "output_preview": "" if enhance else _preview(output),
                 }
 
         # 生成阶段收尾（无 token 输出的异常路径不补 done）
         if answer_step_on:
             yield SSE_STEP, {"stage": "answer_generation", "status": "done"}
 
-        # ---- 管线增强 · 答案核实（answer_verification）----
-        # 核实不过 → SSE_VERIFY{ok:false}，前端拒答展示；核实器不可用 → 放行
+        # Enhanced answers are private drafts until verification AND source checks pass.
         if enhance:
-            answer_text = "".join(full_text).strip()
-            if not evidence:
-                yield SSE_STEP, {"stage": "answer_verification", "status": "skip",
-                                 "detail": "本轮无检索证据（闲聊/未检索），跳过核实"}
-            elif not answer_text:
-                yield SSE_STEP, {"stage": "answer_verification", "status": "skip",
-                                 "detail": "本轮无文本回答"}
-            else:
-                yield SSE_STEP, {"stage": "answer_verification", "status": "start"}
-                from .qa_steps import verify_answer
+            from .qa_steps import verify_answer
+            from .publication import validate_sources
+            from asgiref.sync import sync_to_async
+            answer_text = "".join(t for t in full_text if isinstance(t, str)).strip()
+            yield SSE_STEP, {"stage": "answer_verification", "status": "start"}
+            verdict = None
+            source_ok = await sync_to_async(validate_sources)(evidence, (config or {}).get("user_id"))
+            if final_complete and source_ok and answer_text:
                 verdict, v_usage = await verify_answer(cfg, message, answer_text, evidence)
                 usage_in += v_usage["input_tokens"]
                 usage_out += v_usage["output_tokens"]
                 max_in = max(max_in, v_usage["input_tokens"])
                 max_out = max(max_out, v_usage["output_tokens"])
-                if verdict is None:
-                    yield SSE_STEP, {"stage": "answer_verification", "status": "skip",
-                                     "detail": "核实服务不可用，已放行原回答"}
-                else:
-                    v = verdict.get("verdict", "pass")
-                    ok = v != "fail"
-                    yield SSE_STEP, {"stage": "answer_verification", "status": "done",
-                                     "ok": ok}
-                    # 三态：fail=拒答；warn=核心已核实但附带信息未核实（提示不拒答）
-                    yield SSE_VERIFY, {
-                        "ok": ok,
-                        "warn": verdict.get("issues", []) if v == "warn" else [],
-                        "issues": verdict.get("issues", []) if not ok else [],
-                    }
+            source_ok = source_ok and await sync_to_async(validate_sources)(evidence, (config or {}).get("user_id"))
+            ok = source_ok and verdict is not None and verdict.get("verdict") == "pass"
+            yield SSE_STEP, {"stage": "answer_verification", "status": "done", "ok": ok}
+            # Never return verifier prose: it may repeat the rejected parameter.
+            yield SSE_VERIFY, {"ok": ok, "issues": [] if ok else ["证据不足、来源已变化或核对未通过，未发布草稿。"]}
+            if ok:
+                # SSE progress events yield control; recheck immediately before text release.
+                source_ok = await sync_to_async(validate_sources)(evidence, (config or {}).get("user_id"))
+                ok = source_ok
+                if not ok:
+                    yield SSE_VERIFY, {"ok": False, "issues": ["来源权限或内容已变化，请重新检索。"]}
+            if ok:
+                for citation in citations:
+                    source = next((ev for ev in evidence if ev.get("doc_id") == citation.get("doc_id")), None)
+                    if source:
+                        citation["document_digest"] = source["document_digest"]
+                yield SSE_TOKEN, {"text": answer_text}
+                if export_filename:
+                    from .publication import verified_table_export
+                    export = verified_table_export(answer_text, str(export_filename))
+                    if export and await sync_to_async(validate_sources)(evidence, (config or {}).get("user_id")):
+                        yield SSE_CODE_RUN, export
+            if not source_ok:
+                citations.clear()
 
         # 流结束：发出本轮来源出处（前端据此渲染可点击的文档链接）
         if citations:

@@ -7,6 +7,7 @@ Django settings for FOS_RAG project.
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,6 +16,14 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
+
+LLM_EXTRA_BODY = json.loads(os.environ.get("LLM_EXTRA_BODY", "{}"))
+LLM_MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "2048"))
+
+LOCAL_ONLY = os.environ.get("FOS_LOCAL_ONLY", "0").lower() in ("1", "true", "yes")
+if LOCAL_ONLY:
+    from .offline import install
+    install()
 
 
 def _env(key: str, default: str = "") -> str:
@@ -40,6 +49,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "fos_rag.local_middleware.LocalResourcePolicy",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -152,3 +162,20 @@ KB_TOP_K = int(_env("KB_TOP_K", "5"))
 DATA_DIR = BASE_DIR / "data"
 CHROMA_ROOT = DATA_DIR / "chroma"       # 每个向量库一个子目录
 MD_ROOT = DATA_DIR / "md"               # OCR 输出的 Markdown
+
+# Maximum input count per embedding request; keep below local service limits.
+EMBEDDING_BATCH_SIZE = int(_env("EMBEDDING_BATCH_SIZE", "16"))
+
+PYODIDE_INDEX_URL = _env("PYODIDE_INDEX_URL", "/static/vendor/pyodide/" if LOCAL_ONLY else "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/")
+
+# Whole-turn bound (model + retrieval + tools), independent of socket timeouts.
+QA_TURN_TIMEOUT = float(_env("QA_TURN_TIMEOUT", "240"))
+
+# Stage timings only: no document text, credentials or generated answer in logs.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"qa_stage": {"format": "{asctime} {levelname} {message}", "style": "{"}},
+    "handlers": {"qa_stage": {"class": "logging.StreamHandler", "formatter": "qa_stage"}},
+    "loggers": {"kb.streaming": {"handlers": ["qa_stage"], "level": "INFO", "propagate": False}},
+}

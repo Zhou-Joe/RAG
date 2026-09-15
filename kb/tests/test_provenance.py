@@ -197,7 +197,8 @@ class AnnotateAndEvidenceTests(TestCase):
     def test_page_png_renders_pdf(self):
         import pymupdf
         buf = pymupdf.open()
-        buf.new_page()
+        for _ in range(6):
+            buf.new_page()
         pdf_bytes = buf.tobytes()
         with tempfile.TemporaryDirectory() as td:
             with override_settings(MEDIA_ROOT=Path(td)):
@@ -207,13 +208,17 @@ class AnnotateAndEvidenceTests(TestCase):
                     username="ev-admin3", password="pw", is_staff=True, is_superuser=True)
                 c = Client()
                 c.force_login(admin)
-                r = c.get("/kb/evidence/ev-chunk-1/page.png?page=0")
+                r = c.get("/kb/evidence/ev-chunk-1/page.png?page=4")
                 self.assertEqual(r.status_code, 200)
                 self.assertEqual(r["Content-Type"], "image/png")
                 self.assertGreater(len(r.content), 1000)
-                # 页码越界 → 夹回最后一页（200，不 500）
+                # 越界或不属于片段的页码必须拒绝，不能伪造定位
                 r2 = c.get("/kb/evidence/ev-chunk-1/page.png?page=99")
-                self.assertEqual(r2.status_code, 200)
+                self.assertEqual(r2.status_code, 404)
+                self.assertEqual(r["Cache-Control"], "private, no-store")
+                for page in ("0", "5", "-1", "abc"):
+                    response = c.get("/kb/evidence/ev-chunk-1/page.png", {"page": page})
+                    self.assertIn(response.status_code, (400, 404))
 
 
 class PageEmbedTests(TestCase):
@@ -312,9 +317,9 @@ class QaStepsTests(TestCase):
             plan, _ = asyncio.run(qa_steps.plan_query({}, "你好"))
             self.assertIsNone(plan)
         with patch.object(qa_steps, "build_llm", return_value=self._fake_llm(
-                "核心问题：扭矩数值\n关键词：扭矩 数值")):
+                '{"standalone":"扭矩是多少","action":"new","output":"text","subquestions":[]}')):
             plan, _ = asyncio.run(qa_steps.plan_query({}, "扭矩是多少"))
-            self.assertIn("核心问题", plan)
+            self.assertIn("standalone", plan)
         # LLM 异常 → None（不拖累主流程）
         class Boom:
             async def ainvoke(self, *a, **k):
@@ -322,3 +327,32 @@ class QaStepsTests(TestCase):
         with patch.object(qa_steps, "build_llm", return_value=Boom()):
             plan, _ = asyncio.run(qa_steps.plan_query({}, "扭矩是多少"))
             self.assertIsNone(plan)
+
+
+class LocationReliabilityTests(TestCase):
+    def test_signature_cursor_uses_original_character_offsets(self):
+        from kb.provenance import _SigIndex, _chunk_span
+        prefix = "prefix" + " . " * 200
+        text = prefix + "Motor AB-123 interval daily"
+        span, cursor = _chunk_span(_SigIndex(text), text, "Motor AB123 interval daily", len(prefix))
+        self.assertEqual(span, (len(prefix), len(text)))
+        self.assertEqual(cursor, len(text))
+
+    def test_unmatched_chunk_never_inherits_page(self):
+        from langchain_core.documents import Document as LCD
+        rows = build_provenance_rows(None, "synthetic", ["missing"],
+            [LCD(page_content="Unrelated pump inspection")], "Known valve interval",
+            [{"type": "text", "text": "Known valve interval", "page_idx": 0}])
+        self.assertEqual(rows, [])
+
+    def test_unicode_expansion_preserves_original_offsets(self):
+        from kb.provenance import _SigIndex
+        index = _SigIndex("İ..motor")
+        self.assertEqual(index.find("motor", 0)[0], (3, 8))
+
+    def test_invalid_boxes_cannot_be_rendered_as_precise_locations(self):
+        from kb.provenance import valid_bbox
+        for box in ([0, 0, float("nan"), 20], [-1, 0, 20, 20],
+                    [10, 10, 5, 20], [0, 0, 1001, 20], [True, 0, 20, 20]):
+            self.assertIsNone(valid_bbox(box))
+        self.assertEqual(valid_bbox([10, 20, 30, 40]), [10, 20, 30, 40])

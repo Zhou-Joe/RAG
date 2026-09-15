@@ -282,11 +282,8 @@ def rewrite_img_srcs(html: str, doc_id) -> str:
 # 嵌入前清洗：把 MinerU 的原始 HTML（表格等）转成结构化纯文本。
 # 仅用于嵌入路径（run_indexing）；查看页（md_to_html）仍用原始 md_content。
 # ------------------------------------------------------------------
-# MinerU 的 <td> 恒为 <td rowspan=N colspan=M>text</td>（属性无引号、顺序固定），
-# 故一条正则即可覆盖全部单元格。
-_TD_RE = re.compile(r"<td\s+rowspan=(\d+)\s+colspan=(\d+)>(.*?)</td>", re.DOTALL)
-_TR_RE = re.compile(r"<tr>(.*?)</tr>", re.DOTALL)
-_TABLE_RE = re.compile(r"<table>.*?</table>", re.DOTALL)
+# HTML cell parsing is delegated to table_structure; tag syntax may vary.
+_TABLE_RE = re.compile(r"<table\b[^>]*>.*?</table\s*>", re.DOTALL | re.IGNORECASE)
 _DETAILS_RE = re.compile(r"<details>\s*<summary>[^<]*</summary>(.*?)</details>", re.DOTALL)
 _IMG_TAG_RE = re.compile(r"<img\s[^>]*/?>", re.IGNORECASE)
 _MD_IMG_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
@@ -300,91 +297,8 @@ def _html_table_to_text(table_html: str) -> str:
     会向下方 2 行同一列「下沉」其值，使每行自描述（优于留空，便于嵌入/检索）。
     全宽分隔行（单格 colspan 跨所有列，如「主要受力结构部件」）只输出其文本，作表内小标题。
     """
-    # rows[r] = (cells, is_divider) —— cells = [(text, rowspan, colspan), ...]
-    # is_divider：本行是否由「单个单元格、其 colspan 覆盖该行全部列」构成（表内小标题）。
-    rows: list[tuple[list[tuple[str, int, int]], bool]] = []
-    for tr_m in _TR_RE.finditer(table_html):
-        cells = [
-            (html.unescape(c.group(3).strip()), int(c.group(1)), int(c.group(2)))
-            for c in _TD_RE.finditer(tr_m.group(1))
-        ]
-        if cells:
-            rows.append((cells, False))
-    if not rows:
-        return ""
-
-    # 第一遍：确定总列数，并标记全宽分隔行（单格 colspan == 总列数）。
-    # 总列数 = 任意「正常」行（非单格全宽）的列数之和的最大值。
-    ncols = 0
-    norm_row_cols: list[int | None] = []  # 每个非分隔行的列数
-    for cells, _ in rows:
-        row_cols = sum(cs for _, _, cs in cells)
-        if len(cells) > 1 or cells[0][2] < row_cols:  # 多格，或单格但未跨满自身
-            norm_row_cols.append(row_cols)
-            if row_cols > ncols:
-                ncols = row_cols
-        else:
-            norm_row_cols.append(None)  # 候选分隔行
-    if ncols == 0:
-        # 全表都是单格行 → 退化为逐行输出
-        ncols = max((sum(cs for _, _, cs in cells) for cells, _ in rows), default=1)
-
-    # 标记分隔行：单格且 colspan >= ncols
-    parsed: list[tuple[list[tuple[str, int, int]], bool]] = []
-    for (cells, _), rc in zip(rows, norm_row_cols):
-        is_div = rc is None and len(cells) == 1 and cells[0][2] >= ncols
-        parsed.append((cells, is_div))
-
-    # 第二遍：铺二维网格（分隔行跳过网格，单独记下）。
-    grid: list[list[str | None]] = []
-    grid_divider: list[bool] = []  # grid_divider[gi] = True 表示该网格行是分隔行
-    carries: dict[int, dict[int, str]] = {}
-
-    def _set(row: list[str | None], col: int, val: str) -> None:
-        while len(row) <= col:
-            row.append(None)
-        row[col] = val
-
-    gi = 0  # 网格行指针（分隔行也占一行）
-    for cells, is_div in parsed:
-        while len(grid) <= gi:
-            grid.append([])
-            grid_divider.append(False)
-        grid_row = grid[gi]
-        if is_div:
-            # 分隔行：把文本填进第 0 列，渲染时只输出它
-            _set(grid_row, 0, cells[0][0])
-            grid_divider[gi] = True
-            gi += 1
-            continue
-        covered: set[int] = set()
-        # 1) 放 carry（上方 rowspan 下沉进来的）
-        for col, val in carries.get(gi, {}).items():
-            _set(grid_row, col, val)
-            covered.add(col)
-        # 2) 放本行实际发射的单元格
-        for text, rs, cs in cells:
-            col = 0
-            while col in covered:
-                col += 1
-            for j in range(cs):
-                _set(grid_row, col + j, text)
-                covered.add(col + j)
-            # rowspan>1：下沉到下方 rs-1 行的同一批列
-            for k in range(1, rs):
-                for j in range(cs):
-                    carries.setdefault(gi + k, {})[col + j] = text
-        gi += 1
-
-    # 渲染：分隔行只输出文本；普通行用「 | 」连接。
-    out_lines: list[str] = []
-    for gr, is_div in zip(grid, grid_divider):
-        if is_div:
-            out_lines.append((gr[0] if gr and gr[0] else "").strip())
-            continue
-        vals = [(gr[c] if c < len(gr) and gr[c] is not None else "") for c in range(ncols)]
-        out_lines.append(" | ".join(vals).rstrip(" |"))
-    return "\n".join(out_lines)
+    from .table_structure import table_text
+    return table_text(table_html)
 
 
 def _md_for_embedding(md: str) -> str:
@@ -562,31 +476,28 @@ class WeMMEmbeddings:
 
 def _embeddings():
     e = embedding_settings()
-    if is_wemm(e["model"]):
+    if is_wemm(e["model"]) and not e["base_url"].rstrip("/").endswith("/v1"):
         if not e["base_url"]:
             raise ValueError("WeMM 向量服务未配置 Base URL。")
         return WeMMEmbeddings(base_url=e["base_url"], dimensions=e["dimensions"])
 
     from langchain_openai import OpenAIEmbeddings
 
-    # 云端 embedding API 普遍限制单请求条数（SiliconFlow 等），langchain 默认
-    # 一次发 1000 条会 4xx。本地/内网服务无此限制，用大批量省往返。
-    host = (urlsplit(e["base_url"]).hostname or "")
-    is_local = (
-        host in ("localhost", "::1")
-        or host.startswith("127.")
-        or host.startswith("192.168.")
-        or host.startswith("10.")
-        or re.match(r"^172\.(1[6-9]|2\d|3[01])\.", host or "") is not None
-    )
+    # Batch capacity is a service contract, not a property of a loopback URL.
+    batch_size = int(getattr(settings, 'EMBEDDING_BATCH_SIZE', 16))
+    if not 1 <= batch_size <= 32:
+        raise ValueError('EMBEDDING_BATCH_SIZE 必须在 1–32 范围内')
     return OpenAIEmbeddings(
         model=e["model"],
+        dimensions=e["dimensions"],
         # Ollama's OpenAI-compatible API does not need authentication, but the
         # OpenAI SDK still requires a non-empty value when constructing it.
         api_key=e["api_key"] or "local-no-key",
         base_url=e["base_url"],
         check_embedding_ctx_length=False,
-        chunk_size=1000 if is_local else 64,
+        chunk_size=batch_size,
+        request_timeout=45,
+        max_retries=0,
     )
 
 
@@ -969,6 +880,8 @@ def run_indexing(md_content: str, kb_slug: str, source_name: str, doc_id=None,
     （ChunkProvenance，证据面板与「第 N 页」引用的数据源）。
     """
     clean_md = _md_for_embedding(md_content)
+    if md_content.strip() and not clean_md.strip():
+        raise ValueError("解析内容清洗后为空，停止索引，请核对原文")
     chunks = _section_aware_chunk(clean_md, source_name)
     if not chunks and not doc_id:
         return 0
@@ -1084,6 +997,9 @@ def process_document(doc_id: str) -> None:
         doc.stage_detail = "开始 OCR…"
         doc.save(update_fields=["status", "stage_detail", "updated_at"])
         md, images, content_list = run_ocr_with_images(file_path, doc.file_type, on_progress=update_stage)
+        # 在模型调用前保存版面数据，嵌入失败后仍可恢复原文定位。
+        from .provenance import persist_content_list
+        persist_content_list(doc.id, content_list)
         try:
             n_img = save_doc_images(doc.id, images)
         except Exception:

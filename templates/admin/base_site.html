@@ -1,0 +1,12 @@
+{% extends "admin/base.html" %}
+
+{% block title %}{{ title }} | Django 管理后台{% endblock %}
+
+{% block branding %}
+<div id="site-name"><a href="{% url 'admin:index' %}">Django 管理后台</a></div>
+{% endblock %}
+
+{% block userlinks %}
+<a href="/" style="display:inline-block;padding:6px 12px;border:1px solid currentColor;border-radius:5px;font-weight:600;margin-right:10px">← 一键返回业务首页</a>
+{{ block.super }}
+{% endblock %}

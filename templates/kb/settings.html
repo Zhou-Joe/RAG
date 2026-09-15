@@ -2,6 +2,8 @@
 {% block title %}站点配置 · SHDR RAG{% endblock %}
 {% block content %}
 <h1>站点配置</h1>
+<button type="button" class="btn primary" data-test="all">一键全部测试</button>
+<p>测试当前已保存配置；结果仅代表本次检测，不代表模型一直运行。健康检查不会标为推理成功。</p>
 
 
 <!-- 当前生效配置（JSON）：AJAX 刷新会连内容区一起替换，弹窗每次打开实时读取，
@@ -322,21 +324,32 @@ document.addEventListener('click', async (e) => {
     panel.hidden = false;
     out.innerHTML = '<span class="spinner"></span> 测试中…（使用已保存配置）';
     panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+    const buttons = document.querySelectorAll('[data-test]');
+    buttons.forEach(b => b.disabled = true);
     try {
+      const targets = testBtn.dataset.test === 'all' ? ['llm','embedding','rerank','mineru'] : [testBtn.dataset.test];
+      out.textContent = '';
+      for (const target of targets){
+      const pending = document.createElement('div'); pending.textContent = (CAT_LABEL[target] || target) + '：测试中…'; out.appendChild(pending);
       const fd = new FormData();
       fd.set('csrfmiddlewaretoken', CSRF);
-      fd.set('target', testBtn.dataset.test);
-      const data = await fetchJSON('/kb/settings/test/', {method:'POST', body:fd});
+      fd.set('target', target);
+      let data;
+      try { data = await fetchJSON('/kb/settings/test/', {method:'POST', body:fd}); }
+      catch (ex) { pending.textContent = (CAT_LABEL[target] || target) + '：请求失败 ' + ex; continue; }
       let html = '';
       for (const [k, v] of Object.entries(data.results || {})){
-        const color = v.ok ? 'var(--ok)' : 'var(--danger)';
+        const color = v.ok === true ? 'var(--ok)' : 'var(--danger)';
         html += `<div style="padding:8px 0;border-bottom:1px solid var(--rule-soft)">
-          <span style="color:${color};font-weight:600">${(CAT_LABEL[k]||k.toUpperCase())} ${v.ok?'✓ OK':'✗ FAIL'}</span>
+          <span style="color:${color};font-weight:600">${(CAT_LABEL[k]||k.toUpperCase())} ${v.ok === true ? (v.warning ? '✓ 服务正常 · 索引待处理' : '✓ OK') : v.ok === null ? '△ 待确认' : '✗ 失败'}</span>
           <span style="color:var(--mute);margin-left:8px">${v.status?('HTTP '+v.status):''}</span>
           <div style="color:var(--mute);margin-top:2px">${(v.detail||'').replace(/</g,'&lt;')}</div></div>`;
       }
-      out.innerHTML = html || '(无结果)';
-    } catch(ex){ out.textContent = '请求失败：' + ex; }
+      pending.innerHTML = html || '(无结果)';
+      }
+      out.appendChild(document.createTextNode('检测完成：' + new Date().toLocaleString()));
+    } catch(ex){ out.appendChild(document.createTextNode('请求失败：' + ex)); }
+    finally { buttons.forEach(b => b.disabled = false); }
     return;
   }
 

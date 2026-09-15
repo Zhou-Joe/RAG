@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from .models import Document, EvalQuestion, KnowledgeBase
-from .retriever import search
+from .retriever import search_folder
 
 TOP_K = 5
 
@@ -42,34 +42,19 @@ def run_eval(top_k: int = TOP_K) -> dict:
     scored = hit1 = hit3 = 0
     for q in EvalQuestion.objects.all():
         rows = []
-        # 每个问题只嵌一次查询向量（此前每库重复嵌入，Q×L 次远程调用）
-        q_emb = None
-        try:
-            from .pipeline import _embeddings
-            q_emb = _embeddings().embed_query(q.question)
-        except Exception:
-            pass
-        for lib in libs:
-            try:
-                results = search(lib.slug, q.question, k=top_k, query_embedding=q_emb)
-            except Exception as e:
-                results = [{"text": f"(检索失败: {e})", "source": "", "section": "",
-                            "score": 0, "via": "err", "doc_id": ""}]
-            for r in results:
-                rows.append({
-                    "kb": lib.name, "kb_slug": lib.slug,
-                    "via": r.get("via", ""), "source": r.get("source", ""),
-                    "section": r.get("section", ""), "score": round(r.get("score", 0), 4),
-                    "text": (r.get("text") or "")[:160].replace("\n", " "),
-                    "rr": r.get("rerank_score"),  # 精排分（启用时与排序一致）
-                    "hit": _hit(r, q),
-                })
-        # 命中名次 = 命中行之前同库行数 + 1（每库独立排名）
-        rank_hit = None
-        for i, row in enumerate(rows):
-            if row["hit"]:
-                rank_hit = sum(1 for x in rows[:i + 1] if x["kb"] == row["kb"])
-                break
+        # 与实际跨库检索相同的融合排名，不能把各库第一名都算作全局第一名。
+        results = search_folder([lib.slug for lib in libs], q.question, k=top_k)
+        names = {lib.slug: lib.name for lib in libs}
+        for rank, r in enumerate(results, 1):
+            slug = r.get("kb_slug", "")
+            rows.append({
+                "rank": rank, "kb": names.get(slug, slug), "kb_slug": slug,
+                "via": r.get("via", ""), "source": r.get("source", ""),
+                "section": r.get("section", ""), "score": round(r.get("score", 0), 4),
+                "text": (r.get("text") or "")[:160].replace("\n", " "),
+                "rr": r.get("rerank_score"), "hit": _hit(r, q),
+            })
+        rank_hit = next((r["rank"] for r in rows if r["hit"]), None)
         has_expectation = bool(q.expected_source or q.expected_keyword)
         if has_expectation:
             scored += 1

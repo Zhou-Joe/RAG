@@ -2,6 +2,7 @@
 {% load static %}
 {% block title %}智能问答 · SHDR RAG{% endblock %}
 {% block content %}
+{{ pyodide_index_url|json_script:"pyodideIndexURL" }}
 <div class="qa-layout">
   <!-- 左侧：会话历史（手机上收进抽屉） -->
   <div class="conv-scrim" id="convScrim"></div>
@@ -41,6 +42,7 @@
       <div class="composer">
         <textarea id="input" rows="1"></textarea>
         <button class="btn primary" id="sendBtn">发送</button>
+        <button class="btn outline" id="stopBtn" type="button" style="display:none" hidden>停止回答</button>
       </div>
       <div class="composer-hint">Enter 发送 · Shift+Enter 换行</div>
     </div>
@@ -52,6 +54,8 @@
 <script src="{% static 'js/vendor/marked.min.js' %}"></script>
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
 <script src="{% static 'js/evidence_panel.js' %}"></script>
+<script src="{% static 'js/chat_input.js' %}"></script>
+<script src="{% static 'js/chat_stream.js' %}"></script>
 <script src="{% static 'js/vendor/jspdf.umd.min.js' %}" defer></script>
 <script src="{% static 'js/vendor/jspdf.plugin.autotable.min.js' %}" defer></script>
 <script>
@@ -264,11 +268,7 @@ pd.DataFrame.to_excel = _patched_to_excel
   // Enter 发送：桌面快捷键。两个例外——中文输入法选词的 Enter（isComposing）
   // 不能触发发送；触屏设备 Enter 一律换行（虚拟键盘上误触率高，发送走按钮）。
   const coarsePtr = window.matchMedia('(hover: none), (pointer: coarse)').matches;
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !coarsePtr) {
-      e.preventDefault(); submit();
-    }
-  });
+  FosChatInput.bind(input, submit, () => performance.now(), () => !coarsePtr);
   sendBtn.addEventListener('click', submit);
   // 输入框随内容自动增高（2 行起步，最高约 5 行）
   const autogrow = () => {
@@ -385,13 +385,13 @@ pd.DataFrame.to_excel = _patched_to_excel
       if (!window.loadPyodide){
         await new Promise((resolve, reject) => {
           const s = document.createElement('script');
-          s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
+          s.src = JSON.parse(document.getElementById("pyodideIndexURL").textContent) + "pyodide.js";
           s.onload = resolve; s.onerror = () => reject(new Error('Pyodide 运行时下载失败（检查网络）'));
           document.head.appendChild(s);
         });
       }
       onProgress && onProgress('初始化 Pyodide…');
-      const py = await window.loadPyodide();
+      const py = await window.loadPyodide({indexURL: JSON.parse(document.getElementById("pyodideIndexURL").textContent)});
       // 预装全部数据分析依赖：pandas/numpy/matplotlib（页面加载时后台预热，用户首次分析/画图即用）
       onProgress && onProgress('加载 pandas/numpy/matplotlib…（约 40MB）');
       await py.loadPackage(["pandas", "numpy", "matplotlib"]);
@@ -499,6 +499,20 @@ pd.DataFrame.to_excel = _patched_to_excel
 
   /* ---------- 会话状态：稳定的 thread_id（同一会话内复用） ---------- */
   let currentThreadId = '';   // 当前会话的 thread_id；空表示新对话（首次发送时生成）
+  let activeTurn = null;
+  let historyRevision = 0;
+  const stopBtn = document.getElementById('stopBtn');
+  function cancelCurrentTurn() {
+    if (activeTurn) activeTurn.abort();
+    activeTurn = null;
+    busy = false;
+    sendBtn.disabled = false;
+    stopBtn.hidden = true; stopBtn.style.display = 'none';
+  }
+  stopBtn.addEventListener('click', () => {
+    if (activeTurn) activeTurn.abort();
+  });
+  window.addEventListener('pagehide', cancelCurrentTurn);
   const convTitleEl = document.getElementById('convTitle');
   // 当前会话累计 token 用量（输入/输出），跨多轮累加；切会话/新建时重置
   let sessionTokens = { in: 0, out: 0 };
@@ -532,6 +546,8 @@ pd.DataFrame.to_excel = _patched_to_excel
 
   function genThreadId(){ return 't_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
   function newConversation(){
+    cancelCurrentTurn();
+    historyRevision++;
     currentThreadId = genThreadId();   // 预生成；服务端 get_or_create 时落地
     sessionTokens = { in: 0, out: 0 };
     sessionMax = { in: 0, out: 0 };
@@ -603,6 +619,8 @@ pd.DataFrame.to_excel = _patched_to_excel
       // 点击删除按钮时不触发加载会话
       if (e.target.closest('.conv-del')) return;
       e.preventDefault();
+      cancelCurrentTurn();
+      const revision = ++historyRevision;
       const thread = el.dataset.thread;
       currentThreadId = thread;
       sessionTokens = { in: 0, out: 0 };  // 切换会话重置计数
@@ -613,7 +631,9 @@ pd.DataFrame.to_excel = _patched_to_excel
       // 拉取历史消息
       try {
         const r = await fetch('/kb/conv/' + encodeURIComponent(thread) + '/messages/');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         const data = await r.json();
+        if (revision !== historyRevision || thread !== currentThreadId) return;
         if (data.kb_slug) { /* no dropdown anymore; agent picks KB automatically */ }
         if (convTitleEl) convTitleEl.textContent = data.title || '';
         messages.innerHTML = '';
@@ -635,7 +655,8 @@ pd.DataFrame.to_excel = _patched_to_excel
         }
         messages.scrollTop = messages.scrollHeight;
       } catch(err) {
-        messages.innerHTML = AI_WHO + '<div class="msg ai"><div class="bubble"><div class="answer">加载历史失败：' + err + '</div></div></div>';
+        if (revision !== historyRevision || thread !== currentThreadId) return;
+        messages.textContent = '加载历史失败：' + (err.message || err);
       }
     });
   });
@@ -689,7 +710,7 @@ pd.DataFrame.to_excel = _patched_to_excel
         b.innerHTML = '📄 ' + name + badge + ' ' + pageTags;
         b.title = '查看证据定位：' + chunks.slice(0, 4).map(ch => ch.page).join('、');
         b.addEventListener('click', () => {
-          if (window.fosEvidencePanel) window.fosEvidencePanel(chunks[0].chunk_id);
+          if (window.fosEvidencePanel) window.fosEvidencePanel(chunks[0].chunk_id, {chunks});
         });
         row.appendChild(b);
         shown++;
@@ -733,7 +754,9 @@ pd.DataFrame.to_excel = _patched_to_excel
     if (!text || busy) return;
     if (!currentThreadId) currentThreadId = genThreadId();
     input.value = '';
-    busy = true; sendBtn.disabled = true;
+    busy = true; sendBtn.disabled = true; stopBtn.hidden = false; stopBtn.style.display = '';
+    historyRevision++;
+    const submittedThread = currentThreadId;
 
     // user msg
     const um = document.createElement('div'); um.className = 'msg user';
@@ -746,6 +769,11 @@ pd.DataFrame.to_excel = _patched_to_excel
     messages.appendChild(am);
     const answerEl = am.querySelector('.answer');
     const toolArea = am.querySelector('.tool-area');
+    const progressEl = document.createElement('div');
+    progressEl.className = 'tool-status turn-progress';
+    progressEl.setAttribute('role', 'status');
+    progressEl.textContent = '正在准备问答…';
+    toolArea.appendChild(progressEl);
     const toolRows = {};  // run_id -> 状态行元素
     let firstToken = true;
     let turnCitations = [];  // 本轮检索的来源出处（citations 事件累积）
@@ -754,7 +782,7 @@ pd.DataFrame.to_excel = _patched_to_excel
     const url = '/kb/stream/';
     const body = new URLSearchParams({
       message: text,
-      thread_id: currentThreadId,
+      thread_id: submittedThread,
     });
 
     let mdBuffer = '';
@@ -820,140 +848,128 @@ pd.DataFrame.to_excel = _patched_to_excel
       else if (p.status === 'skip') setPipe(p.stage, 'skip', p.detail || '跳过');
     }
 
+    const stream = FosChatStream.create({onEvent(etype, payload) {
+      if (activeTurn !== stream || currentThreadId !== submittedThread) return;
+      if (etype === 'heartbeat') {
+        const seconds = Number(payload.elapsed);
+        const elapsed = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+        progressEl.textContent = String(payload.stage || '正在处理问答') + '… 已等待 ' + elapsed + ' 秒';
+      } else if (etype === 'token') {
+        // 首个 token 到达 → 收起工具状态行（淡出但保留，让用户看到做过什么）
+        if (firstToken) {
+          firstToken = false;
+          answerEl.classList.remove('thinking');
+          Object.values(toolRows).forEach(markDone);
+        }
+        mdBuffer += payload.text || ''; renderMd();
+      } else if (etype === 'reasoning') {
+        // 可选：把简短的思考作为工具区提示（同样：进行中转圈 → 后续动作开始/首个回答 token 打勾）
+        const rtxt = (payload.text || '').trim().split('\n')[0];
+        if (rtxt) {
+          const r = document.createElement('div');
+          r.className = 'tool-status';
+          r.innerHTML = '<span class="ts-spin"></span><span class="ts-label">' + rtxt.replace(/</g,'&lt;').slice(0,80) + '</span>';
+          toolArea.appendChild(r);
+          const rid = 'think-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+          toolRows[rid] = r;
+          pendingThink.push(r);
+          messages.scrollTop = messages.scrollHeight;
+        }
+      } else if (etype === 'tool_start') {
+        // 思考结束、动作开始：给前面的思考行打勾
+        pendingThink.forEach(markDone);
+        pendingThink.length = 0;
+        // 新增一行：转圈 + 可读标签
+        const row = document.createElement('div');
+        row.className = 'tool-status';
+        row.dataset.run = payload.run_id || '';
+        const label = payload.label || '调用工具…';
+        row.innerHTML = '<span class="ts-spin"></span>' +
+                        '<span class="ts-label">' + label.replace(/</g,'&lt;') + '</span>';
+        toolArea.appendChild(row);
+        if (payload.run_id) toolRows[payload.run_id] = row;
+        messages.scrollTop = messages.scrollHeight;
+      } else if (etype === 'tool_end') {
+        // 标记该行完成（打勾、去转圈）
+        markDone(toolRows[payload.run_id]);
+      } else if (etype === 'code_run') {
+        // 在浏览器 Pyodide 沙箱执行 agent 生成的代码
+        renderMd();
+        runCodeInSandbox(payload.code || '', payload.filename || 'analysis.xlsx', am);
+      } else if (etype === 'citations') {
+        // 累积本轮来源出处（流结束后渲染可点击链接）
+        turnCitations = turnCitations.concat(payload.citations || []);
+      } else if (etype === 'step') {
+        // 管线阶段（问题理解/检索/生成/核对）
+        handleStep(payload);
+      } else if (etype === 'verify') {
+        // 核实结论三态：fail → 拒答展示；warn → 黄条提示（附带信息未核实）；pass → 绿徽标
+        if (payload.ok === false) {
+          answerEl.classList.remove('thinking');
+          const bubble = am.querySelector('.bubble');
+          const card = document.createElement('div');
+          card.className = 'verify-refused';
+          const issues = (payload.issues || []).map(t =>
+            '<li>' + String(t).replace(/</g, '&lt;') + '</li>').join('');
+          card.innerHTML = '<div class="vr-title">⚠ 本次未能形成已核实的结论</div>' +
+            (issues ? '<ul class="vr-issues">' + issues + '</ul>' : '');
+          bubble.insertBefore(card, answerEl);
+          answerEl.textContent = '';
+          answerEl.style.display = '';
+          messages.scrollTop = messages.scrollHeight;
+        } else {
+          const vb = document.createElement('div');
+          const warns = payload.warn || [];
+          if (warns.length) {
+            vb.className = 'verify-warn-badge';
+            vb.textContent = '✓ 核心结论已核实 · 附带信息未核实：' +
+              warns.slice(0, 2).join('；');
+          } else {
+            vb.className = 'verify-ok-badge';
+            vb.textContent = '✓ 结论已对照检索证据核实';
+          }
+          am.querySelector('.bubble').appendChild(vb);
+        }
+      } else if (etype === 'usage') {
+        // 累加本轮 token 用量到会话总数，并更新顶部显示
+        sessionTokens.in += parseInt(payload.input_tokens) || 0;
+        sessionTokens.out += parseInt(payload.output_tokens) || 0;
+        // 单次 LLM 调用最大值（取本轮最大与会话记录的较大者）
+        const mi = parseInt(payload.max_input_tokens) || 0;
+        const mo = parseInt(payload.max_output_tokens) || 0;
+        if (mi > sessionMax.in) sessionMax.in = mi;
+        if (mo > sessionMax.out) sessionMax.out = mo;
+        renderTokenUsage();
+      }
+    }});
+    activeTurn = stream;
     try {
-      const resp = await fetch(url, {
+      await stream.run(url, {
         method: 'POST',
         headers: { 'X-CSRFToken': getCSRFToken() },
         body,
       });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf('\n\n')) >= 0) {
-          const frame = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          let etype = '', data = '{}';
-          frame.split('\n').forEach(l => {
-            if (l.startsWith('event:')) etype = l.slice(6).trim();
-            if (l.startsWith('data:')) data = l.slice(5).trim();
-          });
-          let payload = {};
-          try { payload = JSON.parse(data); } catch(e) {}
-
-          if (etype === 'token') {
-            // 首个 token 到达 → 收起工具状态行（淡出但保留，让用户看到做过什么）
-            if (firstToken) {
-              firstToken = false;
-              answerEl.classList.remove('thinking');
-              Object.values(toolRows).forEach(markDone);
-            }
-            mdBuffer += payload.text || ''; renderMd();
-          } else if (etype === 'reasoning') {
-            // 可选：把简短的思考作为工具区提示（同样：进行中转圈 → 后续动作开始/首个回答 token 打勾）
-            const rtxt = (payload.text || '').trim().split('\n')[0];
-            if (rtxt) {
-              const r = document.createElement('div');
-              r.className = 'tool-status';
-              r.innerHTML = '<span class="ts-spin"></span><span class="ts-label">' + rtxt.replace(/</g,'&lt;').slice(0,80) + '</span>';
-              toolArea.appendChild(r);
-              const rid = 'think-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-              toolRows[rid] = r;
-              pendingThink.push(r);
-              messages.scrollTop = messages.scrollHeight;
-            }
-          } else if (etype === 'tool_start') {
-            // 思考结束、动作开始：给前面的思考行打勾
-            pendingThink.forEach(markDone);
-            pendingThink.length = 0;
-            // 新增一行：转圈 + 可读标签
-            const row = document.createElement('div');
-            row.className = 'tool-status';
-            row.dataset.run = payload.run_id || '';
-            const label = payload.label || '调用工具…';
-            row.innerHTML = '<span class="ts-spin"></span>' +
-                            '<span class="ts-label">' + label.replace(/</g,'&lt;') + '</span>';
-            toolArea.appendChild(row);
-            if (payload.run_id) toolRows[payload.run_id] = row;
-            messages.scrollTop = messages.scrollHeight;
-          } else if (etype === 'tool_end') {
-            // 标记该行完成（打勾、去转圈）
-            markDone(toolRows[payload.run_id]);
-          } else if (etype === 'code_run') {
-            // 在浏览器 Pyodide 沙箱执行 agent 生成的代码
-            renderMd();
-            runCodeInSandbox(payload.code || '', payload.filename || 'analysis.xlsx', am);
-          } else if (etype === 'error') {
-            answerEl.classList.remove('thinking');
-            renderMd();
-            const err = document.createElement('div');
-            err.style.cssText = 'color:var(--red);font-family:var(--fm);font-size:12px;margin-top:8px';
-            err.textContent = '错误：' + (payload.message || '未知错误');
-            am.querySelector('.bubble').appendChild(err);
-          } else if (etype === 'citations') {
-            // 累积本轮来源出处（流结束后渲染可点击链接）
-            turnCitations = turnCitations.concat(payload.citations || []);
-          } else if (etype === 'step') {
-            // 管线阶段（问题理解/检索/生成/核对）
-            handleStep(payload);
-          } else if (etype === 'verify') {
-            // 核实结论三态：fail → 拒答展示；warn → 黄条提示（附带信息未核实）；pass → 绿徽标
-            if (payload.ok === false) {
-              answerEl.classList.remove('thinking');
-              const bubble = am.querySelector('.bubble');
-              const card = document.createElement('div');
-              card.className = 'verify-refused';
-              const issues = (payload.issues || []).map(t =>
-                '<li>' + String(t).replace(/</g, '&lt;') + '</li>').join('');
-              card.innerHTML = '<div class="vr-title">⚠ 本次未能形成已核实的结论</div>' +
-                (issues ? '<ul class="vr-issues">' + issues + '</ul>' : '') +
-                '<details class="vr-draft"><summary>查看未核实草稿（仅供参考）</summary><div class="vr-body"></div></details>';
-              bubble.insertBefore(card, answerEl);
-              card.querySelector('.vr-body').appendChild(answerEl);
-              answerEl.style.display = '';
-              messages.scrollTop = messages.scrollHeight;
-            } else {
-              const vb = document.createElement('div');
-              const warns = payload.warn || [];
-              if (warns.length) {
-                vb.className = 'verify-warn-badge';
-                vb.textContent = '✓ 核心结论已核实 · 附带信息未核实：' +
-                  warns.slice(0, 2).join('；');
-              } else {
-                vb.className = 'verify-ok-badge';
-                vb.textContent = '✓ 结论已对照检索证据核实';
-              }
-              am.querySelector('.bubble').appendChild(vb);
-            }
-          } else if (etype === 'usage') {
-            // 累加本轮 token 用量到会话总数，并更新顶部显示
-            sessionTokens.in += parseInt(payload.input_tokens) || 0;
-            sessionTokens.out += parseInt(payload.output_tokens) || 0;
-            // 单次 LLM 调用最大值（取本轮最大与会话记录的较大者）
-            const mi = parseInt(payload.max_input_tokens) || 0;
-            const mo = parseInt(payload.max_output_tokens) || 0;
-            if (mi > sessionMax.in) sessionMax.in = mi;
-            if (mo > sessionMax.out) sessionMax.out = mo;
-            renderTokenUsage();
-          }
-        }
-      }
-      renderMd();
+      if (activeTurn === stream) renderMd();
     } catch(e) {
-      answerEl.classList.remove('thinking');
-      answerEl.innerHTML = '<span style="color:var(--red)">连接失败：' + (e.message||e) + '</span>';
+      if (activeTurn !== stream || currentThreadId !== submittedThread) return;
+      renderMd();
+      const err = document.createElement('div');
+      err.setAttribute('role', 'alert');
+      err.style.cssText = 'color:var(--red);font-size:13px;margin-top:8px';
+      err.textContent = '本次回答未完成：' + (e.message || e);
+      am.querySelector('.bubble').appendChild(err);
     } finally {
-      busy = false; sendBtn.disabled = false;
-      // 渲染来源出处链接（每条 → 文档查看页，新标签打开 + 高亮片段）
-      if (turnCitations.length) renderCitations(am, turnCitations);
-      // 新会话首条消息后，把它加入侧边栏列表
-      if (currentThreadId && !document.querySelector('.conv-item[data-thread="'+currentThreadId+'"]')) {
-        addConvItem(currentThreadId, text.slice(0,30), '');
+      progressEl.remove();
+      if (activeTurn === stream) {
+        activeTurn = null;
+        busy = false; sendBtn.disabled = false; stopBtn.hidden = true; stopBtn.style.display = 'none';
+        answerEl.classList.remove('thinking');
+        toolArea.querySelectorAll('.ts-spin').forEach(el => el.remove());
+        toolArea.querySelectorAll('.pipe-chip.run').forEach(el => el.classList.remove('run'));
+        if (turnCitations.length) renderCitations(am, turnCitations);
+        if (!document.querySelector('.conv-item[data-thread="'+submittedThread+'"]')) {
+          addConvItem(submittedThread, text.slice(0,30), '');
+        }
       }
     }
   }
