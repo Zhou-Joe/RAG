@@ -10,6 +10,7 @@ data/
 media/
 logs/
 staticfiles/
+static/vendor/pyodide/
 *.sqlite3
 output/
 .workbuddy/

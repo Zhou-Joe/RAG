@@ -457,7 +457,7 @@ class Conversation(models.Model):
 
 class Message(models.Model):
     """会话内的一条消息（用户/助手），用于 UI 渲染历史。
-    agent 的上下文记忆由 checkpointer 维护；这里仅为前端展示。
+    仅已完成回复保存为 AI 消息；下轮从此处取有界历史，不重放旧工具状态。
     """
 
     class Role(models.TextChoices):
@@ -471,6 +471,7 @@ class Message(models.Model):
     content = models.TextField("内容")
     # AI 消息引用的来源出处（每条含 doc_id/source/highlights），供前端渲染可点击链接
     citations = models.JSONField("来源出处", default=list, blank=True)
+    verified = models.BooleanField("已核对发布", default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

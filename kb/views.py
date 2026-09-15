@@ -797,7 +797,8 @@ def doc_image(request, doc_id, name):
         ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     }.get(p.suffix.lower(), "application/octet-stream")
     resp = FileResponse(p.open("rb"), content_type=mime)
-    resp["Cache-Control"] = "private, max-age=86400"
+    resp["Cache-Control"] = "private, no-store"
+    resp["X-Content-Type-Options"] = "nosniff"
     return resp
 
 
@@ -877,6 +878,9 @@ def evidence_preview(request, chunk_id):
         "pages": [prov.page_start, prov.page_end],
         "page_label": prov.page_label(),
         "blocks": prov.blocks,
+        "source_pages": sorted({b["page"] for b in prov.blocks
+                                if isinstance(b, dict) and type(b.get("page")) is int}),
+        "location_precision": "region",
         "has_pdf": has_pdf,
         "quote": get_chunk_text(prov.kb_slug, prov.chunk_id)[:800],
     })
@@ -902,23 +906,34 @@ def evidence_page_png(request, chunk_id):
         try:
             import pymupdf  # PyMuPDF ≥1.28 的推荐导入名
         except ImportError:
-            import pymupdf as fitz  # noqa: F401 —— 旧版本包名 fitz
+            import fitz as pymupdf  # 兼容旧版本导入名
     except ImportError:
         return HttpResponse("服务端未安装 PyMuPDF，无法渲染原页", status=503)
 
     try:
         page_no = int(request.GET.get("page", prov.page_start))
     except (TypeError, ValueError):
-        page_no = prov.page_start
+        return HttpResponse("无效页码", status=400)
+    source_pages = {b.get("page") for b in prov.blocks if isinstance(b, dict)}
+    if not source_pages:
+        source_pages = set(range(prov.page_start, prov.page_end + 1))
+    if page_no < 0 or page_no not in source_pages:
+        raise Http404("该页不属于此证据")
     try:
         with pymupdf.open(pdf_path) as pdf:
-            page_no = max(0, min(page_no, pdf.page_count - 1))
-            pix = pdf[page_no].get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
+            if page_no >= pdf.page_count:
+                raise Http404("证据页码与原文不一致，请重新建立定位")
+            page = pdf[page_no]
+            scale = min(2.0, 2400 / max(page.rect.width, page.rect.height, 1))
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
             data = pix.tobytes("png")
-    except Exception as e:
-        return HttpResponse(f"渲染失败：{str(e)[:120]}", status=500)
+    except Http404:
+        raise
+    except Exception:
+        return HttpResponse("原页渲染失败，请检查原文或重新建立定位", status=500)
     resp = HttpResponse(data, content_type="image/png")
-    resp["Cache-Control"] = "private, max-age=86400"
+    resp["Cache-Control"] = "private, no-store"
+    resp["X-Content-Type-Options"] = "nosniff"
     return resp
 
 
@@ -1018,6 +1033,7 @@ def ask(request):
         .select_related("kb").only("id", "title", "thread_id", "kb__name", "updated_at", "created_at")
     )
     return render(request, "kb/ask.html", {
+        "pyodide_index_url": settings.PYODIDE_INDEX_URL,
         "conversations": conversations,
         "active_thread": request.GET.get("conv", ""),
     })
@@ -1135,11 +1151,24 @@ async def chat_stream(request):
         if not kb_access.kb_accessible(request.user, conv.kb):
             conv.kb = kb
             conv.save(update_fields=["kb", "updated_at"])
+        # Enhanced turns rebuild memory from published messages, never failed checkpoints.
+        from .publication import visible_citations
+        current_llm = llm_settings()
+        # Keep recent completed turns only; never replay accumulated tool outputs
+        # or resume a cancelled LangGraph checkpoint on the next question.
+        from .history import recent_history
+        published_history = recent_history(
+            list(conv.messages.order_by("-created_at")[:24])[::-1],
+            enhanced=current_llm.get("qa_enhance", False),
+            visible=lambda citations: visible_citations(citations, request.user),
+        )
         # 记录用户消息
         Message.objects.create(conversation=conv, role=Message.Role.USER, content=message)
         conv.save(update_fields=["updated_at"])  # 刷新排序
         cfg = {
-            "llm": llm_settings(),
+            "llm": current_llm,
+            "published_history": published_history,
+            "user_id": request.user.id,
             "top_k": retrieval_settings()["top_k"],
             "department": user_dept,
             # _prepare 已解析出的可访问默认库（async 流里不能查库，故在此带回）
@@ -1157,43 +1186,42 @@ async def chat_stream(request):
     full_thread = conv.thread_id  # 会话的稳定 thread_id（直接用作 checkpointer key）
 
     async def event_stream():
-        # 收集 AI 回复文本 + 来源出处，流结束后落库
-        ai_chunks: list[str] = []
-        turn_citations: list[dict] = []
-        turn_verify: dict | None = None
+        from .streaming import bounded_events
+        ai_chunks = []
+        turn_citations = []
+        turn_verify = None
+        failed = False
+        effective_kb_slug = agent_config.get("effective_kb_slug") or conv.kb.slug
         try:
-            # When the UI leaves kb_slug empty, _prepare() has already chosen
-            # the best accessible KB (department-filtered) and stored it on the
-            # conversation.  Pass that effective slug to the agent instead of
-            # an empty string, or its default kb_search scope becomes invalid
-            # and a small local model may guess an unrelated library.
-            effective_kb_slug = agent_config.get("effective_kb_slug") or conv.kb.slug
-            async for event_type, payload in run_agent_stream(
+            from contextlib import aclosing
+            async with aclosing(bounded_events(run_agent_stream(
                 message, full_thread, effective_kb_slug, agent_config,
-            ):
-                if event_type == "token":
-                    ai_chunks.append(payload.get("text", ""))
-                elif event_type == "citations":
-                    turn_citations.extend(payload.get("citations") or [])
-                elif event_type == "verify":
-                    turn_verify = payload
-                data = json.dumps(payload, ensure_ascii=False)
-                yield f"event: {event_type}\ndata: {data}\n\n"
-            yield "event: done\ndata: {}\n\n"
-        finally:
-            ai_text = "".join(ai_chunks).strip()
-            if turn_verify and turn_verify.get("ok") is False:
-                # 未通过核实：历史里保留原稿但打上标记（与前端拒答展示一致）
-                issues = "；".join(turn_verify.get("issues") or []) or "存在未核实结论"
-                ai_text = f"> ⚠ 本回答未通过证据核实（{issues}），仅供参考。\n\n{ai_text}"
-            elif turn_verify and turn_verify.get("warn"):
-                warns = "；".join(turn_verify["warn"][:3])
-                ai_text = f"> ⚠ 核心结论已核实；附带信息未核实：{warns}\n\n{ai_text}"
+            ), timeout=settings.QA_TURN_TIMEOUT)) as events:
+                async for event_type, payload in events:
+                    if event_type == "error":
+                        failed = True
+                    elif event_type == "token":
+                        ai_chunks.append(payload.get("text", ""))
+                    elif event_type == "citations":
+                        turn_citations.extend(payload.get("citations") or [])
+                    elif event_type == "verify":
+                        turn_verify = payload
+                    yield f"event: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            ai_text = "".join(ai_chunks).strip() if not failed else ""
+            if agent_config["llm"].get("qa_enhance") and not (turn_verify and turn_verify.get("ok")):
+                ai_text = ""
             if ai_text:
+                # Persist before done: the browser closes its reader upon done.
                 await sync_to_async(Message.objects.create)(
                     conversation=conv, role=Message.Role.AI,
                     content=ai_text, citations=turn_citations,
+                    verified=bool(agent_config["llm"].get("qa_enhance") and turn_verify and turn_verify.get("ok")),
                 )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Answer stream failed thread=%s", full_thread)
+            yield 'event: error\ndata: {"message":"问答服务异常，回答未完成，请重试。"}\n\n'
+        yield "event: done\ndata: {}\n\n"
 
     resp = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
     resp["Cache-Control"] = "no-cache"
@@ -1212,6 +1240,11 @@ def conversation_messages(request, thread_id):
     if not kb_access.kb_accessible(request.user, conv.kb):
         raise Http404("会话不存在")
     msgs = list(conv.messages.order_by("created_at").values("role", "content", "citations"))
+    from .publication import visible_citations
+    for msg in msgs:
+        if msg["role"] == Message.Role.AI and msg["citations"] and not visible_citations(msg["citations"], request.user):
+            msg["content"] = "此回答的来源已不可访问或已变化，请重新检索。"
+            msg["citations"] = []
     return JsonResponse({"thread_id": conv.thread_id, "title": conv.title,
                          "kb_slug": conv.kb.slug, "messages": msgs})
 
@@ -1730,7 +1763,7 @@ def _apply_form_to_cfg(cfg, post, category: str = ""):
 
 @_is_staff
 def settings_test(request):
-    """使用页面当前值实际调用 LLM / Embedding / MinerU。"""
+    """使用已保存配置测试；健康探针与模型推理结果分别标明。"""
     import httpx
     from . import config as cfg_mod
 
@@ -1739,6 +1772,8 @@ def settings_test(request):
 
     target = (request.POST.get("target") or "").strip()
     results = {}
+    if target not in ("", "all", "llm", "embedding", "mineru", "rerank"):
+        return JsonResponse({"error": "未知测试目标"}, status=400)
 
     def _headers(api_key):
         # Local OpenAI-compatible servers generally ignore this placeholder;
@@ -1756,19 +1791,25 @@ def settings_test(request):
                 "model": model,
                 "messages": [{"role": "user", "content": "只回复 OK"}],
                 "temperature": 0,
-                "max_tokens": 8,
+                "max_tokens": 64,
                 "stream": False,
             }
+            payload.update(settings.LLM_EXTRA_BODY)
             r = httpx.post(
                 base_url.rstrip("/") + "/chat/completions",
                 headers=_headers(api_key), json=payload, timeout=60,
             )
             r.raise_for_status()
             body = r.json()
-            if not body.get("choices"):
-                return {"ok": False, "status": r.status_code, "detail": "服务响应中没有 choices。"}
-            return {"ok": True, "status": r.status_code,
-                    "detail": f"真实对话成功（模型：{model}）"}
+            choices = body.get("choices") or []
+            choice = choices[0] if choices else {}
+            content = (choice.get("message") or {}).get("content")
+            if choice.get("finish_reason") != "stop" or not isinstance(content, str) or content.strip().upper() != "OK":
+                return {"ok": False, "status": r.status_code, "detail": "接口有响应，但未完整返回测试答案 OK（可能为空、截断或仅有思考内容）。"}
+            actual = body.get("model") or "未报告"
+            matched = actual == model or actual.rstrip("/").split("/")[-1] == model.rstrip("/").split("/")[-1]
+            return {"ok": True if matched else None, "status": r.status_code,
+                    "detail": f"实际推理通过；请求模型：{model}；服务返回模型：{actual}。" + ("" if matched else "模型名不一致或未报告，不能确认指定模型已启动；请核对代理映射。")}
         except Exception as e:
             status = getattr(getattr(e, "response", None), "status_code", None)
             return {"ok": False, "status": status, "detail": "调用失败：" + str(e)[:160]}
@@ -1782,7 +1823,7 @@ def settings_test(request):
                 return {"ok": False, "status": None, "detail": "请填写向量模型 Base URL。"}
             if not model:
                 return {"ok": False, "status": None, "detail": "请填写向量模型名称。"}
-            if is_wemm(model):
+            if is_wemm(model) and not base_url.rstrip("/").endswith("/v1"):
                 # 自托管 WeMM 服务：/embed 协议，空闲自动卸载，冷加载需等模型上卡
                 vec = WeMMEmbeddings(base_url=base_url).embed_query("连接测试")
                 return {"ok": True, "status": 200,
@@ -1790,13 +1831,17 @@ def settings_test(request):
             r = httpx.post(
                 base_url.rstrip("/") + "/embeddings",
                 headers=_headers(api_key),
-                json={"model": model, "input": ["连接测试"]}, timeout=60,
+                json={"model": model, "input": ["连接测试"], **({"dimensions": cfg_mod.embedding_settings()["dimensions"]} if cfg_mod.embedding_settings().get("dimensions") else {})}, timeout=60,
             )
             r.raise_for_status()
             data = r.json().get("data") or []
             vector = data[0].get("embedding") if data else None
-            if not vector:
+            import math
+            expected = cfg_mod.embedding_settings().get("dimensions")
+            if not isinstance(vector, list) or not vector or any(isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x) for x in vector) or not any(vector):
                 return {"ok": False, "status": r.status_code, "detail": "服务没有返回向量。"}
+            if expected and len(vector) != expected:
+                return {"ok": True, "warning": True, "status": r.status_code, "detail": f"向量服务调用成功；索引兼容性警告：配置 {expected} 维，实际 {len(vector)} 维。当前模型不能直接用于旧索引，须按此模型重建索引或恢复原嵌入模型。"}
             return {"ok": True, "status": r.status_code,
                     "detail": f"真实向量生成成功（模型：{model}，维度：{len(vector)}）"}
         except Exception as e:
@@ -1807,7 +1852,7 @@ def settings_test(request):
         try:
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
             r = httpx.get(base_url.rstrip("/") + "/health", headers=headers, timeout=8)
-            return {"ok": 200 <= r.status_code < 400, "status": r.status_code, "detail": r.text[:120]}
+            return {"ok": r.status_code == 200, "status": r.status_code, "detail": "健康端点可达（按健康检查判定 OK）。" if r.status_code == 200 else "健康端点异常"}
         except Exception as e:
             return {"ok": False, "status": None, "detail": "连接失败：" + str(e)[:100]}
 
@@ -1832,7 +1877,8 @@ def settings_test(request):
             "status": None,
             "detail": sc.get("detail", ""),
         }
-    return JsonResponse({"results": results})
+    from django.utils import timezone
+    return JsonResponse({"results": results, "tested_at": timezone.now().isoformat()})
 
 
 def home(request):

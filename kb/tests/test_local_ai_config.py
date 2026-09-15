@@ -37,6 +37,7 @@ class LocalAIConfigurationTests(TestCase):
 
         cfg = SiteConfig.get()
         cfg.embedding_base_url = "127.0.0.1:11434"
+        cfg.embedding_dimensions = 2
         cfg.embedding_model = "bge-m3:latest"
         cfg.embedding_api_key = ""
         cfg.save()
@@ -83,6 +84,7 @@ class LocalAIConfigurationTests(TestCase):
     def test_connection_test_uses_saved_config(self, post):
         cfg = SiteConfig.get()
         cfg.embedding_base_url = "127.0.0.1:11434"
+        cfg.embedding_dimensions = 2
         cfg.embedding_model = "bge-m3:latest"
         cfg.embedding_api_key = ""
         cfg.save()
@@ -97,3 +99,77 @@ class LocalAIConfigurationTests(TestCase):
         called_url = post.call_args.args[0]
         self.assertEqual(called_url, "http://127.0.0.1:11434/v1/embeddings")
         self.assertEqual(post.call_args.kwargs["headers"]["Authorization"], "Bearer local-no-key")
+
+    @override_settings(LLM_BASE_URL="http://localhost:1234/v1", LLM_MODEL="configured-model")
+    @patch("httpx.post")
+    def test_chat_empty_or_truncated_is_not_success(self, post):
+        post.return_value.status_code = 200
+        for content, reason in [("", "stop"), ("OK", "length"), ("thinking", "stop")]:
+            post.return_value.json.return_value = {"choices":[{"message":{"content":content},"finish_reason":reason}]}
+            response=self.client.post(reverse("kb:settings_test"), {"target":"llm"})
+            self.assertFalse(response.json()["results"]["llm"]["ok"])
+
+    @override_settings(LLM_BASE_URL="http://localhost:1234/v1", LLM_MODEL="configured-model")
+    @patch("httpx.post")
+    def test_chat_reports_actual_model(self, post):
+        post.return_value.status_code=200
+        post.return_value.json.return_value={"model":"actual-loaded-model","choices":[{"message":{"content":"OK"},"finish_reason":"stop"}]}
+        result=self.client.post(reverse("kb:settings_test"), {"target":"llm"}).json()["results"]["llm"]
+        self.assertIsNone(result["ok"])
+        self.assertIn("actual-loaded-model",result["detail"])
+
+    @patch("httpx.get")
+    def test_ocr_health_is_success(self, get):
+        get.return_value.status_code=200
+        result=self.client.post(reverse("kb:settings_test"), {"target":"mineru"}).json()["results"]["mineru"]
+        self.assertTrue(result["ok"])
+
+    def test_all_button_and_invalid_target(self):
+        self.assertContains(self.client.get(reverse("kb:settings")), 'data-test="all"')
+        self.assertEqual(self.client.post(reverse("kb:settings_test"), {"target":"unknown"}).status_code,400)
+
+    def test_wemm_openai_endpoint_does_not_use_native_protocol(self):
+        cfg = SiteConfig.get()
+        cfg.embedding_base_url='http://127.0.0.1:8081/v1'
+        cfg.embedding_model='WeMM-Embedding-9B'
+        cfg.embedding_dimensions=4096
+        cfg.save()
+        client=_embeddings()
+        self.assertEqual(client.openai_api_base,'http://127.0.0.1:8081/v1')
+        self.assertEqual(client.dimensions,4096)
+
+    @patch('kb.rerank.rerank_settings',return_value={'enabled':True,'base_url':'http://127.0.0.1:8766/rerank','model':'test','api_key':''})
+    @patch('httpx.post')
+    def test_complete_rerank_url_is_not_appended_twice(self, post, cfg):
+        from kb.rerank import rerank
+        post.return_value.json.return_value={'results':[{'index':0,'relevance_score':1.0}]}
+        self.assertIsNotNone(rerank('q',['a']))
+        self.assertEqual(post.call_args.args[0],'http://127.0.0.1:8766/rerank')
+
+
+
+from django.test import TransactionTestCase
+
+class StreamPersistenceTests(TransactionTestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='stream-admin',is_staff=True)
+        self.client.force_login(self.user)
+
+    def test_stream_persists_before_done_and_never_saves_failed_draft(self):
+        import asyncio
+        from asgiref.sync import sync_to_async
+        from kb.models import KnowledgeBase, Message
+        KnowledgeBase.objects.create(name='stream test',slug='stream-test',is_folder=False,chunk_count=1,created_by=self.user)
+        for fail in (False,True):
+            thread='stream-order-'+str(fail)
+            async def events(*args, **kwargs):
+                yield 'token', {'text':'answer'}
+                if fail: yield 'error', {'message':'截断'}
+            with patch('kb.agent.run_agent_stream',side_effect=events):
+                response=self.client.post(reverse('kb:stream'),{'message':'q','thread_id':thread,'kb_slug':'stream-test'})
+                async def consume():
+                    async for raw in response.streaming_content:
+                        if b'event: done' in raw:
+                            count=await sync_to_async(lambda:Message.objects.filter(conversation__thread_id=thread,role='ai').count())()
+                            self.assertEqual(count,0 if fail else 1)
+                asyncio.run(consume())

@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import json
+from bisect import bisect_left
+import math
 import logging
 import re
 from pathlib import Path
@@ -32,6 +34,16 @@ _SKIP_TYPES = {"header", "footer", "page_number", "aside_text", "page_footnote"}
 _MIN_SIG = 4
 
 _SIG_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]")
+
+
+def valid_bbox(value):
+    """Accept only finite MinerU 0–1000 rectangles; never invent a location."""
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    if any(type(v) not in (int, float) or not math.isfinite(v) for v in value):
+        return None
+    x0, y0, x1, y1 = value
+    return list(value) if 0 <= x0 < x1 <= 1000 and 0 <= y0 < y1 <= 1000 else None
 
 
 def _sig(text: str) -> str:
@@ -98,11 +110,12 @@ class _SigIndex:
     def __init__(self, text: str):
         sig_chars: list[str] = []
         pos: list[int] = []
-        for i, ch in enumerate(text.lower()):
-            if _SIG_RE.fullmatch(ch):  # 仅保留参与签名的字符
-                continue
-            sig_chars.append(ch)
-            pos.append(i)
+        for i, original in enumerate(text):
+            for ch in original.lower():
+                if _SIG_RE.fullmatch(ch):
+                    continue
+                sig_chars.append(ch)
+                pos.append(i)
         self.sig = "".join(sig_chars)
         self.pos = pos
 
@@ -111,6 +124,8 @@ class _SigIndex:
 
         返回 (原文区间 [start, end), 下次查找游标)；找不到返回 None。
         """
+        if not needle_sig:
+            return None
         idx = self.sig.find(needle_sig, cursor)
         if idx < 0:
             return None
@@ -161,15 +176,15 @@ def _locate_blocks(content_list: list, clean_md: str) -> tuple[list[dict], dict[
         if btype in ("image", "chart"):
             img = block.get("img_path") or ""
             name = img.rsplit("/", 1)[-1]
-            if name and isinstance(page, int):
-                image_map[name] = {"page": page, "bbox": bbox}
+            if name and type(page) is int and page >= 0:
+                image_map[name] = {"page": page, "bbox": valid_bbox(bbox)}
             continue
         located = _block_locate_text(block)
         if located is None:
             continue
         text, rows = located
         s = _sig(text)
-        if len(s) < _MIN_SIG or not isinstance(page, int):
+        if len(s) < _MIN_SIG or type(page) is not int or page < 0:
             continue
         hit = index.find(s, cursor)
         if hit is None:
@@ -177,7 +192,7 @@ def _locate_blocks(content_list: list, clean_md: str) -> tuple[list[dict], dict[
         span, cursor = hit
         spans.append({
             "start": span[0], "end": span[1], "page": page,
-            "bbox": list(bbox) if isinstance(bbox, list) and len(bbox) == 4 else None,
+            "bbox": valid_bbox(bbox),
             "kind": "table" if btype == "table" else "text",
             "rows": rows,
         })
@@ -200,9 +215,10 @@ def _chunk_span(index: _SigIndex, clean_md: str, body: str, cursor: int):
     sig = _sig(body)
     if len(sig) < _MIN_SIG:
         return None, cursor
-    hit = index.find(sig, from_pos)
+    hit = index.find(sig, bisect_left(index.pos, from_pos))
     if hit is not None:
-        return hit
+        span, _ = hit
+        return span, span[1]
     return None, cursor
 
 
@@ -233,17 +249,6 @@ def build_provenance_rows(document, kb_slug: str, chunk_ids: list[str],
             for sp in spans:
                 if sp["end"] > cs and sp["start"] < ce:
                     prov_blocks.append(sp)
-        if not prov_blocks:
-            # 区间没盖住任何块（如纯章节名 chunk）→ 用紧邻其前的块继承页码
-            if span:
-                before = [sp for sp in spans if sp["end"] <= span[0]]
-            else:
-                before = spans[:1] if spans else []
-            if before:
-                last = before[-1]
-                prov_blocks = [{"start": last["start"], "end": last["end"],
-                                "page": last["page"], "bbox": None,
-                                "kind": last["kind"], "rows": []}]
         if not prov_blocks:
             continue
         pages = sorted({sp["page"] for sp in prov_blocks})
