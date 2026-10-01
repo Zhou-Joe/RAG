@@ -92,7 +92,7 @@
         {% elif doc.status == 'failed' %}
           <span class="doc-badge badge-failed">✗ 失败</span> {{ doc.error_msg|truncatechars:80 }}
         {% elif doc.status == 'pending' %}
-          <span class="doc-badge badge-pending">⏳ 待处理</span>
+          <span class="doc-badge badge-pending">⏳ 排队中</span>
         {% else %}
           <span class="spinner"></span> {{ doc.stage_detail|default:doc.get_status_display }}
         {% endif %}
@@ -103,6 +103,9 @@
       {% endif %}
     </div>
     <div class="doc-actions">
+      <form method="post" action="{% url 'kb:doc_retry' kb.slug doc.id %}" class="doc-retry-form" {% if doc.status != 'failed' %}hidden{% endif %}>
+        {% csrf_token %}<button type="submit" class="btn sm primary">重试（继续进度）</button>
+      </form>
       {% if doc.status == 'completed' %}
       <button type="button" class="btn sm outline desc-edit-btn" data-doc-id="{{ doc.id }}"
               title="更新文档描述（会展示给 AI 帮其判断文档相关性）">更新描述</button>
@@ -525,6 +528,17 @@ function renderDocRow(d) {
   // 底部操作行：完成态补「更新描述」（处理完成时动态加上；与服务器渲染行一致）
   const actions = row.querySelector('.doc-actions');
   if (actions) {
+    if (!actions.querySelector('.doc-retry-form')) {
+      const form = document.createElement('form');
+      form.method = 'post';
+      form.action = `/kb/manage/${KB_SLUG}/doc/${d.id}/retry/`;
+      form.className = 'doc-retry-form';
+      const token = document.createElement('input');
+      token.type = 'hidden'; token.name = 'csrfmiddlewaretoken'; token.value = getCSRFToken();
+      const retry = document.createElement('button');
+      retry.type = 'submit'; retry.className = 'btn sm primary'; retry.textContent = '重试（继续进度）';
+      form.append(token,retry); actions.prepend(form);
+    }
     let descBtn = actions.querySelector('.desc-edit-btn');
     if (d.status === 'completed' && !descBtn) {
       descBtn = document.createElement('button');
@@ -554,10 +568,12 @@ function renderDocRow(d) {
   } else {
     const icon = d.status === 'pending' ? '<span class="doc-badge badge-pending">⏳ 待处理</span>' : '<span class="spinner"></span>';
     const text = esc(d.stage_detail || d.status_display) || '处理中…';
-    html += `<div class="doc-detail">${icon} ${d.status !== 'pending' ? text : ''}</div>`;
+    html += `<div class="doc-detail">${icon} ${text}</div>`;
     html += `<div class="progress-bar"><div class="progress-fill" style="width:${d.progress}%"></div></div>`;
   }
   inner.innerHTML = html;
+  const retryForm = row.querySelector('.doc-retry-form');
+  if (retryForm) retryForm.hidden = d.status !== 'failed';
 }
 
 // 轮询

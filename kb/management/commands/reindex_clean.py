@@ -4,32 +4,26 @@
 1. 嵌入文本清洗规则变更后（HTML 表格 → 结构化文本）重灌向量；
 2. **更换 embedding 模型后重建**（如 Qwen3-Embedding → WeMM）。
 
-换模型必须整目录重建：Chroma collection 的向量维度在建库时固定
-（Qwen3-Embedding-4B=2560，WeMM-2B=2048），collection 内部 delete(where=)
-清空数据不改变维度，重灌不同维度的向量会直接报维度不匹配。因此本命令
-对每个文档库删除 data/chroma/<slug>/ 整个目录后从 md_content 重建。
-
-层级结构下每个文档库（slug）只承载一份文档，整目录删除不影响其它文档。
-
-注意：重建期间，长驻 Django 进程（开发服务器）缓存的 Chroma 句柄指向
-已删除的文件，重建完成后需重启 Django 恢复检索。
+换模型必须删除并重建 collection：只删除记录不改变向量维度。
+通过 Chroma API 删除 collection，保留 SQLite 文件和连接，避免删除目录后
+旧连接写入触发 SQLITE_READONLY_DBMOVED（1032）。
+重建期间暂停该库检索，完成后重启 Web 刷新其他进程的集合缓存。
 
 用法：
     python manage.py reindex_clean             # 所有已完成的文档
     python manage.py reindex_clean --kb <slug> # 只重建某个文档库
     python manage.py reindex_clean --dry-run   # 只列出将处理的文档
 """
-import shutil
 
 from django.core.management.base import BaseCommand
 
 from kb.models import Document
 from kb.pipeline import _kb_persist_dir, run_indexing
-from kb.retriever import _VS_CACHE
+from kb.retriever import reset_kb_collection
 
 
 class Command(BaseCommand):
-    help = "重建文档向量索引：整目录删除 data/chroma/<slug> 后从 md_content 重新切块+embedding（换 embedding 模型后必用）"
+    help = "重建文档向量索引：删除并重建集合 collection 后从 md_content 重新切块+embedding（换 embedding 模型后必用）"
 
     def add_arguments(self, parser):
         parser.add_argument("--kb", default="", help="只重建指定 slug 的文档库")
@@ -76,10 +70,9 @@ class Command(BaseCommand):
             self.stdout.write(self.style.MIGRATE_HEADING(f"\n=== 文档库「{kb_slug}」({len(lib_docs)} 份) ==="))
             kb = lib_docs[0].kb
 
-            # 整目录删除：维度可能已随 embedding 模型变化，collection 不可复用。
-            # 先弹掉本进程的向量库缓存，避免持有已删除 sqlite 的句柄。
-            _VS_CACHE.pop(kb_slug, None)
-            shutil.rmtree(_kb_persist_dir(kb_slug), ignore_errors=True)
+            # 删除并重建集合：维度可能已随 embedding 模型变化，collection 不可复用。
+            # 先弹掉本进程的向量库缓存，避免复用旧集合对象。
+            reset_kb_collection(kb_slug)
             # 混合检索：关键词索引整库清空（随后 run_indexing 会重灌）
             from kb import keyword_index
             keyword_index.delete_kb(kb_slug)
@@ -100,7 +93,7 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.SUCCESS(f"  ✓ {doc.original_name} → {n} 块"))
                 except Exception as e:
                     self.stderr.write(self.style.ERROR(f"  ✗ {doc.original_name}: {e}"))
-                    # 向量已随目录删除而丢失 → chunk_count 必须归零，
+                    # 旧集合已被删除 → chunk_count 必须归零，
                     # 否则语义检索仍会选中该库却永远查不到内容（静默失效）
                     doc.chunk_count = 0
                     doc.save(update_fields=["chunk_count", "updated_at"])
@@ -114,4 +107,4 @@ class Command(BaseCommand):
             self.stdout.write(f"  库统计刷新：{kb.doc_count} 文档 / {kb.chunk_count} 向量块")
 
         self.stdout.write(self.style.SUCCESS(f"\n完成：{total_done}/{len(docs)} 份文档已重建索引。"))
-        self.stdout.write(self.style.WARNING("提醒：长驻的 Django 服务进程持有旧向量库句柄，请重启后生效。"))
+        self.stdout.write(self.style.WARNING("提醒：重建期间请暂停该库检索；完成后重启 Web 以刷新其他进程缓存。"))

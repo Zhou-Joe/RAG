@@ -409,15 +409,19 @@ class WeMMEmbeddings:
     协议：POST {base_url}/embed  {"inputs": [{"text": ...}], "dimension": n}
           → {"embeddings": [[...], ...]}
     服务空闲 10 分钟会自动卸载模型，下一个请求现场冷加载（20s+），
-    因此超时给足；批量压到 32 条/请求避免单次推理过久。
+    因此超时给足；默认小批次，避免单次推理过久。
     """
 
-    _BATCH = 32
+    _BATCH = 4
     _TIMEOUT = 180
 
     def __init__(self, base_url: str, dimensions: int | None = None):
         self.base_url = (base_url or "").rstrip("/")
         self.dimensions = dimensions or None
+        self._BATCH = int(getattr(settings, "WEMM_BATCH_SIZE", 4))
+        self._TIMEOUT = float(getattr(settings, "WEMM_REQUEST_TIMEOUT", 180))
+        if not 1 <= self._BATCH <= 32 or self._TIMEOUT <= 0:
+            raise ValueError("WeMM 批次必须为 1–32，超时必须为正数")
 
     def _embed_raw(self, items: list[dict]) -> list[list[float]]:
         """按原生 EmbedItem 列表批量嵌入（text/image_b64/... 任选）。"""
@@ -487,6 +491,12 @@ def _embeddings():
     batch_size = int(getattr(settings, 'EMBEDDING_BATCH_SIZE', 16))
     if not 1 <= batch_size <= 32:
         raise ValueError('EMBEDDING_BATCH_SIZE 必须在 1–32 范围内')
+    request_timeout = 45
+    if is_wemm(e["model"]):
+        batch_size = min(batch_size, int(getattr(settings, "WEMM_BATCH_SIZE", 4)))
+        request_timeout = float(getattr(settings, "WEMM_REQUEST_TIMEOUT", 180))
+        if not 1 <= batch_size <= 32 or request_timeout <= 0:
+            raise ValueError("WeMM 批次必须为 1–32，超时必须为正数")
     return OpenAIEmbeddings(
         model=e["model"],
         dimensions=e["dimensions"],
@@ -496,7 +506,7 @@ def _embeddings():
         base_url=e["base_url"],
         check_embedding_ctx_length=False,
         chunk_size=batch_size,
-        request_timeout=45,
+        request_timeout=request_timeout,
         max_retries=0,
     )
 
@@ -870,7 +880,7 @@ def _remove_page_chunks(kb_slug: str, doc_id) -> int:
 
 
 def run_indexing(md_content: str, kb_slug: str, source_name: str, doc_id=None,
-                 content_list=None) -> int:
+                 content_list=None, on_progress=None) -> int:
     """切块 + 向量化 → 写入该 KB 的 Chroma。返回 chunk 数。
 
     嵌入前先清洗：把 MinerU 的原始 HTML 表格转成结构化纯文本（仅此路径清洗；
@@ -892,13 +902,25 @@ def run_indexing(md_content: str, kb_slug: str, source_name: str, doc_id=None,
     )
     chunk_ids: list[str] = []
     if chunks:
-        # add_documents 返回每个 chunk 的向量 id —— 溯源表与关键词索引都以
-        # id 关联（重跑入库 id 全换，溯源表先清后写）
-        chunk_ids = list(vs.add_documents(chunks))
-    # 混合检索：向量入库成功后同步写关键词索引（失败只降级，不阻断）
+        # Stable IDs are durable checkpoints shared by vectors, FTS and citations.
+        from .index_batches import write_batches
+        ef = vs._embedding_function
+        e = embedding_settings()
+        fingerprint = hashlib.sha256(repr((e["model"], e["dimensions"], e["base_url"])).encode()).hexdigest()
+        batch_size = getattr(ef, "chunk_size", getattr(ef, "_BATCH", 4))
+        metadata = vs._collection.metadata or {}
+        previous = metadata.get("embedding_fingerprint")
+        if previous and previous != fingerprint:
+            raise ValueError("向量模型配置已变化，请重建该库，不能继续混用旧模型片段")
+        if not previous:
+            vs._collection.modify(metadata={**metadata, "embedding_fingerprint": fingerprint})
+        chunk_ids = write_batches(vs, chunks, identity=doc_id or (kb_slug, source_name),
+                                  fingerprint=fingerprint, batch_size=batch_size,
+                                  progress=on_progress)
+    # Publish keyword rows only after vectors succeed; failures remain retryable.
     from . import keyword_index
     if chunks:
-        keyword_index.add_chunks(kb_slug, chunks, ids=chunk_ids)
+        keyword_index.add_chunks(kb_slug, chunks, ids=chunk_ids, strict=True)
     n_img = 0
     img_names: list[str] = []
     if doc_id:
@@ -992,31 +1014,39 @@ def process_document(doc_id: str) -> None:
             doc.stage_detail = detail
             doc.save(update_fields=["stage_detail", "updated_at"])
 
-        # 阶段 1: OCR（PDF 同时取回图片并落盘）
-        doc.status = Document.Status.OCR
-        doc.stage_detail = "开始 OCR…"
-        doc.save(update_fields=["status", "stage_detail", "updated_at"])
-        md, images, content_list = run_ocr_with_images(file_path, doc.file_type, on_progress=update_stage)
-        # 在模型调用前保存版面数据，嵌入失败后仍可恢复原文定位。
-        from .provenance import persist_content_list
-        persist_content_list(doc.id, content_list)
-        try:
-            n_img = save_doc_images(doc.id, images)
-        except Exception:
-            logging.getLogger(__name__).exception("图片落盘失败（不影响文本入库）doc=%s", doc_id)
-            n_img = 0
-        doc.md_content = md
-        doc.html_content = rewrite_img_srcs(md_to_html(md), doc.id)
-        from django.utils import timezone
-        doc.html_built_at = timezone.now()
-        doc.save(update_fields=["md_content", "html_content", "html_built_at", "updated_at"])
-
+        doc.error_msg = ""
+        doc.save(update_fields=["error_msg"])
+        if doc.md_content:
+            # Resume indexing without another OCR request or overwriting edits.
+            from .provenance import load_content_list
+            md, content_list = doc.md_content, load_content_list(doc.id)
+        else:
+            # 阶段 1: OCR（PDF 同时取回图片并落盘）
+            doc.status = Document.Status.OCR
+            doc.stage_detail = "开始 OCR…"
+            doc.save(update_fields=["status", "stage_detail", "updated_at"])
+            md, images, content_list = run_ocr_with_images(file_path, doc.file_type, on_progress=update_stage)
+            # 在模型调用前保存版面数据，嵌入失败后仍可恢复原文定位。
+            from .provenance import persist_content_list
+            persist_content_list(doc.id, content_list)
+            try:
+                n_img = save_doc_images(doc.id, images)
+            except Exception:
+                logging.getLogger(__name__).exception("图片落盘失败（不影响文本入库）doc=%s", doc_id)
+                n_img = 0
+            doc.md_content = md
+            doc.html_content = rewrite_img_srcs(md_to_html(md), doc.id)
+            from django.utils import timezone
+            doc.html_built_at = timezone.now()
+            doc.save(update_fields=["md_content", "html_content", "html_built_at", "updated_at"])
         # 阶段 2: 向量化（文本块 + WeMM 多模态图片块）
         doc.status = Document.Status.INDEXING
         doc.stage_detail = "正在切块 + 向量化…"
         doc.save(update_fields=["status", "stage_detail", "updated_at"])
+        def index_progress(done, total):
+            update_stage(f"正在向量化 {done}/{total} 个片段；已完成片段可续传")
         n_chunks = run_indexing(md, doc.kb.slug, doc.original_name, doc_id=doc.id,
-                                content_list=content_list)
+                                content_list=content_list, on_progress=index_progress)
         doc.chunk_count = n_chunks
 
         # 阶段 3: 完成
@@ -1088,6 +1118,6 @@ def _page_embed_async(doc_id: str) -> None:
 
 
 def process_document_async(doc_id: str) -> None:
-    """在后台 daemon 线程中启动流水线。"""
-    t = threading.Thread(target=process_document, args=(str(doc_id),), daemon=True)
-    t.start()
+    """Persisted pending documents are processed serially by the host queue."""
+    from .ingestion import enqueue
+    enqueue(str(doc_id))

@@ -165,6 +165,8 @@ MD_ROOT = DATA_DIR / "md"               # OCR 输出的 Markdown
 
 # Maximum input count per embedding request; keep below local service limits.
 EMBEDDING_BATCH_SIZE = int(_env("EMBEDDING_BATCH_SIZE", "16"))
+WEMM_BATCH_SIZE = int(_env("WEMM_BATCH_SIZE", "4"))
+WEMM_REQUEST_TIMEOUT = float(_env("WEMM_REQUEST_TIMEOUT", "180"))
 
 PYODIDE_INDEX_URL = _env("PYODIDE_INDEX_URL", "/static/vendor/pyodide/" if LOCAL_ONLY else "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/")
 

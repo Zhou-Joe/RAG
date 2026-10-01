@@ -50,6 +50,24 @@ def get_kb_vectorstore(kb_slug: str) -> Chroma:
         return vs
 
 
+def reset_kb_collection(kb_slug: str) -> None:
+    """Delete the collection through Chroma, never unlink an open SQLite file.
+
+    Deleting/recreating the collection also resets its embedding dimension.
+    Other collections and the database file remain intact.
+    """
+    from chromadb import PersistentClient
+    from chromadb.errors import NotFoundError
+    with _VS_LOCK:
+        cached = _VS_CACHE.get(kb_slug)
+        client = cached._client if cached is not None else PersistentClient(path=str(_kb_persist_dir(kb_slug)))
+        try:
+            client.delete_collection(_chroma_collection_name(kb_slug))
+        except NotFoundError:
+            pass
+        _VS_CACHE.pop(kb_slug, None)
+
+
 def delete_doc_vectors(kb_slug: str, source: str) -> None:
     """删除某文档在 Chroma 中的全部向量（按 source=文件名 过滤）。
 

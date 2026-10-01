@@ -45,3 +45,27 @@ The implementation has passed 143 Django and 15 Node regressions, plus local mod
 Stop the application and restore the previous code with a matching database/index backup. The new migration is additive, and this change does not remove source files, old messages or checkpoint files. Launcher changes specific to the development machine are intentionally outside this PR.
 
 Interrupted visible answers remain available after switching conversations, with an explicit incomplete warning. Private drafts in enhanced mode are never exposed or saved by this mechanism. Device names must follow the user or retrieved source rather than arbitrary examples in a system prompt.
+
+## Background-answer follow-up (migrations 0024–0026)
+
+The current behavior supersedes the earlier page-switch cancellation behavior:
+leaving a page detaches the subscriber while the answer continues in the ASGI
+process. Returning reads durable snapshots until the answer finishes. Explicit
+stop and conversation deletion cancel the task. Current deployment must use one
+Web process; model inference and queued jobs do not resume across process restarts.
+See [background-answer operations](background-answers.md) for the full lifecycle.
+
+Before upgrade, wait for active answers to finish, back up SQLite, apply migrations
+and restart Web. Refresh the browser for updated assets. No model or index change
+is required. Migration 0026 initializes existing complete answers as read.
+
+The follow-up adds server-enforced named-library scopes, bounded retrieval rounds,
+serialized-tool-output rejection, persistent unread badges and a 1680px responsive
+Q&A layout. It does not turn the existing agent into a fully deterministic query
+planner or constitute a factual-accuracy benchmark.
+
+Run all JavaScript regressions with `node --test scripts/tests/*.test.cjs`.
+Current totals are 162 Django tests and 23 Node tests. Before rolling this entire
+follow-up back, stop Web, normalize active message states to `incomplete`, and use
+the current code to migrate `kb` to `0023` before restoring previous code. This
+removes failure reasons and read cursors; keep the backup if those must be retained.

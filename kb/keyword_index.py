@@ -67,7 +67,7 @@ def _conn() -> sqlite3.Connection:
 # ------------------------------------------------------------------
 # 写入 / 删除（与向量库生命周期同步）
 # ------------------------------------------------------------------
-def add_chunks(kb_slug: str, chunks: list, ids: list[str] | None = None) -> None:
+def add_chunks(kb_slug: str, chunks: list, ids: list[str] | None = None, *, strict=False) -> None:
     """向量化成功后同步写入关键词索引。chunks 为 LCDocument 列表，
     ids 为对应的向量 id（与 Chroma 同源，溯源/证据面板按 id 关联；可缺省）。
 
@@ -97,6 +97,8 @@ def add_chunks(kb_slug: str, chunks: list, ids: list[str] | None = None) -> None
             )
     except Exception:
         logger.exception("关键词索引写入失败（kb=%s）", kb_slug)
+        if strict:
+            raise
 
 
 def get_chunks(kb_slug: str, source: str) -> list[dict]:
@@ -128,7 +130,7 @@ def delete_doc(kb_slug: str, source: str) -> None:
 
 
 def delete_kb(kb_slug: str) -> None:
-    """整库重建前清空（与 reindex_clean 的 rmtree 配对）。"""
+    """整库重建前清空（与 reindex_clean 的集合重建配对）。"""
     try:
         with _LOCK, contextlib.closing(_conn()) as conn, conn:
             conn.execute("DELETE FROM chunk WHERE kb_slug = ?", (kb_slug,))

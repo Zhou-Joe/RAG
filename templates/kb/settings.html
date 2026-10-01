@@ -2,6 +2,13 @@
 {% block title %}站点配置 · SHDR RAG{% endblock %}
 {% block content %}
 <h1>站点配置</h1>
+<form method="post" class="all-api-control" style="margin:16px 0">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="all_remote_toggle">
+  <input type="hidden" name="enabled" value="{% if eff.llm.all_remote_enabled %}0{% else %}1{% endif %}">
+  <button type="submit" class="btn {% if eff.llm.all_remote_enabled %}primary{% else %}outline{% endif %}" aria-pressed="{{ eff.llm.all_remote_enabled|yesno:'true,false' }}">允许全部远程／局域网 API：{% if eff.llm.all_remote_enabled %}已开启 · 点击关闭{% else %}已关闭 · 点击开启{% endif %}</button>
+  <p>点击即保存，支持 HTTP / HTTPS。开启后，LLM、向量、重排和 MinerU 可调用各自配置的远程地址，问题、资料片段或原文件会发送给对应服务。关闭后恢复 LLM 独立开关，其他服务恢复本机限制。</p>
+</form>
 <button type="button" class="btn primary" data-test="all">一键全部测试</button>
 <p>测试当前已保存配置；结果仅代表本次检测，不代表模型一直运行。健康检查不会标为推理成功。</p>
 
@@ -20,6 +27,15 @@
         <div class="cfg-cat">LLM 大模型</div>
         <div class="cfg-model">{{ eff.llm.model|default:"（未配置）" }}
           <span class="cfg-sub">{{ eff.llm.base_url|default:"（无地址）" }} · 温度 {{ eff.llm.temperature }}{% if eff.llm.vision %} · 视觉{% endif %}{% if eff.llm.qa_enhance %} · 规划+核实{% endif %}</span></div>
+        <form method="post" class="cfg-remote-control" style="margin-top:12px">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="llm_remote_toggle">
+          <input type="hidden" name="enabled" value="{% if eff.llm.remote_enabled %}0{% else %}1{% endif %}">
+          <button type="submit" {% if eff.llm.all_remote_enabled %}disabled title="由页面顶部全部 API 总开关控制"{% endif %} class="btn sm {% if eff.llm.remote_enabled %}primary{% else %}outline{% endif %}" aria-pressed="{{ eff.llm.remote_enabled|yesno:'true,false' }}">
+            {% if eff.llm.all_remote_enabled %}由顶部总开关开启{% else %}远程／局域网 API：{% if eff.llm.remote_enabled %}已开启 · 点击关闭{% else %}已关闭 · 点击开启{% endif %}{% endif %}
+          </button>
+          <div class="cfg-sub" style="margin-top:6px">点击即保存；支持 HTTP / HTTPS。开启后，问题、历史和检索资料会发送到上方配置的服务。地址、密钥与模型请点「编辑」。</div>
+        </form>
       </div>
       <div class="cfg-right">
         <span class="cfg-preset-badge">{% if active.llm %}配置：{{ active.llm }}{% else %}自定义{% endif %}</span>
@@ -176,7 +192,8 @@ const CAT_FIELDS = {
   llm: {
     title: '编辑 LLM 配置',
     fields: [
-      {name:'llm_base_url', label:'Base URL', type:'text', key:['llm','base_url']},
+      {name:'llm_remote_enabled', label:'允许远程回答 API', type:'checkbox', key:['llm','remote_enabled'], hint:'默认关闭。开启后，问题、历史对话、检索原文及启用视觉时的图片会发送到所填服务。仅支持 OpenAI 兼容的 Chat Completions API；向量、重排和 OCR 配置保持独立。'},
+      {name:'llm_base_url', label:'API Base URL（支持 http:// 和 https://）', type:'text', key:['llm','base_url']},
       {name:'llm_api_key', label:'API Key', type:'password', key:['llm','api_key']},
       {name:'llm_model', label:'模型', type:'text', key:['llm','model']},
       {name:'llm_temperature', label:'温度', type:'number', step:'0.1', key:['llm','temperature']},

@@ -74,3 +74,17 @@ test('split CRLF frames, multiline data and comments parse correctly', async () 
 test('HTML login response is not accepted as an empty successful answer', async () => {
   await assert.rejects(FosChatStream.create({fetchImpl: async () => new Response('login', {headers: {'content-type': 'text/html'}})}).run('/'), /登录状态/);
 });
+
+test('pagehide abort resets UI synchronously, before promise callbacks resume', async () => {
+  let busy = true, spinner = true, resets = 0;
+  const f = response([], true);
+  const stream = FosChatStream.create({fetchImpl: async () => f.response,
+    onAbort() { busy = false; spinner = false; resets++; }});
+  const running = stream.run('/');
+  stream.abort();
+  assert.equal(busy, false);
+  assert.equal(spinner, false);
+  stream.abort();
+  assert.equal(resets, 1);
+  await assert.rejects(running);
+});

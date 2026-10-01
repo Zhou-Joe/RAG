@@ -20,6 +20,20 @@ class TableQualityTests(SimpleTestCase):
             with self.assertRaises(ValueError):
                 _html_table_to_text(f'<table><tr><td colspan="{span}">Required fact</td></tr></table>')
 
+    def test_omitted_row_and_cell_end_tags_follow_html_rules(self):
+        # MinerU output seen on FL-8B electrical tables: last row lacks </tr>.
+        last_row = _html_table_to_text('<table><tr><td>44</td><td>B2</td></tr><tr><td>45</td><td>JB2</td></table>')
+        self.assertEqual(last_row, '44 | B2\n45 | JB2')
+        cells = _html_table_to_text('<table><tr><td>A<td>B<tr><td>C<td>D</table>')
+        self.assertEqual(cells, 'A | B\nC | D')
+
+    def test_truncated_or_nested_table_is_still_rejected(self):
+        from kb.table_structure import parse_table
+        with self.assertRaisesMessage(ValueError, '表格 HTML 不完整'):
+            parse_table('<table><tr><td>Required fact</td>')
+        with self.assertRaises(ValueError):
+            _html_table_to_text('<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>')
+
     @override_settings(EMBEDDING_BATCH_SIZE=16)
     def test_local_endpoint_uses_explicit_safe_batch(self):
         with patch('kb.pipeline.embedding_settings', return_value={'model':'BAAI/bge-m3','base_url':'http://127.0.0.1:8766/v1','api_key':'local','dimensions':1024}):
