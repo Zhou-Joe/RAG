@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from kb.agent import _get_llm
@@ -10,14 +10,12 @@ from kb.models import SiteConfig
 from kb.pipeline import _embeddings
 
 
-class LocalAIConfigurationTests(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = get_user_model().objects.create_user(
+class LocalAIConfigurationTests(TransactionTestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
             username="local-ai-admin", password=None, is_staff=True,
         )
 
-    def setUp(self):
         self.client.force_login(self.user)
 
     def test_ollama_url_gets_scheme_and_openai_prefix(self):
@@ -66,11 +64,11 @@ class LocalAIConfigurationTests(TestCase):
                 yield None
 
         with patch("kb.agent.run_agent_stream", side_effect=no_events) as stream:
-            response = self.client.post(reverse("kb:stream"), {
-                "message": "test", "thread_id": "auto-kb-thread",
-            })
-            # Consume StreamingHttpResponse so the async generator executes.
             async def consume():
+                self.async_client.cookies = self.client.cookies
+                response = await self.async_client.post(reverse("kb:stream"), {
+                    "message": "test", "thread_id": "auto-kb-thread",
+                })
                 return [chunk async for chunk in response.streaming_content]
             import asyncio
             asyncio.run(consume())
@@ -152,50 +150,139 @@ from django.test import TransactionTestCase
 
 class StreamPersistenceTests(TransactionTestCase):
     def setUp(self):
+        from kb.models import KnowledgeBase
         self.user = get_user_model().objects.create_user(username='stream-admin',is_staff=True)
         self.client.force_login(self.user)
+        self.async_client.cookies = self.client.cookies
+        KnowledgeBase.objects.create(name='stream',slug='stream',is_folder=False,chunk_count=1,created_by=self.user)
 
     def test_stream_persists_before_done_and_marks_failed_partial(self):
         import asyncio
         from asgiref.sync import sync_to_async
-        from kb.models import KnowledgeBase, Message
-        KnowledgeBase.objects.create(name='stream test',slug='stream-test',is_folder=False,chunk_count=1,created_by=self.user)
+        from kb.models import Message
         for fail in (False,True):
             thread='stream-order-'+str(fail)
             async def events(*args, **kwargs):
                 yield 'token', {'text':'answer'}
                 if fail: yield 'error', {'message':'截断'}
-            with patch('kb.agent.run_agent_stream',side_effect=events):
-                response=self.client.post(reverse('kb:stream'),{'message':'q','thread_id':thread,'kb_slug':'stream-test'})
-                async def consume():
-                    async for raw in response.streaming_content:
-                        if b'event: done' in raw:
-                            count=await sync_to_async(lambda:Message.objects.filter(conversation__thread_id=thread,role='ai').count())()
-                            self.assertEqual(count,1)
-                            status=await sync_to_async(lambda:Message.objects.get(conversation__thread_id=thread,role="ai").completion_status)()
-                            self.assertEqual(status,"incomplete" if fail else "complete")
-                asyncio.run(consume())
-
-
-    def test_switching_page_preserves_visible_partial_as_incomplete(self):
-        import asyncio
-        from kb.models import KnowledgeBase, Message
-        KnowledgeBase.objects.create(name='switch',slug='switch',is_folder=False,chunk_count=1,created_by=self.user)
-        async def events(*args, **kwargs):
-            yield 'token', {'text':'| 对象 | 频率 |\n|---|---|\n| 已生成 | 待核对 |'}
-            await asyncio.sleep(10)
-        with patch('kb.agent.run_agent_stream',side_effect=events):
-            response=self.client.post(reverse('kb:stream'),{'message':'q','thread_id':'switch','kb_slug':'switch'})
             async def consume():
-                iterator=response.streaming_content
-                async for raw in iterator:
+                response=await self.async_client.post(reverse('kb:stream'),{'message':'q','thread_id':thread})
+                async for raw in response.streaming_content:
+                    if b'event: done' in raw:
+                        row=await sync_to_async(lambda:Message.objects.get(conversation__thread_id=thread,role='ai'))()
+                        self.assertEqual(row.completion_status,'incomplete' if fail else 'complete')
+            with patch('kb.agent.run_agent_stream',side_effect=events): asyncio.run(consume())
+
+    def test_switching_page_keeps_generation_running_and_saves_final_answer(self):
+        import asyncio
+        from kb.models import Message
+        from kb.answer_tasks import _runs
+        async def check():
+            release=asyncio.Event()
+            async def events(*args, **kwargs):
+                yield 'token', {'text':'first'}
+                await release.wait()
+                yield 'token', {'text':' final'}
+            with patch('kb.agent.run_agent_stream',side_effect=events):
+                response=await self.async_client.post(reverse('kb:stream'),{'message':'q','thread_id':'switch'})
+                run=next(iter(_runs.values()))
+                async for raw in response.streaming_content:
                     if b'event: token' in raw:
                         await response._iterator.aclose()
                         break
-            asyncio.run(consume())
+                self.assertFalse(run.task.done())
+                # Another turn in this conversation cannot race with the active one.
+                duplicate=await self.async_client.post(reverse('kb:stream'),{'message':'again','thread_id':'switch'})
+                self.assertEqual(duplicate.status_code,409)
+                history=(await self.async_client.get(reverse('kb:conv_messages',args=['switch']))).json()
+                self.assertIsNotNone(history['active_answer'])
+                release.set()
+                await run.task
+        asyncio.run(check())
         row=Message.objects.get(conversation__thread_id='switch',role='ai')
-        self.assertIn('已生成',row.content)
+        self.assertEqual(row.content,'first final')
+        self.assertEqual(row.completion_status,'complete')
+
+    def test_failure_before_first_token_is_saved(self):
+        import asyncio
+        from kb.models import Message
+        async def events(*args, **kwargs):
+            yield 'error', {'message':'模型请求超时'}
+        async def consume():
+            response=await self.async_client.post(reverse('kb:stream'), {'message':'q','thread_id':'empty'})
+            return [raw async for raw in response.streaming_content]
+        with patch('kb.agent.run_agent_stream',side_effect=events): asyncio.run(consume())
+        row=Message.objects.get(conversation__thread_id='empty',role='ai')
+        self.assertEqual(row.failure_reason,'模型请求超时')
         self.assertEqual(row.completion_status,'incomplete')
-        data=self.client.get(reverse('kb:conv_messages',args=['switch'])).json()
-        self.assertIn('已生成',data['messages'][-1]['content'])
-        self.assertEqual(data['messages'][-1]['completion_status'],'incomplete')
+
+    def test_only_explicit_stop_cancels_background_answer(self):
+        import asyncio
+        from kb.models import Message
+        from kb.answer_tasks import _runs
+        async def check():
+            started=asyncio.Event()
+            async def events(*args, **kwargs):
+                started.set()
+                await asyncio.sleep(20)
+                yield 'token', {'text':'late'}
+            with patch('kb.agent.run_agent_stream',side_effect=events):
+                response=await self.async_client.post(reverse('kb:stream'), {'message':'q','thread_id':'cancel'})
+                run=next(iter(_runs.values()))
+                await started.wait()
+                await response._iterator.aclose()
+                stop=await self.async_client.post(reverse('kb:conv_stop',args=['cancel']))
+                self.assertEqual(stop.status_code,200)
+                await run.task
+        asyncio.run(check())
+        row=Message.objects.get(conversation__thread_id='cancel',role='ai')
+        self.assertEqual(row.content,'')
+        self.assertEqual(row.completion_status,'incomplete')
+        self.assertIn('按要求停止',row.failure_reason)
+
+    def test_other_user_cannot_read_or_stop_task(self):
+        from kb.models import Conversation, KnowledgeBase
+        other=get_user_model().objects.create_user('other')
+        Conversation.objects.create(user=other,kb=KnowledgeBase.objects.get(slug='stream'),thread_id='private')
+        self.assertEqual(self.client.post(reverse('kb:conv_stop',args=['private'])).status_code,404)
+        self.assertEqual(self.client.get(reverse('kb:conv_messages',args=['private'])).status_code,404)
+
+    def test_queue_serializes_model_work_and_queued_job_can_stop(self):
+        import asyncio
+        from kb.answer_tasks import _runs
+        from kb.models import Message
+        async def check():
+            entered=[]
+            release=asyncio.Event()
+            async def events(message,*args,**kwargs):
+                entered.append(message)
+                await release.wait()
+                yield 'token', {'text':'done'}
+            with patch('kb.agent.run_agent_stream',side_effect=events):
+                await self.async_client.post(reverse('kb:stream'),{'message':'first','thread_id':'queue1'})
+                first=list(_runs.values())[0]
+                for _ in range(50):
+                    if entered: break
+                    await asyncio.sleep(.01)
+                await self.async_client.post(reverse('kb:stream'),{'message':'second','thread_id':'queue2'})
+                second=[run for run in _runs.values() if run is not first][0]
+                await asyncio.sleep(.02)
+                self.assertEqual(entered,['first'])
+                await self.async_client.post(reverse('kb:conv_stop',args=['queue2']))
+                await second.task
+                release.set()
+                await first.task
+        asyncio.run(check())
+        self.assertEqual(Message.objects.get(conversation__thread_id='queue2',role='ai').completion_status,'incomplete')
+
+    def test_restart_marks_orphaned_task_incomplete(self):
+        from kb.models import Conversation,KnowledgeBase,Message
+        from django.utils import timezone
+        from datetime import timedelta
+        conv=Conversation.objects.create(user=self.user,kb=KnowledgeBase.objects.get(slug='stream'),thread_id='orphan')
+        answer=Message.objects.create(conversation=conv,role='ai',content='partial',completion_status='running')
+        Message.objects.filter(pk=answer.pk).update(created_at=timezone.now()-timedelta(minutes=1))
+        data=self.client.get(reverse('kb:conv_messages',args=['orphan'])).json()
+        self.assertIsNone(data['active_answer'])
+        self.assertIn('已重启',data['messages'][-1]['failure_reason'])
+        self.assertEqual(data['messages'][-1]['content'],'partial')

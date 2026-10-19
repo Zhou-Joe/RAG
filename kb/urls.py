@@ -15,6 +15,7 @@ urlpatterns = [
     path("manage/<slug:slug>/rename/", views.kb_rename, name="kb_rename"),
     path("manage/<slug:slug>/doc/<uuid:doc_id>/desc/", views.doc_desc_update, name="doc_desc_update"),
     path("manage/<slug:slug>/doc/<uuid:doc_id>/page-embed/", views.doc_page_embed, name="doc_page_embed"),
+    path("manage/<slug:slug>/doc/<uuid:doc_id>/retry/", views.doc_retry, name="doc_retry"),
     path("manage/<slug:slug>/doc/<uuid:doc_id>/delete/", views.doc_delete, name="doc_delete"),
     path("manage/<slug:slug>/status/", views.doc_status_api, name="doc_status"),
 
@@ -31,6 +32,11 @@ urlpatterns = [
     path("settings/", views.site_settings, name="settings"),
     path("settings/test/", views.settings_test, name="settings_test"),
     path("eval/", views.eval_panel, name="eval_panel"),
+
+    path("conv/<str:thread_id>/stop/", views.conversation_stop, name="conv_stop"),
+
+    path("conv/states/", views.conversation_states, name="conv_states"),
+    path("conv/<str:thread_id>/read/", views.conversation_read, name="conv_read"),
 
     # 会话历史
     path("conv/<str:thread_id>/messages/", views.conversation_messages, name="conv_messages"),

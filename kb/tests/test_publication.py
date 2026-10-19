@@ -3,7 +3,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.contrib.auth import get_user_model
 
 from kb.agent import run_agent_stream
@@ -13,7 +13,7 @@ from kb.models import Document, KnowledgeBase
 
 
 class PublicationStreamTests(SimpleTestCase):
-    async def collect(self, verdict='pass', *, enhance=True, truncated=False, revoked=False):
+    async def collect(self, verdict='pass', *, enhance=True, truncated=False, revoked=False, question='value?'):
         class FakeAgent:
             async def astream_events(self, *args, **kwargs):
                 yield {'event': 'on_chat_model_stream', 'data': {'chunk': SimpleNamespace(content='PRIVATE PREAMBLE')}}
@@ -31,7 +31,19 @@ class PublicationStreamTests(SimpleTestCase):
             kwargs['evidence'].append({'source': 'synthetic.txt', 'text': 'value 42'})
             return FakeAgent()
         with patch('kb.agent._build_agent', side_effect=build), patch('kb.agent._get_checkpointer', new=AsyncMock(return_value=None)), patch('kb.qa_steps.plan_query', new=AsyncMock(return_value=(None, {'input_tokens':0,'output_tokens':0}))), patch('kb.qa_steps.verify_answer', side_effect=verify), patch('kb.publication.validate_sources', side_effect=[True, not revoked, not revoked]):
-            return [item async for item in run_agent_stream('value?', 'client-id', 'synthetic', {'llm': {'qa_enhance':enhance}, 'top_k':5, 'user_id':1})]
+            return [item async for item in run_agent_stream(question, 'client-id', 'synthetic', {'llm': {'qa_enhance':enhance}, 'top_k':5, 'user_id':1})]
+
+    def test_manual_overview_requires_verification_even_when_enhance_disabled(self):
+        with patch('kb.manual_overview.outline_answer', return_value=''):
+            events = asyncio.run(self.collect(verdict='fail', enhance=False, question='漂流手册有啥，给我总结一下'))
+        self.assertFalse(any(kind == 'token' for kind, _ in events))
+        self.assertTrue(any(kind == 'verify' and not data['ok'] for kind, data in events))
+
+    def test_failed_overview_only_publishes_source_extraction(self):
+        with patch('kb.manual_overview.outline_answer', return_value='原文章节目录'):
+            events = asyncio.run(self.collect(verdict='fail', enhance=False, question='漂流手册有啥，给我总结一下'))
+        self.assertEqual([data['text'] for kind,data in events if kind == 'token'],['原文章节目录'])
+        self.assertNotIn('DRAFT',repr(events))
 
     def test_fail_warn_timeout_truncation_and_revocation_do_not_publish(self):
         for kwargs in ({'verdict':'fail'}, {'verdict':'warn'}, {'verdict':None}, {'truncated':True}, {'revoked':True}):
@@ -93,7 +105,7 @@ class SourceSnapshotTests(TestCase):
             self.assertFalse(validate_sources(self.evidence, self.user.pk))
 
 
-class PublishedHistoryTests(TestCase):
+class PublishedHistoryTests(TransactionTestCase):
     def test_legacy_draft_is_not_passed_to_enhanced_agent(self):
         from kb.models import Conversation, Message, SiteConfig
         user = get_user_model().objects.create_user('history-reader')
@@ -110,8 +122,9 @@ class PublishedHistoryTests(TestCase):
             yield 'verify', {'ok':False, 'issues':[]}
         with patch('kb.agent.run_agent_stream', side_effect=fake_stream):
             from django.urls import reverse
-            response = self.client.post(reverse('kb:stream'), {'message':'new question', 'thread_id':conv.thread_id})
             async def consume():
+                self.async_client.cookies = self.client.cookies
+                response = await self.async_client.post(reverse('kb:stream'), {'message':'new question', 'thread_id':conv.thread_id})
                 return [item async for item in response.streaming_content]
             asyncio.run(consume())
         self.assertNotIn('LEGACY PRIVATE DRAFT', repr(captured['published_history']))

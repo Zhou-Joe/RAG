@@ -2,6 +2,13 @@
 {% load static %}
 {% block title %}智能问答 · SHDR RAG{% endblock %}
 {% block content %}
+<style>
+@keyframes answerPulse { 0%,100% {opacity:1} 50% {opacity:.38} }
+.conv-item.is-generating .conv-title, .answer.thinking, .turn-progress {animation:answerPulse 1.6s ease-in-out infinite}
+.conv-state {display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--brand);min-height:14px}
+.conv-unread-dot {display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--brand)}
+@media (prefers-reduced-motion:reduce) {.conv-item.is-generating .conv-title,.answer.thinking,.turn-progress {animation:none}}
+</style>
 {{ pyodide_index_url|json_script:"pyodideIndexURL" }}
 <div class="qa-layout">
   <!-- 左侧：会话历史（手机上收进抽屉） -->
@@ -55,7 +62,9 @@
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
 <script src="{% static 'js/evidence_panel.js' %}"></script>
 <script src="{% static 'js/chat_input.js' %}"></script>
-<script src="{% static 'js/chat_stream.js' %}"></script>
+<script src="{% static 'js/chat_stream.js' %}?v=20260921"></script>
+<script src="{% static 'js/chat_recovery.js' %}?v=20260921"></script>
+<script src="{% static 'js/conversation_badges.js' %}?v=1"></script>
 <script src="{% static 'js/vendor/jspdf.umd.min.js' %}" defer></script>
 <script src="{% static 'js/vendor/jspdf.plugin.autotable.min.js' %}" defer></script>
 <script>
@@ -501,18 +510,51 @@ pd.DataFrame.to_excel = _patched_to_excel
   let currentThreadId = '';   // 当前会话的 thread_id；空表示新对话（首次发送时生成）
   let activeTurn = null;
   let historyRevision = 0;
+  const badges = FosConversationBadges.create({csrf:getCSRFToken, onState(row) {
+    const item = Array.from(document.querySelectorAll('.conv-item')).find(el => el.dataset.thread === row.thread_id);
+    if (!item) return;
+    item.classList.toggle('is-generating', row.running);
+    let indicator = item.querySelector('.conv-state');
+    if (!indicator) { indicator = document.createElement('span'); indicator.className = 'conv-state'; item.querySelector('.conv-title').after(indicator); }
+    indicator.replaceChildren();
+    if (row.running) indicator.textContent = '正在思考 / 生成…';
+    else if (row.unread) {
+      const dot = document.createElement('span'); dot.className = 'conv-unread-dot';
+      dot.setAttribute('role','img'); dot.setAttribute('aria-label','新回答未读');
+      indicator.title = '回答已完成，点击会话标为已读'; indicator.appendChild(dot);
+    }
+  }});
+  badges.start();
+  window.addEventListener('pagehide', () => badges.pause());
+  window.addEventListener('pageshow', () => badges.start());
+  let recovery = null;
+  const recoveryKey = "rag-ask-{{ user.pk }}";
   const stopBtn = document.getElementById('stopBtn');
   function cancelCurrentTurn() {
-    if (activeTurn) activeTurn.abort();
+    if (recovery) recovery.stop();
+    recovery = null;
+    historyRevision++;
+    if (activeTurn) activeTurn.abort("已切换页面，回答仍在后台生成。");
     activeTurn = null;
     busy = false;
     sendBtn.disabled = false;
     stopBtn.hidden = true; stopBtn.style.display = 'none';
   }
-  stopBtn.addEventListener('click', () => {
-    if (activeTurn) activeTurn.abort();
+  stopBtn.addEventListener('click', async () => {
+    const thread = currentThreadId;
+    stopBtn.disabled = true;
+    try {
+      await FosAnswerRecovery.stop(thread, getCSRFToken());
+      if (currentThreadId !== thread) return;
+      if (activeTurn) activeTurn.abort('已请求停止回答。');
+      restoreConversation(thread);
+    } catch(error) { alert(error.message); }
+    finally { stopBtn.disabled = false; }
   });
   window.addEventListener('pagehide', cancelCurrentTurn);
+  window.addEventListener('pageshow', event => {
+    if (event.persisted && currentThreadId) restoreConversation(currentThreadId);
+  });
   const convTitleEl = document.getElementById('convTitle');
   // 当前会话累计 token 用量（输入/输出），跨多轮累加；切会话/新建时重置
   let sessionTokens = { in: 0, out: 0 };
@@ -548,6 +590,7 @@ pd.DataFrame.to_excel = _patched_to_excel
   function newConversation(){
     cancelCurrentTurn();
     historyRevision++;
+    FosAnswerRecovery.remember(recoveryKey, '');
     currentThreadId = genThreadId();   // 预生成；服务端 get_or_create 时落地
     sessionTokens = { in: 0, out: 0 };
     sessionMax = { in: 0, out: 0 };
@@ -613,27 +656,19 @@ pd.DataFrame.to_excel = _patched_to_excel
   }
   bindConvDeleteButtons();
 
-  // 点击侧边栏某条历史 → 加载该会话的历史消息
-  document.querySelectorAll('.conv-item').forEach(el => {
-    el.addEventListener('click', async (e) => {
-      // 点击删除按钮时不触发加载会话
-      if (e.target.closest('.conv-del')) return;
-      e.preventDefault();
-      cancelCurrentTurn();
-      const revision = ++historyRevision;
-      const thread = el.dataset.thread;
-      currentThreadId = thread;
-      sessionTokens = { in: 0, out: 0 };  // 切换会话重置计数
-      sessionMax = { in: 0, out: 0 };
-      document.querySelectorAll('.conv-item').forEach(x => x.classList.remove('active'));
-      el.classList.add('active');
-      if (convTitleEl) convTitleEl.textContent = el.dataset.title || '';
-      // 拉取历史消息
-      try {
-        const r = await fetch('/kb/conv/' + encodeURIComponent(thread) + '/messages/');
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const data = await r.json();
-        if (revision !== historyRevision || thread !== currentThreadId) return;
+  function restoreConversation(thread) {
+    cancelCurrentTurn();
+    const revision = ++historyRevision;
+    currentThreadId = thread;
+    busy = true; sendBtn.disabled = true;
+    FosAnswerRecovery.remember(recoveryKey, thread);
+    document.querySelectorAll('.conv-item').forEach(el => el.classList.toggle('active', el.dataset.thread === thread));
+    recovery = FosAnswerRecovery.watch(thread, {onUpdate(data) {
+      if (revision !== historyRevision || thread !== currentThreadId) return;
+      if (!document.querySelector('.conv-item[data-thread="'+thread+'"]')) addConvItem(thread, data.title || '会话', '');
+      busy = !!data.active_answer;
+      sendBtn.disabled = busy;
+      stopBtn.hidden = !busy; stopBtn.style.display = busy ? '' : 'none';
         if (data.kb_slug) { /* no dropdown anymore; agent picks KB automatically */ }
         if (convTitleEl) convTitleEl.textContent = data.title || '';
         messages.innerHTML = '';
@@ -645,10 +680,16 @@ pd.DataFrame.to_excel = _patched_to_excel
             : AI_WHO + '<div class="bubble"><div class="answer">' + (window.marked ? DOMPurify.sanitize(window.marked.parse(m.content||'')) : (m.content||'').replace(/</g,'&lt;')) + '</div></div>';
           div.innerHTML = inner;
           messages.appendChild(div);
+          if (m.role === 'ai' && ['queued','running'].includes(m.completion_status)) {
+            const status = document.createElement('div');
+            status.className = 'turn-progress';
+            status.textContent = (data.active_answer?.stage || '后台生成中') + '…';
+            div.querySelector('.bubble').appendChild(status);
+          }
           if (m.role === 'ai' && m.completion_status === 'incomplete') {
             const note = document.createElement('div');
             note.className = 'answer-incomplete';
-            note.textContent = '⚠ 回答未完成：已保留生成内容，不能作为完整结论。请重新提问继续核对。';
+            note.textContent = '⚠ ' + (m.failure_reason || '此前的回答未完成，旧记录没有保存中断原因。') + (m.content ? ' 已保留部分正文，不能作为完整结论。' : ' 尚未生成答案正文。') + ' 请重试原问题。';
             note.style.cssText = 'color:var(--warn);font-size:13px;margin-top:8px';
             div.querySelector('.bubble').appendChild(note);
           }
@@ -661,10 +702,20 @@ pd.DataFrame.to_excel = _patched_to_excel
           messages.innerHTML = AI_WHO + '<div class="msg ai"><div class="bubble"><div class="answer">（无历史消息）</div></div></div>';
         }
         messages.scrollTop = messages.scrollHeight;
-      } catch(err) {
-        if (revision !== historyRevision || thread !== currentThreadId) return;
-        messages.textContent = '加载历史失败：' + (err.message || err);
+    }, onError(error) {
+      if (revision !== historyRevision) return;
+      if ([401,403,404].includes(error.status)) {
+        newConversation();
+        if (convTitleEl) convTitleEl.textContent = error.message;
+        return;
       }
+      if (convTitleEl) convTitleEl.textContent = error.message + '，正在重试…';
+    }});
+  }
+  document.querySelectorAll('.conv-item').forEach(el => {
+    el.addEventListener('click', event => {
+      if (event.target.closest('.conv-del')) return;
+      event.preventDefault(); badges.read(el.dataset.thread); restoreConversation(el.dataset.thread);
     });
   });
 
@@ -675,8 +726,9 @@ pd.DataFrame.to_excel = _patched_to_excel
     if (el) el.click();
   })();
   {% else %}
-  // 默认进入新对话
-  newConversation();
+  const rememberedThread = FosAnswerRecovery.recalled(recoveryKey);
+  if (rememberedThread) restoreConversation(rememberedThread);
+  else newConversation();
   {% endif %}
 
   /* ---------- 来源出处链接（每文档一个 chip；有 chunk 溯源 → 证据面板，无 → 切片页） ---------- */
@@ -760,6 +812,8 @@ pd.DataFrame.to_excel = _patched_to_excel
     const text = input.value.trim();
     if (!text || busy) return;
     if (!currentThreadId) currentThreadId = genThreadId();
+    if (recovery) recovery.stop();
+    FosAnswerRecovery.remember(recoveryKey, currentThreadId);
     input.value = '';
     busy = true; sendBtn.disabled = true; stopBtn.hidden = false; stopBtn.style.display = '';
     historyRevision++;
@@ -855,7 +909,15 @@ pd.DataFrame.to_excel = _patched_to_excel
       else if (p.status === 'skip') setPipe(p.stage, 'skip', p.detail || '跳过');
     }
 
-    const stream = FosChatStream.create({onEvent(etype, payload) {
+    const stream = FosChatStream.create({onAbort(error) {
+      if (activeTurn !== stream) return;
+      answerEl.classList.remove('thinking');
+      toolArea.querySelectorAll('.ts-spin').forEach(el => el.remove());
+      toolArea.querySelectorAll('.pipe-chip.run').forEach(el => el.classList.remove('run'));
+      progressEl.textContent = error.message;
+      busy = false; sendBtn.disabled = false;
+      stopBtn.hidden = true; stopBtn.style.display = 'none';
+    }, onEvent(etype, payload) {
       if (activeTurn !== stream || currentThreadId !== submittedThread) return;
       if (etype === 'heartbeat') {
         if (!document.querySelector('.conv-item[data-thread="'+submittedThread+'"]')) addConvItem(submittedThread, text.slice(0,30), '');
@@ -951,6 +1013,7 @@ pd.DataFrame.to_excel = _patched_to_excel
       }
     }});
     activeTurn = stream;
+    let needsRecovery = false;
     try {
       await stream.run(url, {
         method: 'POST',
@@ -960,14 +1023,15 @@ pd.DataFrame.to_excel = _patched_to_excel
       if (activeTurn === stream) renderMd();
     } catch(e) {
       if (activeTurn !== stream || currentThreadId !== submittedThread) return;
+      needsRecovery = true;
       renderMd();
       const err = document.createElement('div');
       err.setAttribute('role', 'alert');
       err.style.cssText = 'color:var(--red);font-size:13px;margin-top:8px';
-      err.textContent = '本次回答未完成：' + (e.message || e);
+      err.textContent = '正在恢复回答状态：' + (e.message || e);
       am.querySelector('.bubble').appendChild(err);
     } finally {
-      progressEl.remove();
+      if (!stream.signal.aborted) progressEl.remove();
       if (activeTurn === stream) {
         activeTurn = null;
         busy = false; sendBtn.disabled = false; stopBtn.hidden = true; stopBtn.style.display = 'none';
@@ -978,6 +1042,7 @@ pd.DataFrame.to_excel = _patched_to_excel
         if (!document.querySelector('.conv-item[data-thread="'+submittedThread+'"]')) {
           addConvItem(submittedThread, text.slice(0,30), '');
         }
+        if (needsRecovery) restoreConversation(submittedThread);
       }
     }
   }
@@ -999,7 +1064,7 @@ pd.DataFrame.to_excel = _patched_to_excel
     document.querySelectorAll('.conv-item').forEach(x => x.classList.remove('active'));
     a.addEventListener('click', (e) => {
       if (e.target.closest('.conv-del')) return;
-      e.preventDefault(); /* 复用已绑定逻辑：重新加载 */ location.href = '?conv='+thread;
+      e.preventDefault(); badges.read(thread); restoreConversation(thread);
     });
     list.insertBefore(a, list.firstChild);
     bindConvDeleteButtons();

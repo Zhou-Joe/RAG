@@ -2,26 +2,29 @@
 (function (root) {
   'use strict';
   root.FosChatStream = {
-    create({onEvent, idleMs = 45000, totalMs = 270000, fetchImpl = root.fetch} = {}) {
+    create({onEvent, onAbort, idleMs = 45000, totalMs = 270000, fetchImpl = root.fetch} = {}) {
       const controller = new AbortController();
       let reader, idleTimer, totalTimer, failure, rejectAbort;
       const aborted = new Promise((_, reject) => { rejectAbort = reject; });
       // A click can cancel between construction and the first awaited operation.
       aborted.catch(() => {});
-      function abort(reason = '已停止回答；本次回答未完成。') {
+      function abort(reason = '已停止接收页面数据；后台任务状态可恢复。') {
         if (controller.signal.aborted) return;
         failure = new Error(reason);
         controller.abort(failure);
         rejectAbort(failure);
+        // pagehide may freeze Promise callbacks until the page is restored.
+        // Reset visible state synchronously, before entering the browser cache.
+        if (onAbort) onAbort(failure);
         if (reader) Promise.resolve(reader.cancel()).catch(() => {});
       }
       function touch() {
         clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => abort('服务超过 45 秒没有响应；本次回答未完成，请重试。'), idleMs);
+        idleTimer = setTimeout(() => abort('服务超过 45 秒没有响应；正在恢复后台回答状态。'), idleMs);
       }
       async function run(url, options) {
         touch();
-        totalTimer = setTimeout(() => abort('本次问答等待时间过长，已停止；回答未完成，请缩小问题范围后重试。'), totalMs);
+        totalTimer = setTimeout(() => abort('页面连接等待时间过长，正在恢复后台回答状态。'), totalMs);
         try {
           const response = await Promise.race([fetchImpl(url, {...options, signal: controller.signal}), aborted]);
           if (!response.ok) throw new Error('请求失败（HTTP ' + response.status + '），本次回答未完成。');

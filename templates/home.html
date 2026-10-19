@@ -147,6 +147,8 @@
 {% block scripts %}
 <script src="{% static 'js/vendor/marked.min.js' %}"></script>
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
+<script src="{% static 'js/chat_stream.js' %}?v=20260921"></script>
+<script src="{% static 'js/chat_recovery.js' %}?v=20260921"></script>
 <script>
 
 // ── 内置 AI 问答（复用 /kb/stream/ SSE；同 ask 页语义的精简前端） ──
@@ -161,7 +163,48 @@
     const m = document.cookie.match(/(?:^|; )csrftoken=([^;]*)/);
     return m ? decodeURIComponent(m[1]) : '';
   };
-  let threadId = '', busy = false;
+  let threadId = '', busy = false, activeStream = null, recovery = null;
+  const recoveryKey = 'rag-home-{{ user.pk }}';
+  function restoreHome() {
+    if (!threadId) return;
+    busy = true;
+    if (recovery) recovery.stop();
+    recovery = FosAnswerRecovery.watch(threadId, {onUpdate(data) {
+      if (activeStream) return;
+      busy = !!data.active_answer;
+      log.hidden = false; log.innerHTML = '';
+      data.messages.forEach(message => {
+        const row = document.createElement('div');
+        row.className = 'msg ' + (message.role === 'user' ? 'user' : 'ai');
+        const bubble = document.createElement('div'); bubble.className = 'bubble';
+        if (message.role === 'ai' && window.marked && window.DOMPurify) bubble.innerHTML = DOMPurify.sanitize(marked.parse(message.content || ''));
+        else bubble.textContent = message.content || '';
+        if (message.completion_status === 'incomplete') {
+          const note = document.createElement('div'); note.textContent = message.failure_reason || '回答未完成'; bubble.appendChild(note);
+        }
+        row.appendChild(bubble); log.appendChild(row);
+      });
+      if (busy) {
+        const status = document.createElement('div'); status.textContent = (data.active_answer.stage || '后台生成中') + '…'; log.appendChild(status);
+        const stop = document.createElement('button'); stop.type = 'button'; stop.textContent = '停止回答';
+        stop.onclick = async () => { stop.disabled = true; try { await FosAnswerRecovery.stop(threadId, csrf()); } catch(error) { status.textContent = error.message; stop.disabled = false; } };
+        log.appendChild(stop);
+      }
+      const link = document.createElement('a'); link.href = '/kb/ask/?conv=' + encodeURIComponent(threadId); link.textContent = '打开完整会话与出处'; log.appendChild(link);
+    }, onError(error) {
+      busy = false; log.hidden = false;
+      const terminal = [401,403,404].includes(error.status);
+      if (terminal) { threadId = ''; FosAnswerRecovery.remember(recoveryKey, ''); }
+      log.textContent = error.message + (terminal ? '' : '，正在重试…');
+    }});
+  }
+  window.addEventListener('pagehide', () => {
+    if (recovery) recovery.stop();
+    if (activeStream) activeStream.abort('已离开页面，回答仍在后台生成。');
+  });
+  window.addEventListener('pageshow', event => { if (event.persisted) restoreHome(); });
+  threadId = FosAnswerRecovery.recalled(recoveryKey);
+  if (threadId && AUTHED) restoreHome();
 
   form.addEventListener('submit', e => { e.preventDefault(); submitQ(); });
   input.addEventListener('keydown', e => {
@@ -174,6 +217,8 @@
     if (!AUTHED) { location.href = '/accounts/login/?next=/'; return; }
     input.value = '';
     if (!threadId) threadId = 'home-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    FosAnswerRecovery.remember(recoveryKey, threadId);
+    if (recovery) recovery.stop();
     log.hidden = false;
     // 用户气泡
     const um = document.createElement('div');
@@ -194,6 +239,14 @@
     busy = true;
     const answerEl = am.querySelector('.answer');
     const toolArea = am.querySelector('.tool-area');
+    const stopButton = document.createElement('button');
+    stopButton.type = 'button'; stopButton.textContent = '停止回答';
+    toolArea.appendChild(stopButton);
+    stopButton.onclick = async () => {
+      stopButton.disabled = true;
+      try { await FosAnswerRecovery.stop(threadId, csrf()); }
+      catch(error) { stopButton.disabled = false; stopButton.textContent = error.message; }
+    };
     const toolRows = {}; let firstToken = true; let buf = ''; let cites = [];
     const render = () => {
       answerEl.innerHTML = (window.marked && window.DOMPurify)
@@ -206,31 +259,41 @@
       row.classList.add('done');
       row.insertAdjacentHTML('beforeend', CHECK);
     };
+    let stream;
+    const showFailure = err => {
+      answerEl.classList.remove('thinking');
+      toolArea.querySelectorAll('.ts-spin').forEach(el => el.remove());
+      if (am.querySelector('.answer-interrupted')) return;
+      const note = document.createElement('div');
+      note.className = 'answer-interrupted';
+      note.style.cssText = 'color:var(--danger);font-size:12px';
+      note.textContent = (err.message || String(err)) + (buf ? ' 已保留部分正文，请勿作为完整结论。' : ' 尚未生成答案正文。');
+      answerEl.appendChild(note);
+      const retry = document.createElement('button');
+      retry.type = 'button'; retry.textContent = '重试此问题';
+      retry.addEventListener('click', () => { if (!busy) { input.value = text; submitQ(); retry.disabled = true; } });
+      answerEl.appendChild(retry);
+    };
     try {
       const fd = new FormData();
       fd.set('csrfmiddlewaretoken', csrf());
       fd.set('message', text);
       fd.set('thread_id', threadId);
-      const resp = await fetch('/kb/stream/', { method: 'POST', body: fd });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder();
-      let raw = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        raw += dec.decode(value, { stream: true });
-        let idx;
-        while ((idx = raw.indexOf('\n\n')) >= 0) {
-          const frame = raw.slice(0, idx); raw = raw.slice(idx + 2);
-          let etype = '', data = '{}';
-          frame.split('\n').forEach(l => {
-            if (l.startsWith('event:')) etype = l.slice(6).trim();
-            if (l.startsWith('data:')) data = l.slice(5).trim();
-          });
-          let payload = {};
-          try { payload = JSON.parse(data); } catch (e) {}
-          if (etype === 'token') {
+      stream = FosChatStream.create({onAbort(error) {
+        if (activeStream !== stream) return;
+        showFailure(error);
+        activeStream = null; busy = false;
+        if (!error.message.startsWith('已离开页面')) setTimeout(restoreHome, 0);
+      }, onEvent(etype, payload) {
+          if (activeStream !== stream) return;
+          if (etype === 'heartbeat') {
+            if (!toolRows.progress) {
+              const progress = document.createElement('div');
+              progress.className = 'tool-status';
+              toolArea.appendChild(progress); toolRows.progress = progress;
+            }
+            toolRows.progress.textContent = (payload.stage || '处理中') + ' · ' + (payload.elapsed || 0) + ' 秒';
+          } else if (etype === 'token') {
             if (firstToken) { firstToken = false; answerEl.classList.remove('thinking');
               Object.values(toolRows).forEach(markDone); }
             buf += payload.text || ''; render();
@@ -255,17 +318,13 @@
             markDone(toolRows[payload.run_id]);
           } else if (etype === 'citations') {
             cites = cites.concat(payload.citations || []);
-          } else if (etype === 'error') {
-            answerEl.classList.remove('thinking');
-            answerEl.insertAdjacentHTML('beforeend',
-              '<div style="color:var(--danger);font-size:12px">错误：' + (payload.message || '未知') + '</div>');
           }
           log.scrollTop = log.scrollHeight;
-        }
-      }
+      }});
+      activeStream = stream;
+      await stream.run('/kb/stream/', {method: 'POST', body: fd});
       answerEl.classList.remove('thinking');
       Object.values(toolRows).forEach(markDone);
-      if (!buf && !answerEl.textContent.trim()) answerEl.textContent = '（无返回）';
       render();
       // 引用 chip → 切片页；图片命中内联缩略图直接展示
       if (cites.length) {
@@ -302,11 +361,10 @@
         if (imgRow.children.length) citesEl.appendChild(imgRow);
       }
     } catch (err) {
-      answerEl.classList.remove('thinking');
-      answerEl.insertAdjacentHTML('beforeend',
-        '<div style="color:var(--danger);font-size:12px">连接失败：' + (err.message || err) + '</div>');
+      if (activeStream === stream) showFailure(err);
     } finally {
-      busy = false;
+      stopButton.remove();
+      if (activeStream === stream) { busy = false; activeStream = null; }
       log.scrollTop = log.scrollHeight;
     }
   }

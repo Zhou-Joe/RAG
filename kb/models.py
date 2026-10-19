@@ -290,6 +290,8 @@ class SiteConfig(models.Model):
     llm_temperature = models.FloatField("LLM 温度", null=True, blank=True)
     # 模型是否支持图片输入（视觉）。开启后 kb_search 命中图片时把图以
     # LangChain 多模态内容块随工具结果返回，模型可真正「看图」回答。
+    all_remote_apis_enabled = models.BooleanField("允许全部远程 API", default=False)
+    llm_remote_enabled = models.BooleanField("允许远程回答 API", default=False)
     llm_vision = models.BooleanField("LLM 支持图片输入", default=False)
     # 问答管线增强：回答前先做「问题理解/改写」（query_plan），回答后用
     # 第二次 LLM 调用对照检索证据核实结论（answer_verification），核实不过
@@ -354,6 +356,8 @@ class SiteConfig(models.Model):
     def apply(self, data: dict, fields: list[str] | None = None) -> None:
         """从 dict 批量写入指定字段（默认全部）（用于从预设加载）。"""
         fl = fields or [f for f, _t in _SITECONFIG_FIELDS]
+        if "llm_remote_enabled" in fl and "llm_remote_enabled" not in data:
+            self.llm_remote_enabled = False
         for f in fl:
             if f in data:
                 setattr(self, f, data[f])
@@ -361,6 +365,7 @@ class SiteConfig(models.Model):
 
 # SiteConfig 的 (字段名, 类型) 列表，供 snapshot/apply 与预设共用
 _SITECONFIG_FIELDS = [
+    ("llm_remote_enabled", "bool"),
     ("llm_base_url", "text"), ("llm_api_key", "text"), ("llm_model", "text"), ("llm_temperature", "float"),
     ("embedding_base_url", "text"), ("embedding_api_key", "text"), ("embedding_model", "text"), ("embedding_dimensions", "int"),
     ("kb_chunk_size", "int"), ("kb_chunk_overlap", "int"), ("kb_top_k", "int"),
@@ -369,7 +374,7 @@ _SITECONFIG_FIELDS = [
 
 # 分类 → 该分类包含的 SiteConfig 字段名。预设按分类独立保存/加载。
 PRESET_CATEGORIES = {
-    "llm": ["llm_base_url", "llm_api_key", "llm_model", "llm_temperature", "llm_vision", "qa_enhance"],
+    "llm": ["llm_remote_enabled", "llm_base_url", "llm_api_key", "llm_model", "llm_temperature", "llm_vision", "qa_enhance"],
     "embedding": ["embedding_base_url", "embedding_api_key", "embedding_model", "embedding_dimensions"],
     "retrieval": ["kb_chunk_size", "kb_chunk_overlap", "kb_top_k"],
     "mineru": ["mineru_api_base", "mineru_api_key", "mineru_backend", "mineru_lang"],
@@ -443,6 +448,7 @@ class Conversation(models.Model):
     kb = models.ForeignKey(KnowledgeBase, on_delete=models.CASCADE, related_name="conversations")
     title = models.CharField("标题", max_length=120, default="新对话")
     thread_id = models.CharField("会话线程", max_length=80, unique=True)
+    last_read_answer_id = models.PositiveBigIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -472,11 +478,13 @@ class Message(models.Model):
     # AI 消息引用的来源出处（每条含 doc_id/source/highlights），供前端渲染可点击链接
     citations = models.JSONField("来源出处", default=list, blank=True)
     verified = models.BooleanField("已核对发布", default=False)
-    completion_status = models.CharField("回答状态", max_length=12, default="complete", choices=[("complete", "完整"), ("incomplete", "未完成")])
+    completion_status = models.CharField("回答状态", max_length=12, default="complete", choices=[("complete", "完整"), ("incomplete", "未完成"), ("queued", "排队中"), ("running", "生成中")])
+    failure_reason = models.CharField("未完成原因", max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["created_at"]
+        constraints = [models.UniqueConstraint(fields=["conversation"], condition=models.Q(completion_status__in=["queued", "running"]), name="one_active_answer_per_conversation")]
         verbose_name = "消息"
         verbose_name_plural = "消息"
 

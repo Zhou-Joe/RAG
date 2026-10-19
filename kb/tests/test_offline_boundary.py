@@ -30,3 +30,33 @@ socket.getaddrinfo('127.0.0.1', 8000)
         response = LocalResourcePolicy(lambda request: HttpResponse('ok'))(None)
         self.assertIn("connect-src 'self'", response['Content-Security-Policy'])
         self.assertIn("img-src 'self' data: blob:", response['Content-Security-Policy'])
+
+    def test_remote_dns_resolution_is_scoped_and_revoked(self):
+        code = '''
+import socket
+from unittest.mock import Mock
+from fos_rag.offline import install, configure_answer_endpoint, check_connection
+resolver = Mock(return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('203.0.113.4', 443))])
+socket.getaddrinfo = resolver
+install()
+configure_answer_endpoint('https://api.example.com/v1', True)
+socket.getaddrinfo('api.example.com', 443)
+check_connection(('203.0.113.4', 443))
+for host, port in [('other.example.com', 443), ('api.example.com', 80)]:
+    try:
+        socket.getaddrinfo(host, port)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('Unapproved DNS allowed')
+configure_answer_endpoint('', False)
+try:
+    check_connection(('203.0.113.4', 443))
+except PermissionError:
+    pass
+else:
+    raise AssertionError('Resolved IP remained allowed after revocation')
+assert resolver.call_count == 1
+'''
+        result = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)

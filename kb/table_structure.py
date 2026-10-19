@@ -10,18 +10,33 @@ class TableParser(HTMLParser):
         self.cell = None
         self.depth = 0
 
+    # HTML allows omitting </td>, </th> and </tr>; the next cell, row or </table>
+    # closes them implicitly. OCR output relies on this for final rows.
+    def _close_cell(self):
+        if self.cell is not None:
+            cell = self.cell
+            cell['text'] = ' '.join(''.join(cell.pop('parts')).split())
+            self.row.append(cell)
+            self.cell = None
+
+    def _close_row(self):
+        self._close_cell()
+        if self.row is not None:
+            self.rows.append(self.row)
+            self.row = None
+
     def handle_starttag(self, tag, attrs):
         if tag == 'table':
             self.depth += 1
             if self.depth > 1:
                 raise ValueError('嵌套表格需人工检查，不能静默丢弃内容')
         elif tag == 'tr':
-            if self.row is not None:
-                raise ValueError('表格行未闭合')
+            self._close_row()
             self.row = []
         elif tag in ('td', 'th'):
-            if self.row is None or self.cell is not None:
+            if self.row is None:
                 raise ValueError('表格单元格结构异常')
+            self._close_cell()
             attrs = dict(attrs)
             spans = []
             for name in ('rowspan', 'colspan'):
@@ -41,17 +56,12 @@ class TableParser(HTMLParser):
             self.cell['parts'].append(text)
 
     def handle_endtag(self, tag):
-        if tag in ('td', 'th') and self.cell is not None:
-            cell = self.cell
-            cell['text'] = ' '.join(''.join(cell.pop('parts')).split())
-            self.row.append(cell)
-            self.cell = None
-        elif tag == 'tr' and self.row is not None:
-            if self.cell is not None:
-                raise ValueError('表格单元格未闭合')
-            self.rows.append(self.row)
-            self.row = None
+        if tag in ('td', 'th'):
+            self._close_cell()
+        elif tag == 'tr':
+            self._close_row()
         elif tag == 'table':
+            self._close_row()
             self.depth -= 1
 
 

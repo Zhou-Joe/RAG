@@ -24,7 +24,19 @@ def _eff(db_value, settings_default):
 
 def get_config() -> SiteConfig:
     """获取单行 SiteConfig（不存在则创建空行）。"""
-    return SiteConfig.get()
+    c = SiteConfig.get()
+    from fos_rag.offline import configure_api_endpoints
+    urls = []
+    if c.all_remote_apis_enabled or c.llm_remote_enabled:
+        urls.append(_eff(c.llm_base_url, settings.LLM_BASE_URL))
+    if c.all_remote_apis_enabled:
+        urls.extend([
+            _eff(c.embedding_base_url, settings.EMBEDDING_BASE_URL),
+            _eff(c.rerank_base_url, getattr(settings, "RERANK_BASE_URL", "")),
+            _eff(c.mineru_api_base, settings.MINERU_API_BASE),
+        ])
+    configure_api_endpoints(normalize_openai_base_url(url) for url in urls)
+    return c
 
 
 def normalize_openai_base_url(value: str, *, ollama: bool = False) -> str:
@@ -49,9 +61,12 @@ def normalize_openai_base_url(value: str, *, ollama: bool = False) -> str:
 
 def llm_settings() -> dict:
     c = get_config()
+    base_url = normalize_openai_base_url(_eff(c.llm_base_url, settings.LLM_BASE_URL))
     vision = c.llm_vision or getattr(settings, "LLM_VISION", False)
     return {
-        "base_url": normalize_openai_base_url(_eff(c.llm_base_url, settings.LLM_BASE_URL)),
+        "base_url": base_url,
+        "remote_enabled": c.llm_remote_enabled or c.all_remote_apis_enabled,
+        "all_remote_enabled": c.all_remote_apis_enabled,
         "api_key": _eff(c.llm_api_key, settings.LLM_API_KEY),
         "model": _eff(c.llm_model, settings.LLM_MODEL),
         "temperature": c.llm_temperature if c.llm_temperature is not None else settings.LLM_TEMPERATURE,
@@ -112,3 +127,23 @@ def rerank_settings() -> dict:
         "api_key": api_key,
         "model": _eff(c.rerank_model, getattr(settings, "RERANK_MODEL", "")),
     }
+
+
+def validate_answer_endpoint(cfg):
+    """Use the same explicit opt-in and URL rules for tests and generation."""
+    import ipaddress
+    parts = urlsplit(cfg["base_url"])
+    if parts.scheme not in {"http", "https"} or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError("请填写有效的 API Base URL，不要在地址中放入密钥或查询参数")
+    local = parts.hostname == "localhost"
+    try:
+        local = local or ipaddress.ip_address(parts.hostname).is_loopback
+    except ValueError:
+        pass
+    if not local and not cfg.get("remote_enabled"):
+        raise ValueError("此地址不在本机，请在回答模型配置中开启‘允许远程回答 API’")
+
+
+def answer_extra_body(cfg):
+    # Local engine switches are not portable OpenAI API parameters.
+    return {} if cfg.get("remote_enabled") else settings.LLM_EXTRA_BODY
