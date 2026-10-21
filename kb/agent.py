@@ -49,6 +49,18 @@ def _pick_anchor(clean_text: str) -> str:
 _VISION_MAX_IMAGES = 4   # 每次检索最多附带张数（防 base64 撑爆上下文）
 _VISION_MAX_SIDE = 1568  # 缩边上限（主流多模态输入档；与照片入库同规格）
 
+# ── 图片精确检索 kb_image_search：向量召回 → 概率门槛 → 多模态逐张复核 ──
+_IMG_LANE_CANDIDATES = 8   # 向量召回候选数
+_IMG_PROB_TEMP = 0.05      # softmax 温度（余弦相似度差 0.05 ≈ 概率权重 2.7 倍）
+_IMG_REVIEW_PROB = 0.15    # 复核门槛：单张相对概率 ≥15% 才送多模态复核
+_IMG_REVIEW_TOPN = 3       # 复核名额：概率排前 3 名（与门槛取交集，允许不足 3 张）
+_IMG_JUDGE_SYS = (
+    "你是图片匹配审核员：给定用户的找图需求和一张候选图片，判断图片是否匹配需求。"
+    '只输出一个 JSON 对象、不要输出任何其它文字：'
+    '{"match": true或false, "confidence": 0-100的整数, '
+    '"caption": "20字以内描述图片实际内容", "reason": "20字以内判断依据"}'
+)
+
 
 def _image_content_block(doc_id: str, name: str) -> dict | None:
     """文档插图 → LangChain 图片内容块（base64；超边自动缩放重编码）。
@@ -92,6 +104,75 @@ def _image_content_block(doc_id: str, name: str) -> dict | None:
     return {"type": "image",
             "base64": _b64.b64encode(data).decode(),
             "mime_type": mime}
+
+
+def _softmax_probs(dists: list, temp: float = _IMG_PROB_TEMP) -> list[float]:
+    """余弦距离列表 → 相对概率（对相似度 1-distance 做 softmax）。
+
+    相似度本身只有零点几的差异，用较小温度放大成明显的概率集中，
+    才符合「概率最高的图优先复核、低概率不浪费复核」的使用直觉。
+    """
+    import math
+    sims = [1.0 - d if d is not None else -1.0 for d in dists]
+    top = max(sims)
+    exps = [math.exp((s - top) / temp) for s in sims]
+    total = sum(exps) or 1.0
+    return [e / total for e in exps]
+
+
+def _parse_img_verdict(text: str) -> dict:
+    """解析视觉复核模型输出的 JSON 判定（容忍代码围栏与前后杂文）。"""
+    import json as _json
+    import re as _re
+    m = _re.search(r"\{.*\}", text or "", _re.S)
+    if not m:
+        return {"match": None, "note": "复核输出无法解析"}
+    try:
+        obj = _json.loads(m.group(0))
+    except ValueError:
+        return {"match": None, "note": "复核输出不是合法 JSON"}
+    if not isinstance(obj, dict) or not isinstance(obj.get("match"), bool):
+        return {"match": None, "note": "复核输出缺少 match 布尔字段"}
+    conf = obj.get("confidence")
+    return {
+        "match": obj["match"],
+        "confidence": conf if isinstance(conf, (int, float)) and not isinstance(conf, bool) else None,
+        "caption": str(obj.get("caption") or "")[:80],
+        "reason": str(obj.get("reason") or "")[:80],
+    }
+
+
+def _judge_candidate(judge, query: str, data_url: str) -> dict:
+    """送审一张候选图：system 约束只出 JSON；不合规则重试一次；仍不成按关键词兜底。
+
+    实测 qwen 类模型在无格式约束时会回「匹配。理由：……」的长散文，导致
+    解析全失败、一张图都确认不了——所以这里三道防线：
+    ①system 消息强制 JSON；②解析失败带提醒重试一次；③仍失败时按开头
+    关键词（不匹配/匹配，先查否定）兜底判定，绝不把整段散文丢给主模型。
+    """
+    from langchain_core.messages import HumanMessage
+    msgs = [("system", _IMG_JUDGE_SYS),
+            HumanMessage(content=[
+                {"type": "text",
+                 "text": f"用户想找的图片：{query}\n请判断这张候选图片是否匹配上述需求。"},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ])]
+    text = getattr(judge.invoke(msgs), "text", "")
+    v = _parse_img_verdict(text)
+    if v["match"] is None:
+        text = getattr(judge.invoke(msgs + [HumanMessage(
+            "你上一条回复不是纯 JSON。重新回答：只输出一个 JSON 对象，不要任何其它文字。")]),
+            "text", "")
+        v = _parse_img_verdict(text)
+    if v["match"] is None:
+        head = (text or "")[:80]
+        if "不匹配" in head:
+            return {"match": False, "confidence": None, "caption": "",
+                    "reason": "按关键词判定"}
+        if "匹配" in head:
+            return {"match": True, "confidence": None, "caption": "",
+                    "reason": "按关键词判定"}
+    return v
 
   # 本轮检索的来源出处（含 doc_id/text，供前端渲染链接）
 
@@ -222,6 +303,217 @@ def _kb_tree_text(dept_filter: dict) -> str:
             "查登记信息用 tracker_lookup）：\n" + "\n".join(lines))
 
 
+def _chunk_neighbors(source: str, anchor: str, direction: str, department: str,
+                     kb_slug: str = "") -> str:
+    """kb_neighbor_chunk 工具正文（模块级便于测试）。
+
+    用文档的 md_content 重建切块序列（与入库同一条切块链路：
+    _md_for_embedding → _section_aware_chunk），按 anchor（从检索片段
+    原样复制的连续文字）定位所在块，返回相邻块文本。不查向量库、
+    不消耗嵌入预算；块设置（chunk_size/overlap）变更后重建序列与
+    库内存量块可能不同，但相邻关系仍按原文正确。
+    """
+    import re as _re
+
+    from .models import DEPARTMENT_GENERAL, Document
+    from .pipeline import _md_for_embedding, _section_aware_chunk
+
+    q = Document.objects.select_related("kb").filter(original_name=source)
+    if department:
+        q = q.filter(kb__department__in=[DEPARTMENT_GENERAL, department])
+    if kb_slug:
+        q = q.filter(kb__slug=kb_slug)
+    doc = q.order_by("created_at").first()
+    if doc is None:
+        return f"未找到来源文档「{source}」（或不在可见范围内）。"
+    if not doc.md_content:
+        return f"文档「{source}」无可检索文本。"
+    chunks = _section_aware_chunk(_md_for_embedding(doc.md_content), source)
+    if len(chunks) < 2:
+        return f"文档「{source}」只有 1 个片段，没有相邻片段。"
+
+    def _norm(s: str) -> str:
+        return _re.sub(r"\s+", "", s or "")
+
+    a = _norm(anchor)
+    if len(a) < 6:
+        return "anchor 太短：请从检索到的片段正文中原样复制至少 6 个连续字符。"
+    idx = next((i for i, c in enumerate(chunks) if a in _norm(c.page_content)), None)
+    if idx is None:
+        return ("在「%s」中未定位到该片段（anchor 与原文不匹配）。"
+                "请从检索结果里原样复制片段中的一段文字再试。" % source)
+
+    seq = {"prev": [idx - 1], "next": [idx + 1], "both": [idx - 1, idx + 1]}.get(
+        (direction or "both").lower(), [idx - 1, idx + 1])
+    outs = []
+    for j in seq:
+        if 0 <= j < len(chunks):
+            c = chunks[j]
+            sec = c.metadata.get("section") or ""
+            pos = "上一片段" if j < idx else "下一片段"
+            head = f"（{pos} · 来源文档: {source}"
+            head += f"（章节: {sec}）" if sec else ""
+            head += f" · 全文共 {len(chunks)} 块，当前第 {j + 1} 块）"
+            outs.append(head + "\n" + c.page_content)
+        else:
+            outs.append("（已到文档边界，该方向没有更多片段）")
+    return "\n\n".join(outs)
+
+
+def _image_search_core(query: str, target: str, lane_slugs: list[str],
+                       llm_cfg: dict, cite_sink: list, max_out: int):
+    """kb_image_search 工具正文（模块级便于测试）。
+
+    两段式精确找图：①多模态向量召回图片候选（WeMM 图片专用道），按 softmax
+    计算相对概率；②概率排前 _IMG_REVIEW_TOPN 名且 ≥_IMG_REVIEW_PROB 的候选
+    逐张送视觉模型「审图」（llm_cfg 未开视觉时跳过复核，降级为仅向量+OCR
+    图注）；确认匹配的图片写入 cite_sink（前端引用区自动展示）。返回给模型
+    的文本，视觉模式下确认图片以多模态内容块随结果附上（模型可直接描述图中
+    细节）。
+    """
+    # ── 第一段：多模态向量召回 ──
+    try:
+        from .pipeline import _embeddings
+        from .retriever import _image_lane
+        q_emb = _embeddings().embed_query(query)
+        cands = _image_lane(lane_slugs, q_emb, limit=_IMG_LANE_CANDIDATES)
+    except Exception as e:
+        return f"图片召回失败（库 {target}）：{e}"
+    # 同一文档同一张图去重（一张图可能被多行图注引用产生多个块）
+    seen: set[tuple[str, str]] = set()
+    unique: list[dict] = []
+    for c in cands:
+        key = (c.get("doc_id") or "", c.get("image") or "")
+        if not key[0] or not key[1] or key in seen:
+            continue
+        seen.add(key)
+        unique.append(c)
+    if not unique:
+        return (f"在库「{target}」中未召回图片候选（库内无图片块，或与描述的相似度过低）。"
+                "可换更具体的图片描述重试；若文档确有插图，请检查该文档是否已重新入库。")
+    try:  # 补页码溯源（图片块 chunk_id 规则 img-<doc_id>-<hash>）
+        from . import provenance as _prov
+        _prov.annotate_results(unique)
+    except Exception:
+        pass
+    probs = _softmax_probs([c.get("distance") for c in unique])
+    # 复核门槛：概率排前 3、且单张 ≥15% 的候选送审（交集，允许不足 3 张）；
+    # 全部 <15% 的平坦分布仍保底审头名，避免一次复核都不做、工具空转
+    idx_review = [i for i, p in enumerate(probs)
+                  if i < _IMG_REVIEW_TOPN and p >= _IMG_REVIEW_PROB]
+    if not idx_review:
+        idx_review = [0]
+
+    # ── 第二段：视觉复核（站点 LLM 开启图片输入时逐张「审图」）──
+    verdicts: dict[int, dict] = {}
+    blocks_cache: dict[int, dict] = {}
+    if llm_cfg.get("vision"):
+        judge = None
+        for i in idx_review:
+            c = unique[i]
+            blk = _image_content_block(c["doc_id"], c["image"])
+            if blk is None:
+                verdicts[i] = {"match": None, "note": "图片文件不可读"}
+                continue
+            blocks_cache[i] = blk
+            try:
+                if judge is None:
+                    judge = _get_llm({**llm_cfg, "temperature": 0.0})
+                data_url = f"data:{blk['mime_type']};base64,{blk['base64']}"
+                verdicts[i] = _judge_candidate(judge, query, data_url)
+            except Exception as e:
+                verdicts[i] = {"match": None, "note": f"视觉复核请求失败：{str(e)[:120]}"}
+    confirmed = [i for i in idx_review if verdicts.get(i, {}).get("match") is True][:max_out]
+
+    vision_on = bool(llm_cfg.get("vision"))
+    if not vision_on:
+        shown = list(range(min(max_out, len(unique))))
+        head = (f"图片检索完成（模式：仅向量召回——站点未开启「LLM 支持图片输入」，"
+                f"无法视觉复核，结果按相似度排序、未经看图确认，图注来自 OCR）。"
+                f"召回 {len(unique)} 张候选，概率前列的 {len(shown)} 张已附到回答引用区供用户查看。"
+                "回答时只依据图注与来源描述，不要声称已看过图片内容；"
+                "如需真正逐张确认匹配，请在站点设置中开启 LLM 图片输入。")
+    elif confirmed:
+        shown = confirmed
+        head = (f"图片检索完成（向量召回 + 逐张视觉复核）：召回 {len(unique)} 张候选，"
+                f"复核 {len(idx_review)} 张，确认匹配 {len(confirmed)} 张。"
+                "确认匹配的图片已自动附到回答引用区，用户可直接查看。"
+                "回答时说明每张匹配图片的来源文档与页码及复核结论；"
+                "不要在回答里拼贴图片地址；被复核排除的候选不要当作匹配结果展示。"
+                "最终回答用简洁的列表或表格汇总即可，不要逐张长篇复述复核理由。")
+    else:
+        shown = []
+        head = (f"图片检索完成（向量召回 + 逐张视觉复核）：召回 {len(unique)} 张候选，"
+                f"复核 {len(idx_review)} 张，均未确认匹配。请如实告知用户没有找到符合描述的图片，"
+                "可建议用户换更具体的描述（对象/部件/场景/图类型）后重试。"
+                "注意：你没有看到任何图片本体——不要声称已查看图片内容，"
+                "也不要凭图注文字想象或脑补图片细节。")
+
+    lines = []
+    for n, c in enumerate(unique, 1):
+        i = n - 1
+        v = verdicts.get(i)
+        prob = round(probs[i] * 100)
+        src = c.get("source") or "未知来源"
+        if c.get("section"):
+            src += f"（章节: {c['section']}）"
+        if c.get("page_label"):
+            src += f" · {c['page_label']}"
+        if v is None:
+            mark = "○"
+            note = "未复核（未进概率前 3，或概率低于 15%）" if vision_on else "未复核（站点未开启 LLM 图片输入）"
+            cap = c.get("text", "")
+        elif v.get("match") is True:
+            mark = "✓"
+            conf = v.get("confidence")
+            note = "视觉复核：匹配" + (f"（置信 {conf}%）" if conf is not None else "")
+            if v.get("reason"):
+                note += f"，{v['reason']}"
+            cap = v.get("caption") or c.get("text", "")
+        elif v.get("match") is False:
+            mark = "✗"
+            note = "视觉复核：不匹配"
+            if v.get("reason"):
+                note += f"（{v['reason']}）"
+            cap = v.get("caption") or ""
+        else:
+            mark = "？"
+            note = f"复核未完成（{v.get('note', '未知原因')}）"
+            cap = c.get("text", "")
+        lines.append(f"[{n}] {mark} 向量概率 {prob}% · {note}\n"
+                     f"    (来源文档: {src})\n    图片内容: {cap}")
+    text_out = head + "\n\n" + "\n\n".join(lines)
+
+    # 输出图片挂到引用区（URL 规则与 kb_search 同款，前端自动渲染缩略图）
+    for i in shown:
+        c = unique[i]
+        if str(c.get("image", "")).startswith("page") and c.get("chunk_id"):
+            img_url = f"/kb/evidence/{c['chunk_id']}/page.png"
+        else:
+            img_url = f"/kb/doc/{c['doc_id']}/img/{c['image']}"
+        ex = next((x for x in cite_sink if x.get("doc_id") == c["doc_id"]), None)
+        if ex is None:
+            cite_sink.append({
+                "doc_id": c["doc_id"], "source": c.get("source", ""),
+                "highlights": [], "images": [img_url], "chunks": [],
+            })
+        else:
+            ex.setdefault("images", [])
+            if img_url not in ex["images"]:
+                ex["images"].append(img_url)
+
+    if vision_on and confirmed:
+        parts = [{"type": "text",
+                  "text": text_out + "\n\n（下方附确认匹配的图片本体，请依据图片内容本身向用户描述图中细节）"}]
+        for i in confirmed:
+            blk = blocks_cache.get(i) or _image_content_block(unique[i]["doc_id"], unique[i]["image"])
+            if blk:
+                parts.append(blk)
+        if len(parts) > 1:
+            return parts
+    return text_out
+
+
 def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkpointer,
                  citations: list | None = None, department: str = "",
                  evidence: list | None = None, allowed_kb_slugs: list | None = None,
@@ -273,19 +565,21 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
 知识库分两层：**文件夹**（含若干文档库）和**文档库**（每份文档独占一个向量库）。
 - 用户提到具体文档名（以用户提供的文档名为准）时，先调 list_knowledge_bases 查看有哪些文档库及其 slug，再用对应 slug 检索该文档库——这样只返回该文档的内容，不会混杂其它文档。
 - 通用问题（不限定某份文档）时，可用文件夹 slug 检索，系统会跨该文件夹下所有文档库合并结果。
-- 当前默认搜索范围是「{kb_slug}」（系统已按用户问题自动定位到名称最相关的文档库；问题明确指向某文档时不要再去明显无关的库检索）。
+- 当前默认检索范围是「{kb_slug}」（按用户问题自动定位）。优先在此范围检索；内容不足或用户提及范围外的文档时，可用 list_knowledge_bases 查看其它可见库并检索。
 - 当前用户所在部门为「{department or DEPARTMENT_GENERAL}」；你能看到的仅是该部门与「通用」的知识库，这是正常的权限范围，不是知识库缺失——不要向用户提及其它部门库的存在。
 
 工作准则：
-0. 设备名称严格沿用用户原称或本轮原文，不根据模型记忆自行补充英文名、译名或设备对应关系。历史答案仅帮助理解指代，绝不是事实来源。每个资料问题都必须重新调用检索工具；要求中英文对比时必须分别获取两个版本的证据，缺少哪一版就明确说明，不能自行翻译冒充原文。
-明确范围由后端锁定；工具拒绝的范围不能自行扩展。当前范围没有的条目必须明确说明缺失，不得用其他设备参数替代。
+0. 设备名称严格沿用用户原称或本轮原文，不根据模型记忆自行补充英文名、译名或设备对应关系。同一会话中【已检索到的片段】可直接用于后续回答——用户追问、整理、导出时无需重复检索；但历史【答案】文本不是事实来源，需要新事实（新指标/新条目/新文档）时仍须检索取证。要求中英文对比时必须分别获取两个版本的证据，缺少哪一版就明确说明，不能自行翻译冒充原文。
+当前范围没有的条目必须明确说明缺失，不得用其他设备参数替代。
 1. **选库**：不确定有哪些文档库时调一次 list_knowledge_bases 查看层级与 slug，之后按需用 kb_slug 定位到具体文档库。不要每次都调。
 2. **检索（两种工具，按需选择）**：
    - **kb_search**：按问题语义检索最相关的少数片段（指定 kb_slug 选库，不传则用默认范围）。适合「问某个点」「查某个指标」。单次问题内最多调 2 次。
    - **多模态检索**：kb_search 的结果里可能混有 `[图片]` 条目——这是从 PDF 提取的图纸/示意图/表格截图，其文本是图片所在章节与图注（OCR 片段）。用户问「图纸/布置图/示意图/长什么样」这类视觉问题时，这些命中很有价值：依据其上下文文字回答，并提及「相关图纸见回答下方引用区的图片」。图片会**自动**附在引用区供用户查看——不要在回答里拼贴图片地址或「查看: /kb/...」链接。**视觉模式开启时**，最相关的命中图片会以图片本体直接附在检索结果里——这时请依据图片内容本身作答（可以描述图中结构、标注、细节）。
+   - **kb_image_search（找一张图时优先用）**：用户明确想【找图/看图】（「有没有……的示意图/布置图/结构图/照片」「找一张……的图」）时用它，不要用 kb_search 凑合。它先用多模态向量召回候选图片并计算相对概率，再把概率排前 3 且≥15% 的候选逐张交给视觉模型复核，只输出确认匹配的图（自动附到引用区）。回答时说明匹配图片的来源文档与页码、复核结论；无确认匹配时如实说明，并建议用户换更具体的描述重试。视觉模式开启时确认图片会以本体附在工具结果里——请依据图片内容本身描述图中细节，不要凭图注想象。若工具报告「均未确认匹配」或「复核未完成」，说明你没有看到图片本体——严禁声称已查看图片或描述图中细节。
    - **kb_fetch_doc**：按 文档/章节/关键词 提取**全部**匹配片段（非相似度排序，按文档原序）。适合用户要「完整表格/完整清单/全部条目」「导出整张表」，或当 kb_search 返回的表格/清单明显被切断（缺行缺列）时改用它补全。**取完整表格的正确策略**：一张大表常被切成很多块，且数据行往往不含表名关键词（如表名是「受力部件」但数据行是材料牌号/规格）。所以①先用表名关键词（contains=表名）取表头/说明性块；②看其中出现的材料牌号/编号/类别词（如 API 5L、CrNiMo、QT、序号等），再用这些作为 contains 各取一次，把数据行抓全；③最后把多批片段按文档原序拼回整表。单次问题内最多调 4 次（该工具不走向量、开销小）。
+   - **kb_neighbor_chunk**：取某个已检索片段在原文中的**相邻片段**（上/下一个 chunk）。kb_search 命中的片段被切断、缺上下文时用它补全（句子断头、表格缺行、承上启下不清）：参数 source=该片段命中行的「来源文档」文件名，anchor=从片段正文**原样复制**的一小段连续文字（≥6 字），direction=prev/next/both。按原文顺序返回相邻块，比换关键词重新检索更准、更快。
    - **tracker_lookup**：查**追踪表**——文档入库时 AI 自动登记的结构化台账。**字段由各库管理员自行配置，不同库字段不同**；不确定某库登记了哪些信息时，先留空 query 调一次看字段配置与最近登记，再按字段值查。用户问「某文档登记的某项信息是多少」「登记台账里有没有…」这类**登记信息**问题时优先用它，比检索原文片段更准。单次问题内最多调 2 次。
-3. **检索经济性**：已取到的内容直接用于回答，不要用相近关键词重复检索。若第一次结果不足，换一个实质不同的关键词再查一次。生成 write_analysis 前，确保已取到足够完整的数据。
+3. **检索经济性**：已取到的内容直接用于回答，不要用相近关键词重复检索。若第一次结果不足，换一个实质不同的关键词再查一次。生成 write_analysis 前，确保已取到足够完整的数据。工具调用之间的过渡说明控制在一句以内，不要在聊天中复述工具返回的过程性内容（检索流水、逐张复核理由等）——汇总放到最终回答里，用简洁的列表或表格呈现。
 4. **如何描述你的依据（重要）**：你的知识来自 kb_search / kb_fetch_doc 取回的**知识库片段**，不是你「打开了 PDF」或「读取了整份文档」。回答时请如实表述为「根据从 XX 文档检索到的内容」「知识库中的相关片段显示」，并标注来源文档名。片段可能不完整或含 OCR 误差——不要假装你看到了完整的原文/整张表格；若已用 kb_fetch_doc 多次仍取不到某部分，明确说明「检索到的片段中未包含该部分」。
 5. **页码与行号引用**：检索结果的来源行若带「第 N 页」（或区间），在回答中引用该内容时请一并注明页码（如「见 XX 文档第 43 页」）；表格片段带「表第 X-Y 行」时引用「原表第 X 行」。这些页码来自 OCR 版面定位，直接使用即可，不要自己推算页码。
 6. 回答须准确、客观，语言专业且易于理解。
@@ -296,11 +590,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
 - 先取数据：若是要某张表/清单的【完整】内容（如「导出受力部件表」「列出全部故障代码」），优先用 kb_fetch_doc（contains=关键词）一次性抓全；若是查某个具体指标，用 kb_search；若是查登记台账信息，用 tracker_lookup。
 - 再调用 write_analysis，传入完整可运行的 Python 代码（code 参数）。
 - 代码会在用户浏览器的 Pyodide 沙箱里运行，可用 pandas、numpy、matplotlib。
-- 把检索到的数据作为字面量写进代码，例如：df = pd.DataFrame([...])。
+- 把检索到的数据作为字面量写进代码，例如：df = pd.DataFrame([...])。沙箱里【没有】用户本地文件或任何输入文件——禁止 pd.read_excel/read_csv 去读本地路径，数据一律来自检索结果构造的 DataFrame。
 - **字符串引号安全**：中文/英文字符串内部若含双引号，用单引号定义该字符串，或用「」代替内部双引号。绝对禁止在 "..." 字符串内部出现未转义的双引号——会导致 SyntaxError。生成代码后自查所有字符串字面量的引号配对。
-- 导出 Excel：直接用 df.to_excel(filename, index=False)（沙箱已注入纯 Python 的 xlsx 写入器，无需 openpyxl，不要 import openpyxl）。filename 用 write_analysis 的 filename 参数（默认 analysis.xlsx）。支持多工作表：with pd.ExcelWriter(filename) as w: df1.to_excel(w, sheet_name='表1', index=False); df2.to_excel(w, sheet_name='表2', index=False)。若用户要 CSV，用 df.to_csv(filename, index=False)。
+- 导出 Excel：直接用 df.to_excel(filename, index=False)（沙箱已注入纯 Python 的 xlsx 写入器，无需、也不要 import openpyxl）。filename 用 write_analysis 的 filename 参数（默认 analysis.xlsx）。支持多工作表：with pd.ExcelWriter(filename) as w: df1.to_excel(w, sheet_name='表1', index=False); df2.to_excel(w, sheet_name='表2', index=False)。若用户要 CSV，用 df.to_csv(filename, index=False)。
 - 若要画图（柱状图、折线图、饼图等）：用 matplotlib，并 plt.savefig("plot.png", dpi=120, bbox_inches="tight") 保存为 PNG。无需 plt.show()（浏览器环境无显示）。中文标签用英文或加 plt.rcParams['font.family']='sans-serif' 避免缺字。生成的 PNG 会自动在页面渲染并可下载。
 - 代码末尾可用 print() 输出关键结果，便于用户在页面看到。
+- 调用 write_analysis 后【必须】立即调用 check_analysis（传返回的 A-xxxx 编号）等待浏览器真实执行结果：成功才告知用户文件已生成；失败会拿到完整 traceback——据其修复代码后重新 write_analysis（同一任务最多重试 2 次），两次仍失败则如实向用户说明问题，不得声称文件已生成。
 - 调用 write_analysis 后，简要说明你生成了什么、如何查看/下载。
 """
 
@@ -536,6 +831,42 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             if n:
                 return parts
         return text_out
+
+    def kb_image_search(query: str, kb_slug: str = "", top: int = 0):
+        """按图片描述在知识库里精确找图（向量召回候选 → 概率≥30% 逐张视觉复核）。
+
+        用户想【找一张图/看某张图】时优先用本工具而不是 kb_search，例如：
+        「有没有……的示意图/布置图/结构图/照片」「帮我找一张……的图」。
+        先用多模态向量从图片块中召回与描述最相近的候选并计算相对概率，
+        再把概率排前 3 且 ≥15% 的候选逐张交给视觉模型复核是否真的匹配
+        （概率不足时复核少于 3 张）；确认匹配的图片自动附到回答引用区给
+        用户查看。回答时说明每张匹配图片的来源文档（含页码）与复核结论；
+        没有确认匹配时如实说明。
+
+        参数:
+            query: 想找的图片描述，越具体越好（图中对象、部件、场景、图类型）。
+            kb_slug: 要找图的知识库标识。不传则用当前默认范围；传文件夹 slug
+                     会跨其下所有文档库找图。
+            top: 最多输出的确认匹配图片数（0 = 默认 3）。
+        """
+        from .models import KnowledgeBase
+        target = kb_slug or kb_slug_default
+        try:
+            target_kb = KnowledgeBase.objects.get(slug=target)
+        except KnowledgeBase.DoesNotExist:
+            return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
+        if not _dept_allowed(target_kb):
+            return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
+        if target_kb.is_folder:
+            lane_slugs = list(KnowledgeBase.objects.filter(
+                slug__in=[s for s in target_kb.child_doc_slugs()
+                          if allowed_scope is None or s in allowed_scope],
+                **({"department__in": [DEPARTMENT_GENERAL, department]} if department else {}),
+            ).values_list("slug", flat=True))
+        else:
+            lane_slugs = [target]
+        return _image_search_core(query, target, lane_slugs, llm_cfg,
+                                  cite_sink, top if top > 0 else 3)
 
     def kb_fetch_doc(
         kb_slug: str = "", source: str = "", section: str = "",
@@ -798,12 +1129,47 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         - 导出 CSV：df.to_csv(filename, index=False)。
         - 画图：用 matplotlib，plt.savefig("plot.png", dpi=120, bbox_inches="tight") 保存为 PNG（PNG 会在页面渲染并可下载，无需 plt.show()）。
         - 可用 print() 输出关键结果。
+        - 调用本工具后【必须】马上调用 check_analysis（传本工具返回的 A-xxxx 编号）
+          等待浏览器真实执行结果——只有它返回成功，才能告知用户文件已生成。
 
         参数:
             code: 完整可运行的 Python 代码字符串。
             filename: 若代码生成文件，使用的文件名（默认 analysis.xlsx）。
         """
-        return f"已生成分析脚本（{filename}），将在浏览器沙箱中运行。"
+        import os as _os
+
+        from . import analysis_runs
+        aid = "an" + _os.urandom(4).hex()
+        analysis_runs.register(aid)
+        return (f"已生成分析脚本 A-{aid}（{filename}），已发往用户浏览器沙箱。"
+                f"现在必须调用 check_analysis(aid=\"{aid}\") 等待执行结果。")
+
+    async def check_analysis(aid: str = "") -> str:
+        """等待浏览器沙箱对某次 write_analysis 的真实执行结果（最长 3 分钟）。
+
+        传 write_analysis 返回的 A-xxxx 编号。成功返回 stdout 摘要；
+        失败返回完整 traceback——据其修复代码后重新调用 write_analysis
+        （同一任务最多重试 2 次）。
+        """
+        import asyncio as _aio
+        from django.conf import settings as _dj_settings
+
+        from . import analysis_runs
+        if not aid:
+            return "缺少编号：请传 write_analysis 返回的 A-xxxx。"
+        timeout = float(getattr(_dj_settings, "ANALYSIS_REPORT_TIMEOUT", 180))
+        res = await _aio.to_thread(analysis_runs.wait, aid, timeout)
+        if res is None:
+            return ("等待超时：未收到浏览器执行回报（用户可能已离开页面或执行被中断）。"
+                    "请向用户说明可刷新页面后重试，不要继续重复生成脚本。")
+        if res["ok"]:
+            out = (res.get("stdout") or "").strip()
+            return "沙箱执行成功 ✓ 文件已生成并交付用户。" + (
+                f"\nstdout 摘要：\n{out[:2000]}" if out else "")
+        return ("沙箱执行失败 ✗ —— traceback：\n" + (res.get("error") or "（无详情）")
+                + "\n请根据报错修复代码后重新调用 write_analysis（同一任务最多重试 2 次）。"
+                  "常见错误：KeyError=字典键名与定义处不一致；SyntaxError=字符串引号未配对；"
+                  "NameError=变量名拼写不一致。")
 
     def request_verified_export(filename: str = "verified.csv") -> str:
         """请求导出已核对表格为 CSV。先在最终回答中写一个完整 Markdown 表格。
@@ -811,6 +1177,17 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         只登记导出意图，核对通过后由固定模板生成文件。无需也不接受 Python 代码。
         """
         return "已登记导出请求。请在最终回答给出一个完整表格；仅核对通过后才能生成 CSV。"
+
+    def kb_neighbor_chunk(source: str, anchor: str, direction: str = "both", kb_slug: str = "") -> str:
+        """取某个已检索片段在原文中的相邻片段（上一个/下一个 chunk）。
+
+        kb_search 的片段被切断、缺上下文时调用（表格缺行、句子断头、
+        承上启下关系不明）：传该片段的来源文档名（命中行「来源文档:」的内容）
+        + 从片段正文原样复制的一小段连续文字（anchor），
+        返回其在原文中的前后片段。
+        direction: prev=上一片段 / next=下一片段 / both=两者（默认）。
+        """
+        return _chunk_neighbors(source, anchor, direction, department, kb_slug)
 
     # 复用进程级持久化 checkpointer；thread_id（在 thread_config 里）区分不同会话
     from .agent_budget import RetrievalBudget
@@ -833,9 +1210,9 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         middleware=[RetrievalBudget()],
         model=_get_llm(llm_cfg),
         tools=([] if overview and len(slugs) == 1 else
-               [list_knowledge_bases, kb_search, kb_fetch_doc, tracker_lookup, request_verified_export]
+               [list_knowledge_bases, kb_search, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_lookup, request_verified_export]
                if llm_cfg.get("qa_enhance") else
-               [list_knowledge_bases, kb_search, kb_fetch_doc, tracker_lookup, write_analysis]),
+               [list_knowledge_bases, kb_search, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_lookup, write_analysis, check_analysis]),
         system_prompt=system_prompt + ("\n增强模式：必须检索原文；历史回答只帮助理解，不是事实依据。展示有出处的文本或 Markdown 表格。需导出时调用 request_verified_export 并在最终回答给出一个完整表格。仅在核对通过后生成 CSV，不得声称文件已经生成。此模式不执行自由生成脚本。台账建议和视觉推断须回原文检索核对。" if llm_cfg.get("qa_enhance") else ""),
         checkpointer=checkpointer,
         name=f"kb_agent_{kb_slug}",
@@ -1037,9 +1414,13 @@ async def run_agent_stream(
                 if name == "write_analysis" and run_id in pending_code:
                     pc = pending_code.pop(run_id)
                     if pc.get("code") and not enhance:
+                        # 从工具返回文本解析执行编号 A-xxxx，随 code_run 发给前端回传用
+                        import re as _re_aid
+                        m_aid = _re_aid.search(r"A-(an[0-9a-f]{8})", str(output or ""))
                         yield SSE_CODE_RUN, {
                             "code": pc["code"],
                             "filename": pc["filename"],
+                            "aid": m_aid.group(1) if m_aid else "",
                         }
                 yield SSE_TOOL_END, {
                     "tool": name,

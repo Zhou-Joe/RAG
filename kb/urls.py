@@ -55,6 +55,9 @@ urlpatterns = [
     path("ask/", views.ask, name="ask"),
     path("stream/", views.chat_stream, name="stream"),
 
+    # 浏览器沙箱执行结果回报（write_analysis 自修复回路）
+    path("analysis/report/", views.analysis_report, name="analysis_report"),
+
     # 默认入口 → 问答页
     path("", views.index, name="index"),
 ]

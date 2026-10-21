@@ -1077,7 +1077,9 @@ def _route_kb_by_question(message: str, user):
         return None
     scores: list[tuple[int, object]] = []  # (score, kb)
     for kb in KnowledgeBase.objects.filter(kb_access.kb_q(user)).prefetch_related("documents"):
-        names = [kb.name] + [d.original_name for d in kb.documents.all()]
+        # 库名 + 管理员描述 + 文档名：描述常含主题关键词（如「NDT inspection
+        # GB standard」）——纯中文库名对英文提问零命中，靠描述才能路由到正确文件夹
+        names = [kb.name, kb.description or ""] + [d.original_name for d in kb.documents.all()]
         score = 0
         for name in names:
             n = (name or "").lower().strip()
@@ -1192,13 +1194,11 @@ async def chat_stream(request):
         # 安全：会话必须属于当前用户
         if conv.user_id != request.user.id:
             return None, None, False, "forbidden"
-        # Retain the last explicitly named scope until the user names a new one.
-        if explicit_scope is None:
-            for previous in conv.messages.filter(role='user').order_by('-created_at')[:12]:
-                explicit_scope = _route_kb_by_question(previous.content, request.user)
-                if explicit_scope:
-                    kb = explicit_scope
-                    break
+        # 未明确点名时：延续会话已绑定的库作为【默认范围提示】——不硬锁定，
+        # agent 仍可检索其它可见库（内容不足/用户另提文档时）。
+        # 优先于前端传来的 kb_slug（旧客户端可能带过期值）。
+        if explicit_scope is None and conv.kb_id:
+            kb = conv.kb
         if explicit_scope and conv.kb_id != explicit_scope.pk:
             conv.kb = explicit_scope
             conv.save(update_fields=['kb', 'updated_at'])
@@ -1225,14 +1225,11 @@ async def chat_stream(request):
         Message.objects.create(conversation=conv, role=Message.Role.USER, content=message)
         conv.save(update_fields=["updated_at"])  # 刷新排序
         answer = Message.objects.create(conversation=conv, role=Message.Role.AI, content="", completion_status="queued")
+        # 作用域改为【建议而非硬锁】：不再限制工具可见/可检索的库，
+        # 仅通过 prompt 的默认范围引导；用户点名新文档时切换话题（丢弃旧上下文）。
         allowed_slugs = None
-        if explicit_scope:
-            scoped = KnowledgeBase.objects.filter(kb_access.kb_q(request.user))
-            allowed_slugs = [explicit_scope.slug]
-            if explicit_scope.is_folder:
-                allowed_slugs += list(scoped.filter(parent=explicit_scope).values_list('slug', flat=True))
-            # Discard prior topics when the user names a new document/equipment.
-            published_history = [] if _route_kb_by_question(message, request.user) else published_history
+        if _route_kb_by_question(message, request.user):
+            published_history = []
         cfg = {
             "allowed_kb_slugs": allowed_slugs,
             "answer_id": answer.pk,
@@ -2090,3 +2087,29 @@ def home(request):
         "chunk_count": KnowledgeBase.objects.filter(is_folder=False)
                        .aggregate(n=Sum("chunk_count"))["n"] or 0,
     })
+
+
+@require_http_methods(["POST"])
+async def analysis_report(request):
+    """浏览器沙箱执行结果回报（write_analysis → check_analysis 自修复回路）。
+
+    前端在 Pyodide 执行完 agent 生成的代码后回传 {aid, ok, error, stdout}；
+    服务端回填注册表，唤醒正在 check_analysis 里等待的 agent。
+    未命中（迟到/无效编号）幂等返回 ok=False，不报错。
+    """
+    import json as _json
+
+    from . import analysis_runs
+    try:
+        data = _json.loads(request.body or b"{}")
+        if not isinstance(data, dict):
+            raise ValueError("not an object")
+    except ValueError:
+        return JsonResponse({"ok": False, "message": "invalid JSON"}, status=400)
+    aid = str(data.get("aid") or "").strip()
+    if not aid:
+        return JsonResponse({"ok": False, "message": "missing aid"}, status=400)
+    hit = analysis_runs.report(
+        aid, bool(data.get("ok")),
+        str(data.get("error") or ""), str(data.get("stdout") or ""))
+    return JsonResponse({"ok": bool(hit)})

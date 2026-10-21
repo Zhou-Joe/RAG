@@ -173,6 +173,9 @@ PYODIDE_INDEX_URL = _env("PYODIDE_INDEX_URL", "/static/vendor/pyodide/" if LOCAL
 # Whole-turn bound (model + retrieval + tools), independent of socket timeouts.
 QA_TURN_TIMEOUT = float(_env("QA_TURN_TIMEOUT", "240"))
 
+# write_analysis 沙箱执行结果回报的等待上限（check_analysis 阻塞时长）
+ANALYSIS_REPORT_TIMEOUT = float(_env("ANALYSIS_REPORT_TIMEOUT", "180"))
+
 # Stage timings only: no document text, credentials or generated answer in logs.
 LOGGING = {
     "version": 1,

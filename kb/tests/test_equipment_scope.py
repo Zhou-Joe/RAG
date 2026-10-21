@@ -79,6 +79,7 @@ class ScopeConversationTests(TransactionTestCase):
         with patch('kb.agent.run_agent_stream',side_effect=events):asyncio.run(run())
         for slug,cfg in configs:
             self.assertEqual(slug,'small')
-            self.assertEqual(set(cfg['allowed_kb_slugs']),{'small','cn','en'})
+            # 作用域改为建议式：点名文件夹仍重绑会话默认范围，但不再硬锁工具可见库
+            self.assertIsNone(cfg['allowed_kb_slugs'])
         self.assertEqual(configs[0][1]['published_history'],[])
         conv.refresh_from_db();self.assertEqual(conv.kb_id,folder.pk)

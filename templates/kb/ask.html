@@ -78,7 +78,14 @@ import xml.sax.saxutils as su
 import pandas as pd
 
 def _xlsx_escape(s):
-    return su.escape(str(s))
+    # 除 XML 实体转义外，还要剔除 XML1.0 禁止的控制字符（OCR 文本常含
+    # 0x0B/0x0C 等）——否则 Excel 报「名称字符非法」并删除整表记录。
+    out = []
+    for ch in str(s):
+        o = ord(ch)
+        if (o >= 32 or o in (9, 10, 13)) and o not in (0xFFFE, 0xFFFF):
+            out.append(ch)
+    return su.escape(''.join(out))
 
 def _col_letter(i):  # 0-based -> A,B,...,Z,AA
     s = ""
@@ -122,7 +129,7 @@ def _write_xlsx(path, sheets):
         cols = _df_cols(df, index=index)
         rows = len(cols[0][1]) if cols else 0
         ncol = len(cols)
-        header_ids = [s(h) for h, _ in cols]
+        header_ids = [s(_xlsx_escape(h)) for h, _ in cols]
 
         cells = []
         # 表头
@@ -241,6 +248,22 @@ class _PyXlsxWriter:
 # 替换 pandas.ExcelWriter，避免它去 import openpyxl
 pd.ExcelWriter = _PyXlsxWriter
 pd.DataFrame.to_excel = _patched_to_excel
+
+# openpyxl 兜底：页面加载时 micropip 已装自托管 wheel；若旧缓存页面未装成，
+# 让 import openpyxl 不至于第 2 行就崩——误用其 API 时给出可执行的改写建议。
+try:
+    import openpyxl  # noqa: F401
+except ImportError:
+    import sys as _sys, types as _types
+    _ox = _types.ModuleType("openpyxl")
+    def _ox_hint(*a, **k):
+        raise RuntimeError("openpyxl 在本沙箱不可用：请改用 df.to_excel(filename, index=False) 或 with pd.ExcelWriter(filename) as w:（已内置 xlsx 写入器）")
+    class _OXWorkbook:
+        def __init__(self, *a, **k):
+            _ox_hint()
+    _ox.Workbook = _OXWorkbook
+    _ox.load_workbook = _ox_hint
+    _sys.modules["openpyxl"] = _ox
 `;
 
 (function(){
@@ -404,6 +427,19 @@ pd.DataFrame.to_excel = _patched_to_excel
       // 预装全部数据分析依赖：pandas/numpy/matplotlib（页面加载时后台预热，用户首次分析/画图即用）
       onProgress && onProgress('加载 pandas/numpy/matplotlib…（约 40MB）');
       await py.loadPackage(["pandas", "numpy", "matplotlib"]);
+      // 自托管纯 Python wheel：openpyxl（+et_xmlfile）→ pd.read_excel / ExcelWriter
+      // 原生可用，不再报 Missing optional dependency 'openpyxl'。失败不阻断沙箱。
+      try {
+        await py.loadPackage("micropip");
+        const _base = JSON.parse(document.getElementById("pyodideIndexURL").textContent);
+        const micropip = py.pyimport("micropip");
+        await micropip.install([
+          _base + "openpyxl-3.1.5-py2.py3-none-any.whl",
+          _base + "et_xmlfile-2.0.0-py3-none-any.whl",
+        ]);
+      } catch (e) {
+        console.warn('openpyxl 安装失败（沙箱仍可用，xlsx 读写受限）:', e);
+      }
       // pandas 3.0 会因缺 pyarrow 抛 DeprecationWarning（Pyodide v0.26.4 无 pyarrow 包），
       // 该警告对本沙箱无影响（我们只用 DataFrame/绘图/导出），按精确消息屏蔽。
       py.runPython(
@@ -424,7 +460,7 @@ pd.DataFrame.to_excel = _patched_to_excel
   }
 
   // 在浏览器 Pyodide 沙箱里执行 agent 生成的代码
-  async function runCodeInSandbox(code, filename, container){
+  async function runCodeInSandbox(code, filename, container, aid){
     const cr = document.createElement('div'); cr.className = 'code-result';
     cr.innerHTML = '<div class="cr-head">⬚ 代码分析 · Pyodide 沙箱<span class="tag-ok">运行中…</span></div>'+
                    '<div class="cr-body"><span class="spinner"></span> <span class="cr-msg">准备中…</span></div>';
@@ -432,6 +468,9 @@ pd.DataFrame.to_excel = _patched_to_excel
     const tag = cr.querySelector('.tag-ok');
     const body = cr.querySelector('.cr-body');
     const setMsg = (m) => { const el = body.querySelector('.cr-msg'); if (el) el.textContent = m; };
+    // 执行结果回传（write_analysis 自修复回路）：成功/失败都 POST 给
+    // /kb/analysis/report/，让正在 check_analysis 等待的 agent 拿到真实结果
+    const reportBack = { aid: aid || '', ok: true, error: '', stdout: '' };
 
     try {
       const py = await loadPyodideOnce(setMsg);
@@ -442,6 +481,7 @@ pd.DataFrame.to_excel = _patched_to_excel
       py.runPython(code);
       let out = '';
       try { out = py.runPython("sys.stdout.getvalue()"); } catch(e) {}
+      reportBack.stdout = String(out || '');
       // 读取生成的文件（若有）
       let fileBytes = null;
       try {
@@ -503,6 +543,18 @@ pd.DataFrame.to_excel = _patched_to_excel
     } catch(e){
       tag.textContent = '失败'; tag.className = 'tag-err';
       body.innerHTML = '<div class="cr-err">' + String(e && e.message || e).replace(/</g,'&lt;') + '</div>';
+      reportBack.ok = false;
+      reportBack.error = String(e && (e.stack || e.message) || e);
+    } finally {
+      if (reportBack.aid){
+        fetch('/kb/analysis/report/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json',
+                     'X-CSRFToken': getCSRFToken(),
+                     'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify(reportBack),
+        }).catch(() => {});  // 回传失败不提示用户（agent 侧会超时兜底）
+      }
     }
   }
 
@@ -965,7 +1017,7 @@ pd.DataFrame.to_excel = _patched_to_excel
       } else if (etype === 'code_run') {
         // 在浏览器 Pyodide 沙箱执行 agent 生成的代码
         renderMd();
-        runCodeInSandbox(payload.code || '', payload.filename || 'analysis.xlsx', am);
+        runCodeInSandbox(payload.code || '', payload.filename || 'analysis.xlsx', am, payload.aid || '');
       } else if (etype === 'citations') {
         // 累积本轮来源出处（流结束后渲染可点击链接）
         turnCitations = Array.from(new Map(turnCitations.concat(payload.citations || []).map(c => [c.doc_id, c])).values());
