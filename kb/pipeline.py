@@ -11,6 +11,7 @@ OCR + 向量化流水线引擎。
 """
 from __future__ import annotations
 
+import base64 as _base64
 import html
 import io
 import logging
@@ -75,74 +76,197 @@ def _mineru_safe_name(raw: str) -> str:
     return f"{safe}{suffix}{ext}"
 
 
+# MinerU 4.x 的 markdown 把插图内联为 data URL；此处匹配 ![alt](data:...)
+_DATAURL_IMG_RE = re.compile(r"!\[([^\]]*)\]\(data:(image/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)\)")
+
+
+def _image_name(mime: str, b64: str) -> str:
+    """图片 data URL → 内容哈希文件名（与直传照片/旧版 MinerU 约定一致，幂等）。"""
+    ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}.get(mime, "jpg")
+    return hashlib.sha256(_base64.b64decode(b64)).hexdigest() + "." + ext
+
+
+def _mineru_upload(client: httpx.Client, api_base: str, raw: bytes, safe_name: str) -> str:
+    """大文件走 uploads 三步流程（inline 限 1MB）：登记 → 传内容 → 完成拿 file_id。
+
+    同内容（sha256）重复上传时，服务端直接返回已完成状态（后续 PUT/complete
+    报 409），此时回查 upload 拿其 file 复用。
+    """
+    r = client.post(f"{api_base}/v1/uploads", json={
+        "filename": safe_name, "bytes": len(raw), "mime_type": "application/pdf",
+        "purpose": "parse", "sha256sum": hashlib.sha256(raw).hexdigest(),
+    }, headers=_mineru_headers(), timeout=120)
+    r.raise_for_status()
+    up = r.json()
+    if not (up.get("file") or {}).get("id"):
+        uid = up["id"]
+        rc = client.put(f"{api_base}/v1/uploads/{uid}/content", content=raw,
+                        headers={**_mineru_headers(), "Content-Type": "application/octet-stream"},
+                        timeout=1800)
+        if rc.status_code == 200:
+            r2 = client.post(f"{api_base}/v1/uploads/{uid}/complete", json={},
+                             headers=_mineru_headers(), timeout=120)
+            r2.raise_for_status()
+            up = r2.json()
+        elif rc.status_code != 409:  # 409=同内容已传完，走回查
+            rc.raise_for_status()
+        if not (up.get("file") or {}).get("id"):
+            up = client.get(f"{api_base}/v1/uploads/{uid}",
+                            headers=_mineru_headers(), timeout=30).json()
+    fid = (up.get("file") or {}).get("id")
+    if not fid:
+        raise RuntimeError(f"MinerU 上传未返回 file: {str(up)[:200]}")
+    return fid
+
+
 def _ocr_pdf(pdf_path: Path, on_progress=None) -> tuple[str, dict[str, str], list | None]:
-    """调 MinerU API 把 PDF 转为 Markdown。
+    """调 MinerU 4.x v1 API 把 PDF 转为 Markdown。
 
     返回 (md, images, content_list)：
-    - images 是 {文件名: data:image/jpeg;base64,...}（MinerU 图片名按内容哈希
-      生成，对已有文档重跑 OCR 可以无损补回图片）；
-    - content_list 是 MinerU 的版面条目列表（每条带 page_idx + 归一化 bbox），
-      供 chunk 溯源（定位到第几页/红圈框选）；服务端不支持时为 None。
+    - 4.x 把插图以 data URL 内联在 markdown 里；这里统一改写为
+      ![](images/<内容哈希>.jpg) 引用并收集 images dict——与直传照片/
+      旧版 MinerU 的产物形状一致，落盘/溯源/权限视图全链路复用；
+    - content_list 由 structured_content（pages→blocks）摊平而来，
+      每条带 page_idx + 0-1000 归一化 bbox，供 chunk 溯源与红圈定位。
     on_progress: 可选回调 fn(str) → None，在轮询时调用以更新进度描述。
     """
     api_base = mineru_settings()["api_base"]
+    # 旧 backend 取值映射到 4.x 的 tier：pipeline→standard、vlm→flash；
+    # 也允许直接配置 flash/basic/standard/advanced。
+    backend = (mineru_settings()["backend"] or "").strip().lower()
+    tier = {"vlm": "flash", "pipeline": "standard"}.get(backend, backend or "standard")
+    if tier not in {"flash", "basic", "standard", "advanced"}:
+        tier = "standard"
+
+    raw = pdf_path.read_bytes()
+    safe_name = _mineru_safe_name(pdf_path.name)
 
     with httpx.Client(timeout=7200) as client:
-        # 健康检查
+        # 健康检查（4.x 路由在 /v1 下；只看连通性，不校验响应体）
         try:
-            client.get(f"{api_base}/health", headers=_mineru_headers(), timeout=10)
+            client.get(f"{api_base}/v1/health", headers=_mineru_headers(), timeout=10)
         except Exception as e:
             raise RuntimeError(f"无法连接 MinerU ({api_base}): {e}")
 
-        # 提交任务
+        # 提交任务（小文件直接 200 完成，大文件 202 排队）。
+        # ≤1MB 走 inline；超过走 uploads 流程（服务端 inline 上限 1048576 字节）。
         if on_progress:
             on_progress("正在提交到 MinerU…")
-        with pdf_path.open("rb") as f:
-            files = {"files": (_mineru_safe_name(pdf_path.name), f, "application/pdf")}
-            data = {
-                "backend": mineru_settings()["backend"],
-                "lang_list": mineru_settings()["lang"],
-                "return_md": "true",
-                "return_images": "true",
-                # 版面条目（页码 + bbox）：chunk 溯源与证据面板的原料
-                "return_content_list": "true",
-            }
-            r = client.post(f"{api_base}/tasks", files=files, data=data, headers=_mineru_headers(), timeout=600)
-        r.raise_for_status()
-        task_id = r.json().get("task_id")
+        if len(raw) <= 900_000:
+            source = {"type": "inline", "name": safe_name,
+                      "data": _base64.b64encode(raw).decode()}
+        else:
+            source = {"type": "file_id",
+                      "file_id": _mineru_upload(client, api_base, raw, safe_name)}
+            # 上传完成即视为进入 OCR 阶段：大文件的解析在 POST 内同步进行，
+            # 可能耗时数分钟，不能让阶段一直停在「正在提交」
+            if on_progress:
+                on_progress("OCR 识别中…（大文件解析可能需要几分钟）")
+        body = {
+            "files": [{"source": source}],
+            "tier": tier,
+            "output_formats": ["markdown", "structured_content"],
+        }
+        r = client.post(f"{api_base}/v1/file_parse", json=body, headers=_mineru_headers(), timeout=7200)
+        if r.status_code >= 400:
+            # 带上服务端错误详情（如 inline 超限/文件损坏），而非干巴巴的 400
+            raise RuntimeError(f"MinerU 提交失败 HTTP {r.status_code}: {r.text[:300]}")
+        d = r.json()
+        task_id = d.get("task_id") or ""
         if not task_id:
-            raise RuntimeError(f"MinerU 未返回 task_id: {r.json()}")
+            raise RuntimeError(f"MinerU 未返回 task_id: {d}")
 
-        # 轮询
+        # 轮询（4.x 状态机：queued/running → completed/partial/failed/canceled）
         waited = 0
-        while waited < 7200:
-            r = client.get(f"{api_base}/tasks/{task_id}", headers=_mineru_headers(), timeout=30)
-            r.raise_for_status()
-            status = (r.json().get("status") or "unknown").lower()
-            if status in {"completed", "success", "succeeded", "done", "finished"}:
-                break
-            if status in {"failed", "error"}:
-                raise RuntimeError(f"MinerU 任务失败: {r.json().get('error')}")
+        while d.get("status") in {"queued", "running"} and waited < 7200:
             # 每 12s 更新一次进度描述
             if on_progress and waited % 12 == 0:
                 on_progress(f"OCR 识别中…（已等待 {waited}s）")
             time.sleep(6)
             waited += 6
+            rp = client.get(f"{api_base}/v1/tasks/{task_id}", headers=_mineru_headers(), timeout=30)
+            rp.raise_for_status()
+            d = rp.json()
+
+        status = (d.get("status") or "unknown").lower()
+        if status in {"failed", "canceled"}:
+            raise RuntimeError(f"MinerU 任务失败: {d.get('error') or status}")
+        if status not in {"completed", "partial"}:
+            raise RuntimeError(f"MinerU 任务状态异常: {status}")
 
         if on_progress:
             on_progress("正在获取 OCR 结果…")
+        # 轮询响应的 files[].content 是空壳（同步小文件除外），完整产物在 /result
+        if not ((d.get("files") or [{}])[0].get("content") or {}).get("markdown"):
+            r3 = client.get(f"{api_base}/v1/tasks/{task_id}/result",
+                            headers=_mineru_headers(), timeout=1800)
+            if r3.status_code >= 400:
+                raise RuntimeError(f"MinerU 取结果失败 HTTP {r3.status_code}: {r3.text[:300]}")
+            d = r3.json()
+        files = d.get("files") or []
+        fentry = files[0] if files else {}
+        if fentry.get("status") == "failed":
+            raise RuntimeError(f"MinerU 解析失败: {fentry.get('error')}")
+        content = fentry.get("content") or {}
+        md = content.get("markdown") or ""
+        sc = content.get("structured_content") or {}
+        if not md and not sc:
+            raise RuntimeError("MinerU 结果中无 markdown")
 
-        # 取结果
-        r = client.get(f"{api_base}/tasks/{task_id}/result", headers=_mineru_headers(), timeout=120)
-        r.raise_for_status()
-        results = r.json().get("results") or {}
-        for _fname, payload in results.items():
-            md = payload.get("md_content") or payload.get("markdown") or payload.get("md")
-            if md:
-                # content_list 是 JSON 字符串（服务端按原文件读回）；解析交给
-                # provenance.parse_content_list，这里原样透传
-                return md, payload.get("images") or {}, payload.get("content_list")
-        raise RuntimeError("MinerU 结果中无 md_content")
+    # 插图：md 内联 data URL → images/<哈希> 引用，并收集 images dict
+    images: dict[str, str] = {}
+
+    def _to_hash_ref(m: "re.Match") -> str:
+        mime, data = m.group(2), m.group(3)
+        name = _image_name(mime, data)
+        images.setdefault(name, f"data:{mime};base64,{data}")
+        return f"![{m.group(1)}](images/{name})"
+
+    md = _DATAURL_IMG_RE.sub(_to_hash_ref, md)
+
+    # structured_content → 旧版 content_list 形状（provenance._locate_blocks 消费）。
+    # 4.x 的 bbox 是 0-1 归一化，旧版为 0-1000：统一放大保持红圈定位比例。
+    content_list: list = []
+    for page in sc.get("pages") or []:
+        pidx = page.get("page_idx")
+        for blk in page.get("blocks") or []:
+            if not isinstance(blk, dict):
+                continue
+            btype = blk.get("type") or "text"
+            bbox = blk.get("bbox")
+            if isinstance(bbox, (list, tuple)) and bbox and all(
+                isinstance(v, (int, float)) and v <= 1.0001 for v in bbox
+            ):
+                bbox = [round(float(v) * 1000, 2) for v in bbox]
+            entry: dict = {"type": btype, "page_idx": pidx, "bbox": bbox}
+            if btype in ("image", "chart"):
+                src = blk.get("image_source") or ""
+                m = re.match(r"data:(image/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)", src)
+                if m:
+                    name = _image_name(m.group(1), m.group(2))
+                    images.setdefault(name, src)
+                    entry["img_path"] = f"images/{name}"
+                content_list.append(entry)
+                continue
+            c = blk.get("content")
+            if isinstance(c, str):
+                entry["text"] = c
+            elif isinstance(c, dict):
+                # 表格等结构化 content：html → 旧版 table_body，caption 列表透传
+                if c.get("html"):
+                    entry["table_body"] = c["html"]
+                cap = c.get("caption") or c.get("table_caption")
+                if isinstance(cap, list) and cap:
+                    entry["table_caption"] = cap
+                elif isinstance(cap, str) and cap:
+                    entry["table_caption"] = [cap]
+            else:
+                for k in ("text", "table_body"):
+                    if blk.get(k):
+                        entry[k] = blk[k]
+            content_list.append(entry)
+
+    return md, images, content_list or None
 
 
 def run_ocr(file_path: Path, file_type: str, on_progress=None) -> str:
@@ -216,7 +340,7 @@ def _process_photo(file_path: Path, on_progress=None) -> tuple[str, dict[str, st
 # media 由 Django 静态服务直接暴露，会绕过部门级访问控制；
 # 读取统一走 /kb/doc/<id>/img/<name> 视图做权限校验）。
 # ------------------------------------------------------------------
-import base64 as _base64
+# （_base64 已在模块顶部导入）
 
 # MinerU 图片名 = 内容哈希（sha256，64 位 hex）；兼容 32 位（md5）
 _DOC_IMG_NAME_RE = re.compile(r"^[0-9a-f]{32}(?:[0-9a-f]{32})?\.(jpg|jpeg|png|webp)$", re.IGNORECASE)

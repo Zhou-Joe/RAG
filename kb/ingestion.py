@@ -1,15 +1,35 @@
-"""One durable document queue per deployment host (Mac/Linux).
+"""One durable document queue per deployment host.
 
 Document.status is the queue; Chroma IDs are the embedding checkpoints.
-A host file lock prevents two web workers from processing it concurrently.
+A host file lock prevents two web workers from processing it concurrently
+（Linux/macOS 用 fcntl，Windows 用 msvcrt）.
 """
-import fcntl
 import logging
 import threading
 from pathlib import Path
 from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
+
+try:
+    import fcntl
+
+    def _try_lock(fh) -> bool:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:  # 含 BlockingIOError：锁被其它 worker 持有
+            return False
+except ImportError:  # Windows 无 fcntl：锁文件首字节，进程退出自动释放
+    import msvcrt
+
+    def _try_lock(fh) -> bool:
+        try:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            return True
+        except OSError:
+            return False
 
 _guard = threading.Lock()
 _thread = None
@@ -47,12 +67,10 @@ def _loop(stop=None):
     root.mkdir(parents=True, exist_ok=True)
     with (root / 'ingestion.lock').open('a+') as lock:
         while stop is None or not stop.is_set():
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if _try_lock(lock):
                 break
-            except BlockingIOError:
-                _wake.wait(3)
-                _wake.clear()
+            _wake.wait(3)
+            _wake.clear()
         else:
             return
         close_old_connections()

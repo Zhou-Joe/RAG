@@ -38,3 +38,10 @@ venv/
 *.swp
 db.sqlite3-wal
 db.sqlite3-shm
+
+# ── 运行时/本地工具（不进仓库）──
+blobs/
+.mineru-service.lock
+tools/
+watch_doc.py
+watch_ocr.py

@@ -72,7 +72,7 @@ if errorlevel 1 (
 
 set /a MINERU_TRIES=0
 :wait_mineru
-curl.exe -fsS "http://127.0.0.1:8888/health" >nul 2>&1
+curl.exe -fsS "http://127.0.0.1:8888/v1/health" >nul 2>&1
 if not errorlevel 1 goto :mineru_ready
 set /a MINERU_TRIES+=1
 if %MINERU_TRIES% GEQ 45 goto :mineru_timeout

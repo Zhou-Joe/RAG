@@ -7,7 +7,7 @@ class ChromaResetTests(SimpleTestCase):
     def test_reset_preserves_database_and_allows_new_dimension_with_open_client(self):
         from pathlib import Path
         import chromadb
-        from kb.retriever import reset_kb_collection, _VS_CACHE
+        from kb.retriever import reset_kb_collection, _VS_CACHE, close_chroma_handles
         from kb.pipeline import _chroma_collection_name
         with tempfile.TemporaryDirectory() as root, override_settings(CHROMA_ROOT=Path(root)):
             slug = "reset-regression"
@@ -27,3 +27,5 @@ class ChromaResetTests(SimpleTestCase):
             self.assertEqual(other.count(), 1)
             self.assertEqual(db.stat().st_ino, inode)
             self.assertNotIn(slug, _VS_CACHE)
+            # Windows：先释放 Chroma 句柄，临时目录才能删除（否则 WinError 32）
+            close_chroma_handles()

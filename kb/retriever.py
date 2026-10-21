@@ -50,6 +50,32 @@ def get_kb_vectorstore(kb_slug: str) -> Chroma:
         return vs
 
 
+def close_chroma_handles() -> None:
+    """释放本进程持有的全部 Chroma 底层句柄（sqlite / Rust hnsw 段文件）。
+
+    只清 _VS_CACHE 或只丢引用都不够：hnsw 段在 Rust 侧持有文件句柄，
+    必须 System.stop()（Client.close() 在最后一个引用时同样触发）。
+    Windows 上删除/移动 Chroma 目录前必须调用本函数，否则 WinError 32；
+    Linux 无此约束，调用亦无害。
+    """
+    with _VS_LOCK:
+        instances = list(_VS_CACHE.values())
+        _VS_CACHE.clear()
+    from chromadb.api.shared_system_client import SharedSystemClient
+    for vs in instances:
+        try:
+            getattr(vs, "_client").close()
+        except Exception:
+            pass
+    # 调用方可能仍握有裸 PersistentClient（如测试）：直接 stop 其 System
+    for system in list(SharedSystemClient._identifier_to_system.values()):
+        try:
+            system.stop()
+        except Exception:
+            pass
+    SharedSystemClient.clear_system_cache()
+
+
 def reset_kb_collection(kb_slug: str) -> None:
     """Delete the collection through Chroma, never unlink an open SQLite file.
 

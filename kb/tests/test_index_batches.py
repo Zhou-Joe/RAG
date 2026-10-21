@@ -69,7 +69,7 @@ from kb.models import KnowledgeBase
 class PipelineCheckpointTests(TestCase):
     def test_real_chroma_resume_and_model_boundary(self):
         from kb.pipeline import run_indexing
-        from kb.retriever import reset_kb_collection
+        from kb.retriever import reset_kb_collection, close_chroma_handles
         class FakeEmbeddings(Embeddings):
             chunk_size=4
             def __init__(self): self.calls=[]; self.fail=True
@@ -102,3 +102,5 @@ class PipelineCheckpointTests(TestCase):
             with self.assertRaisesMessage(ValueError,'不能继续混用'):
                 run_indexing('source','checkpoint','test.txt')
             reset_kb_collection('checkpoint')
+            # Windows：先释放 Chroma 句柄，临时目录才能删除（否则 WinError 32）
+            close_chroma_handles()

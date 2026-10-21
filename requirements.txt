@@ -14,5 +14,5 @@ openai==2.42.0
 openpyxl==3.1.5
 Pillow==12.3.0  # 照片直传处理 + 视觉模式附图缩边
 pymupdf==1.28.2  # 证据面板：渲染原 PDF 页（chunk 级定位红圈）
-mineru==3.4.5
+mineru[torch]==4.0.12
 nh3==0.3.7  # md2html 原始 HTML 块白名单消毒（XSS）
