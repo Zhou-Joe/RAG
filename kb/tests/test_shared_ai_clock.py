@@ -33,10 +33,11 @@ class SharedClockTests(SimpleTestCase):
             messages=[SystemMessage(content='Known context'),HumanMessage(content='Today?')]
             with patch('fos_rag.ai_clock.timezone.now',return_value=datetime(2026,11,7,12,tzinfo=timezone.utc)):
                 payload=model._get_request_payload(messages)
-            self.assertEqual(len(messages),2);self.assertEqual(len(payload['messages']),3)
+            self.assertEqual(len(messages),2);self.assertEqual(len(payload['messages']),4)
             self.assertEqual(payload['messages'][-1]['role'],role)
             self.assertIn('2026-11-07',payload['messages'][-1]['content'])
-            self.assertEqual(payload['messages'][1]['content'],'Today?')
+            self.assertEqual(payload['messages'][2]['content'],'Today?')
+            self.assertIn('interface language',payload['messages'][0]['content'])
 
     def test_vehicle_and_operations_isolated_requests_receive_the_same_clock(self):
         from fos_rag.isolated_model import call_model

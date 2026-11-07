@@ -4,6 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_interface_language.html' %}
 <title>{% block title %}SHDR RAG{% endblock %}</title>
 <link rel="stylesheet" href="{% static 'css/fos.css' %}?v=20261101-harmony2">
 <link rel="icon" href="{% static 'vehicle_tracker/icons/brand-mickey-light.svg' %}" type="image/svg+xml">
@@ -95,6 +96,7 @@ document.documentElement.dataset.theme=t;})();
 </style>
 </head>
 <body>
+<div class="auth-language"><button class="language-btn" type="button" data-language-toggle translate="no" aria-label="切换到英文" title="切换到英文"><span data-language="en">EN</span><span aria-hidden="true">/</span><span data-language="zh-hans" class="language-current">CN</span></button></div>
 <div class="auth-split">
   <section class="auth-panel" aria-hidden="true">
     <span class="auth-stars"></span>

@@ -7,7 +7,7 @@
  const labels={running:'更新中',completed:'已完成',failed:'失败',manual:'手动',cron:'定时',push:'脚本推送',import:'本地导入'};
  let feeds=[],timer,controller,disposed=false,sequence=0,fingerprint='';
  const node=(tag,text,cls)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;};
- const date=(value,zone)=>value?new Date(value).toLocaleString('zh-CN',zone?{timeZone:zone}:undefined):'—';
+ const date=(value,zone)=>value?new Date(value).toLocaleString(window.FOSI18n?.locale || 'zh-CN',zone?{timeZone:zone}:undefined):'—';
  async function request(url,options={}){
   const abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),15000);controller=abort;
   try{

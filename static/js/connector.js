@@ -90,12 +90,12 @@
     const card = el('div', 'cx-preview');card.dataset.nodeKey='preview';
     if(job.spec?.kind==='report'){
       card.classList.add('cx-report');card.append(el('h3',null,job.spec.title),el('p','cx-meta',job.status==='enabled'?(job.report_delivery&&!job.report_delivery.enabled?'报告发送已暂停，等待确认发送设置。':job.spec.schedule?.mode==='manual'?'报告设置已保存，可按需发送。':job.spec.schedule?.mode==='after_collection'||!job.spec.schedule?'报告已启用，采集成功后发送（原有设置）。':'报告已启用，按独立发送计划运行。'):`报告预览 · ${job.preview.items} 条 · ${job.preview.source_feed||''}`));
-      const table=el('table'),head=el('tr');for(const label of job.preview.headers||[])head.append(el('th',null,label));table.append(head);
+      const table=el('table'),head=el('tr');table.dataset.i18nIgnore='';card.querySelector('h3').dataset.i18nIgnore='';for(const label of job.preview.headers||[])head.append(el('th',null,label));table.append(head);
       for(const row of job.preview.preview||[]){const tr=el('tr');for(const label of job.preview.headers||[])tr.append(el('td',null,String(row[label]??'')));table.append(tr);}const scroll=el('div');scroll.style.overflowX='auto';scroll.append(table);card.append(scroll);
       const delivery=job.report_delivery||job.preview.delivery;
       if(delivery&&!delivery.configured){card.append(el('p','cx-note','发送设置尚未齐全：'+(delivery.kind==='teams'?'请在聊天中提供Teams频道工作流链接。':'请在聊天中补充对应类型的工作流和收件信息。')));}
       if(job.status==='enabled'&&delivery&&!delivery.enabled){card.append(el('p','cx-note','报告发送计划当前未启用，请补充发送设置并确认。'));}
-      if(job.preview.preview_as_of){const zone=job.preview.preview_timezone||job.spec.schedule?.timezone||'Asia/Shanghai';const dateText=value=>new Intl.DateTimeFormat('zh-CN',{timeZone:zone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));card.append(el('p','cx-meta','预览数据截至：'+dateText(job.preview.preview_as_of)+'（'+zone+'）'));if(job.preview.next_send_at)card.append(el('p','cx-meta','下次发送：'+dateText(job.preview.next_send_at)));}
+      if(job.preview.preview_as_of){const zone=job.preview.preview_timezone||job.spec.schedule?.timezone||'Asia/Shanghai';const dateText=value=>new Intl.DateTimeFormat(window.FOSI18n?.locale||'zh-CN',{timeZone:zone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));card.append(el('p','cx-meta','预览数据截至：'+dateText(job.preview.preview_as_of)+'（'+zone+'）'));if(job.preview.next_send_at)card.append(el('p','cx-meta','下次发送：'+dateText(job.preview.next_send_at)));}
       for(const [name,audit] of Object.entries(job.preview.transformation_audit||{})){const details=el('details');details.append(el('summary',null,'后处理 · '+name+'：'+audit.converted+'条有效，'+audit.missing+'条缺失/未解析（原值保留）'));for(const sample of audit.examples||[])details.append(el('p','cx-note',JSON.stringify(sample.input)+' → '+(sample.output===null?'缺失':String(sample.output))));card.append(details);}
       if(job.preview.warning)card.append(el('p','cx-note',job.preview.warning));
       const reportSchedule=job.spec.schedule||{mode:'after_collection'};
@@ -247,12 +247,13 @@
     const nearBottom=messages.scrollHeight-messages.scrollTop-messages.clientHeight<90,scroll=messages.scrollTop;
     for(const detail of messages.querySelectorAll('details[data-detail-key]'))detailStates.set(detail.dataset.detailKey,detail.open);
     if (!thread.length) { messages.replaceChildren(welcome); welcome.querySelectorAll('.cx-prompt').forEach(b => { b.hidden = false; }); return; }
-    const nodes=thread.map((job,index)=>{const signature=JSON.stringify([job.status,job.event_cursor,job.first_run,job.error,job.metrics,job.report_delivery,[...selectedFields(job)]]);const previous=[...messages.children].find(node=>node.dataset.jobId===job.id);if(previous?.dataset.signature===signature)return previous;const node=turn(job,index);node.dataset.signature=signature;return node;});
+    const nodes=thread.map((job,index)=>{const signature=JSON.stringify([job.status,job.event_cursor,job.first_run,job.error,job.metrics,job.report_delivery,window.FOSI18n?.language,[...selectedFields(job)]]);const previous=[...messages.children].find(node=>node.dataset.jobId===job.id);if(previous?.dataset.signature===signature)return previous;const node=turn(job,index);node.dataset.signature=signature;return node;});
     const old=[...messages.children];
     nodes.forEach((node,index)=>{const previous=old.find(item=>item.dataset.jobId===node.dataset.jobId);if(previous&&previous!==node)patchNode(previous,node);const current=previous||node;if(messages.children[index]!==current)messages.insertBefore(current,messages.children[index]||null);});
     for(const node of old)if(!thread.some(job=>job.id===node.dataset.jobId))node.remove();
     messages.scrollTop=nearBottom?messages.scrollHeight:scroll;
   }
+  document.addEventListener('fos:languagechange',()=>{render();syncComposer(thread.at(-1));});
   function syncComposer(job) {
     const running = job?.status === 'running';
     send.disabled=submitting||stopping||confirming||clearing;prompt.disabled=running||submitting||confirming||clearing;newTask.disabled=running||submitting||stopping||confirming||clearing;

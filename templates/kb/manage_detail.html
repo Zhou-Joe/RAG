@@ -4,7 +4,7 @@
 <header class="page-head">
   <div class="page-head-main">
     <a class="page-back" href="/kb/manage/">资料上传中心</a>
-    <h1>{{ kb.name }} <span class="dept-badge">{{ kb.department }}</span>{% if kb.embedding_label %} <span class="emb-badge">🧬 {{ kb.embedding_label }}</span>{% endif %}</h1>
+    <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge">{{ kb.department }}</span>{% if kb.embedding_label %} <span class="emb-badge">🧬 {{ kb.embedding_label }}</span>{% endif %}</h1>
     <p class="page-desc"><span id="kbDescText">{% if kb.description %}{{ kb.description }}{% else %}（无描述）{% endif %}</span>
       · 文档 <span id="kbDocCount">{{ docs_total }}</span>
       · 向量块 <span id="kbChunkCount">{{ chunks_total }}</span></p>

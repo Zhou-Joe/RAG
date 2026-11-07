@@ -514,6 +514,7 @@ def workflow_question_kind(field):
 
 
 def is_workflow_question(field):
+    if field.get('workflow_kind') in ('email','teams') and field.get('type')=='url':return True
     key=field.get('key','').lower();label=field.get('label','').lower()
     return ('workflow' in key or 'webhook' in key) and ('url' in key or 'link' in key) or any(word in label for word in ('工作流','webhook','workflow')) and any(word in label for word in ('链接','地址','url','link'))
 

@@ -4,6 +4,7 @@ const [{FORMAT, FILE_LIMIT, normalizeManifest, componentOrder, openModelStore, r
   ['./equipment-model.mjs', './vehicle-tracker-documents.mjs'].map(path => import(path + version)));
 
 const $ = id => document.getElementById(id);
+const t = text => globalThis.FOSI18n?.t(text) || text;
 const registry = JSON.parse($('equipment-registry').textContent);
 const localModels = new Map();
 const published = new Map();
@@ -39,13 +40,19 @@ function modelLink(source, id) {
   return '#' + new URLSearchParams({source, model: id}).toString();
 }
 
-function card(model, subtitle, link, action) {
+function card(model, subtitle, link, action, builtin = false) {
   const node = element('a', '');
   node.className = 'kb-card eq-card';
   node.href = link;
-  node.append(element('span', subtitle), element('h3', model.name),
-    element('p', model.description || '可在模型中查看部件结构、说明与追踪记录。'),
-    element('b', action + ' →'));
+  const heading = element('span', '');
+  const category = element('span', builtin ? t(subtitle[0]) : subtitle[0]);
+  category.setAttribute('translate', 'no');
+  heading.append(category, document.createTextNode(' · ' + t(subtitle[1])));
+  const name = element('h3', builtin ? t(model.name) : model.name);
+  name.setAttribute('translate', 'no');
+  const description = element('p', model.description ? (builtin ? t(model.description) : model.description) : t('可在模型中查看部件结构、说明与追踪记录。'));
+  description.setAttribute('translate', 'no');
+  node.append(heading, name, description, element('b', t(action) + ' →'));
   return node;
 }
 
@@ -53,12 +60,12 @@ function displayCatalog() {
   const cards = $('eq-cards');
   cards.replaceChildren();
   for (const item of registry.models.filter(item => item.viewer === 'sdmt')) {
-    cards.append(card(item, item.category + ' · 三维模型', item.url, '打开模型'));
+    cards.append(card(item, [item.category, '三维模型'], item.url, '打开模型', true));
   }
   for (const [source, models] of [['published', published], ['local', localModels]]) {
     for (const model of models.values()) {
       const origin = source === 'local' ? '个人模型' : '共享模型';
-      cards.append(card(model, model.category + ' · ' + origin,
+      cards.append(card(model, [model.category, origin],
         modelLink(source, model.id), '查看 ' + model.components.length + ' 个部件'));
     }
   }
@@ -69,6 +76,7 @@ function renderParts() {
   for (const {part, depth} of componentOrder(active.model.components)) {
     const item = element('li', '');
     const button = element('button', part.name);
+    button.setAttribute('translate', 'no');
     button.type = 'button';
     button.dataset.part = part.id;
     button.style.setProperty('--indent', Math.min(depth, 6));
@@ -79,12 +87,14 @@ function renderParts() {
   $('eq-parts').replaceChildren(nodes);
 }
 
-function renderPart() {
+function renderPart({keepDrawing = false} = {}) {
   const model = active.model;
   const part = model.components.find(part => part.id === selectedPart);
   $('eq-part-name').textContent = part.name;
+  $('eq-part-name').setAttribute('translate', 'no');
   $('eq-part-id').textContent = '部件 ' + part.id;
   $('eq-part-description').textContent = part.description || '尚未填写部件说明。';
+  $('eq-part-description').setAttribute('translate', part.description ? 'no' : 'yes');
   $('eq-drawing-row').hidden = !part.drawing;
   $('eq-drawing').textContent = part.drawing;
   const entries = model.entries.filter(item => item.component === part.id)
@@ -92,15 +102,19 @@ function renderPart() {
   const nodes = document.createDocumentFragment();
   for (const entry of entries) {
     const row = element('li', '');
+    const text = element('p', entry.text);
+    text.setAttribute('translate', 'no');
     row.append(element('b', entry.kind === 'tracking' ? '追踪记录' : '学习笔记'),
-      element('time', new Date(entry.at).toLocaleString('zh-CN')), element('p', entry.text));
+      element('time', new Date(entry.at).toLocaleString(window.FOSI18n?.locale || 'zh-CN')), text);
     nodes.append(row);
   }
   if (!entries.length) nodes.append(element('li', active.source === 'local'
     ? '此部件尚无记录。可在这里记下学习要点、核对结果或维护经过。' : '创建学习副本后，可为此部件添加笔记和追踪记录。'));
   $('eq-entries').replaceChildren(nodes);
-  openDrawing = '';
-  $('vt-drawing').replaceChildren();
+  if (!keepDrawing) {
+    openDrawing = '';
+    $('vt-drawing').replaceChildren();
+  }
 }
 
 function route() {
@@ -125,6 +139,7 @@ function route() {
   $('eq-category').textContent = model.category;
   $('eq-description').textContent = model.description;
   $('eq-description').hidden = !model.description;
+  for (const id of ['eq-name', 'eq-category', 'eq-description']) $(id).setAttribute('translate', 'no');
   $('eq-copy').hidden = source !== 'published';
   $('eq-add-part').hidden = source !== 'local';
   $('eq-add-entry').hidden = source !== 'local';
@@ -284,6 +299,11 @@ $('eq-export').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(link.href), 10000);
 });
 window.addEventListener('hashchange', route);
+document.addEventListener('fos:languagechange', () => {
+  // Do not route again: an editor may contain unsaved changes.
+  if (active) renderPart({keepDrawing: true});
+  else displayCatalog();
+});
 
 for (const item of registry.models.filter(item => item.viewer === 'components')) {
   try {

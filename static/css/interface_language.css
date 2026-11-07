@@ -1,0 +1,23 @@
+html[data-interface-loading] body{visibility:hidden}
+.language-btn{display:inline-flex;align-items:center;justify-content:center;gap:3px;min-width:58px;min-height:34px;padding:5px 7px;border:1px solid var(--rule,rgba(148,163,184,.3));border-radius:9px;background:transparent;color:var(--mute,#94a3b8);font:600 11px/1.2 var(--fm,system-ui);cursor:pointer;white-space:nowrap;flex-shrink:0;transition:background .15s,color .15s,border-color .15s}
+.language-btn:hover{background:var(--brand-soft,rgba(59,130,246,.15));color:var(--text,#e2e8f0)}
+.language-btn:focus-visible{outline:2px solid var(--brand,#3b82f6);outline-offset:3px}
+.language-btn .language-current{color:var(--brand,#3b82f6)}
+.fos-sidebar .language-btn{border-color:rgba(148,163,184,.23);color:#91a0b8}
+.fos-sidebar .language-btn .language-current{color:#c8d9ff}
+.side-tools{flex-shrink:0;gap:5px}
+.fos-sidebar .side-tools{gap:2px}
+.fos-sidebar .side-user{gap:7px;padding-inline:0}
+.fos-sidebar .side-tools .theme-btn,.fos-sidebar .side-tools .side-icon-btn{width:28px;height:32px;min-width:28px;padding:4px}
+.fos-sidebar .side-tools .language-btn{min-width:51px;padding-inline:4px;font-size:10px}
+body.nav-open .rag-chat-launcher{visibility:hidden}
+.side-user{min-width:0}.side-who{min-width:0}.side-who b,.side-who small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.auth-language{position:fixed;right:22px;top:18px;z-index:20;background:var(--surface,#fff)}
+html[lang="en"] .nav-item{font-size:12px;line-height:1.35}
+html[lang="en"] .nav-item span:last-child{white-space:normal}
+html[lang="en"] .page-actions{flex-wrap:wrap}
+html[lang="en"] .home-hero h1{font-size:clamp(30px,4vw,45px);line-height:1.12}
+html[lang="en"] .home-hero .kick span{letter-spacing:.08em}
+html[lang="en"] :is(button,.btn){overflow-wrap:normal}
+html[lang="en"] .fos-sidebar .side-name small{font-size:10px}
+@media(max-width:760px){.auth-language{top:12px;right:12px}.language-btn{min-height:36px}}

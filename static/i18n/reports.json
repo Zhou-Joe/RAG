@@ -1,0 +1,131 @@
+{
+  "messages": {
+    "还需要补充以下信息：": "Please provide the following information:",
+    "提交回答": "Submit answers",
+    "也可以直接在下方聊天框回答。": "You can also answer directly in the chat below.",
+    "已回复": "Answered",
+    "正在思考…": "Thinking…",
+    "继续提问，或告诉 EnGenie 想怎样调整任务…": "Ask another question or tell EnGenie how to adjust the task…",
+    "可以直接提问；只有要求创建或修改任务时才生成新方案。": "Ask questions directly; a new plan is generated only when you request a task or a change.",
+    "Teams频道工作流的HTTP触发链接": "Teams channel workflow HTTP trigger URL",
+    "邮件工作流的HTTP触发链接": "Email workflow HTTP trigger URL",
+    "收件邮箱": "Recipient email",
+    "通过邮件还是Teams频道发送？": "Send by email or to a Teams channel?",
+    "Teams频道": "Teams channel",
+    "邮件": "Email",
+    "确认并启用报告计划": "Confirm and enable report schedule",
+    "确认报告设置": "Confirm report settings",
+    "补充报告发送计划": "Set the report delivery schedule",
+    "补充发送设置": "Complete delivery settings",
+    "下载 Excel 预览": "Download Excel preview",
+    "发送测试报告": "Send test report",
+    "工作流已接收测试报告": "Workflow accepted the test report",
+    "查看发送状态 / 重试": "Check delivery status / retry",
+    "报告发送已暂停，等待确认发送设置。": "Report delivery is paused pending confirmation of the delivery settings.",
+    "报告设置已保存，可按需发送。": "Report settings saved; send on demand.",
+    "报告已启用，按独立发送计划运行。": "Report enabled with its own delivery schedule.",
+    "报告已启用，采集成功后发送（原有设置）。": "Report enabled; send after successful collection (legacy setting).",
+    "报告发送计划当前未启用，请补充发送设置并确认。": "Report scheduling is not enabled. Complete and confirm the delivery settings.",
+    "发送设置尚未齐全：请在聊天中提供Teams频道工作流链接。": "Delivery settings are incomplete. Provide the Teams channel workflow URL in the chat.",
+    "发送设置尚未齐全：请在聊天中补充对应类型的工作流和收件信息。": "Delivery settings are incomplete. Provide the matching workflow and recipient details in the chat.",
+    "全部已保存历史": "All saved history",
+    "最新一次": "Latest collection",
+    "当天": "Today",
+    "昨天": "Yesterday",
+    "上一个完整自然周": "Previous complete calendar week",
+    "上一个完整自然月": "Previous complete calendar month",
+    "原始明细/所选字段": "Raw data / selected fields",
+    "汇总计算": "Aggregation",
+    "仅按需发送": "On demand only",
+    "每次采集成功后发送（原有设置）": "After each successful collection (legacy setting)",
+    "报告预览已就绪。确认数据范围、处理规则和独立发送计划，也可先发送一次测试。": "Report preview is ready. Review the data range, processing rules and independent delivery schedule, or send a test first.",
+    "发送设置可直接在聊天框提供；缺少信息时 EnGenie 会提问。发送测试仅发送一次，不会启用定时报告。工作流接收请求后仍需查看邮件/Teams或工作流运行记录。": "Provide delivery settings in the chat; EnGenie will ask for missing details. A test sends once and does not enable scheduled delivery. Check email, Teams or the workflow run history after the request is accepted.",
+    "预览使用当前已有数据；发送时会重新计算选定日期范围。": "The preview uses currently saved data; the selected date range is recalculated at delivery time.",
+    "目标日期范围目前暂无数据；可确认规则，发送时将重新读取已保存的数据。": "The selected date range has no data yet. You can confirm the rules; saved data will be read again at delivery time.",
+    "告诉 EnGenie 报告的数据范围、处理方式和发送时间…": "Tell EnGenie the report data range, processing rules and delivery time…"
+  },
+  "patterns": [
+    {
+      "source": "报告预览 · {count} 条 · {source}",
+      "target": "Report preview · {count} rows · {source}"
+    },
+    {
+      "source": "发送计划：{schedule}",
+      "target": "Delivery schedule: {schedule}",
+      "translate": [
+        "schedule"
+      ]
+    },
+    {
+      "source": "数据范围：{range} · {processing}",
+      "target": "Data range: {range} · {processing}",
+      "translate": [
+        "range",
+        "processing"
+      ]
+    },
+    {
+      "source": "预览数据截至：{datetime}（{zone}）",
+      "target": "Preview data as of: {datetime} ({zone})"
+    },
+    {
+      "source": "下次发送：{datetime}",
+      "target": "Next delivery: {datetime}"
+    },
+    {
+      "source": "最近{count}天（不含当天）",
+      "target": "Last {count} days (excluding today)"
+    },
+    {
+      "source": "最近{count}天",
+      "target": "Last {count} days"
+    },
+    {
+      "source": "{start} 至 {end}",
+      "target": "{start} to {end}"
+    },
+    {
+      "source": "后处理 · {field}：{count}条有效，{total}条缺失/未解析（原值保留）",
+      "target": "Post-processing · {field}: {count} valid, {total} missing/unparsed (original values retained)"
+    },
+    {
+      "source": "每月{day}日 {time}（{zone}）",
+      "target": "Day {day} of every month at {time} ({zone})"
+    },
+    {
+      "source": "每周一 {time}（{zone}）",
+      "target": "Every Monday at {time} ({zone})"
+    },
+    {
+      "source": "每周二 {time}（{zone}）",
+      "target": "Every Tuesday at {time} ({zone})"
+    },
+    {
+      "source": "每周三 {time}（{zone}）",
+      "target": "Every Wednesday at {time} ({zone})"
+    },
+    {
+      "source": "每周四 {time}（{zone}）",
+      "target": "Every Thursday at {time} ({zone})"
+    },
+    {
+      "source": "每周五 {time}（{zone}）",
+      "target": "Every Friday at {time} ({zone})"
+    },
+    {
+      "source": "每周六 {time}（{zone}）",
+      "target": "Every Saturday at {time} ({zone})"
+    },
+    {
+      "source": "每周日 {time}（{zone}）",
+      "target": "Every Sunday at {time} ({zone})"
+    },
+    {
+      "source": "数据范围：{start} 至 {end} · {processing}",
+      "target": "Data range: {start} to {end} · {processing}",
+      "translate": [
+        "processing"
+      ]
+    }
+  ]
+}

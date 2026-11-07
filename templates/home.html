@@ -191,11 +191,11 @@
   const TIPS = ['无损检测国标对焊缝超声检测有哪些要求？', '今天上海迪士尼乐园各项目几点开放？',
     '未来三天的天气适合户外项目运营吗？', 'maintenance manual 里液压系统多久保养一次？'];
   const STILL = '输入问题，回车即问';
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { input.placeholder = TIPS[0]; return; }
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { input.placeholder = FOSI18n.t(TIPS[0]); return; }
   let tip = 0, pos = 0, dir = 1, timer = 0;
   function tick(){
-    if (document.activeElement === input || input.value) { input.placeholder = STILL; timer = setTimeout(tick, 600); return; }
-    const t = TIPS[tip];
+    if (document.activeElement === input || input.value) { input.placeholder = FOSI18n.t(STILL); timer = setTimeout(tick, 600); return; }
+    const t = FOSI18n.t(TIPS[tip]);
     pos += dir;
     input.placeholder = t.slice(0, pos) + (dir > 0 ? '▍' : '');
     let wait = dir > 0 ? 70 + Math.random() * 60 : 28;
@@ -203,6 +203,7 @@
     else if (dir < 0 && pos <= 0) { dir = 1; tip = (tip + 1) % TIPS.length; wait = 380; }
     timer = setTimeout(tick, wait);
   }
+  document.addEventListener('fos:languagechange',function(){clearTimeout(timer);pos=0;dir=1;input.placeholder=FOSI18n.t(STILL);timer=setTimeout(tick,400);});
   timer = setTimeout(tick, 1400);
 })();
 

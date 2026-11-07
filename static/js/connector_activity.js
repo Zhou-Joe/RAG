@@ -2,7 +2,7 @@
   'use strict';
   const names={browser_open:'打开网页',browser_snapshot:'观察页面结构',browser_action:'操作网页',browser_network:'检查网络数据',browser_read_response:'读取接口响应',browser_extract:'提取页面字段',test_browser_connector:'重放脚本并试采',probe_api:'测试接口数据',search_api_docs:'搜索文档',read_api_documentation:'阅读文档',inspect_connector_environment:'检查采集环境',test_mapping:'验证数据格式',show_data_preview:'展示真实样例'};
   const node=(tag,className,text)=>{const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=text;return el;};
-  const number=value=>new Intl.NumberFormat('zh-CN',{notation:value>99999?'compact':'standard',maximumFractionDigits:1}).format(value || 0);
+  const number=value=>new Intl.NumberFormat(globalThis.FOSI18n?.locale || 'zh-CN',{notation:value>99999?'compact':'standard',maximumFractionDigits:1}).format(value || 0);
   const duration=value=>value<60?Math.round(value)+'秒':Math.floor(value/60)+'分'+Math.round(value%60)+'秒';
   class ConnectorActivity {
     constructor(){

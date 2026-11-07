@@ -7,7 +7,7 @@ export function formatNumber(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value);
   if (n && (Math.abs(n) >= 1e12 || Math.abs(n) < .0001)) return n.toExponential(3);
-  return new Intl.NumberFormat('zh-CN', {maximumFractionDigits:4}).format(n);
+  return new Intl.NumberFormat(globalThis.FOSI18n?.locale || 'zh-CN', {maximumFractionDigits:4}).format(n);
 }
 
 export function formatValue(value, kind, delta = false) {

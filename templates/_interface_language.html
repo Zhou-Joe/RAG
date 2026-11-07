@@ -1,0 +1,19 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'css/interface_language.css' %}?v=1">
+<script>
+(function(){
+  var value='zh-hans', saved=null;
+  try { saved=localStorage.getItem('fos-language'); } catch(e) {}
+  var match=document.cookie.match(/(?:^|;\s*)fos_language=([^;]+)/);
+  if(saved==='en'||saved==='zh-hans') value=saved;
+  else if(match&&match[1]==='en') value='en';
+  document.documentElement.lang=value==='en'?'en':'zh-CN';
+  document.documentElement.dataset.language=value;
+  if(value==='en') {
+    document.documentElement.dataset.interfaceLoading='true';
+    setTimeout(function(){delete document.documentElement.dataset.interfaceLoading;},2500);
+  }
+})();
+</script>
+<script src="{% url 'interface_catalogue' %}"></script>
+<script src="{% static 'js/interface_language.js' %}?v=1"></script>

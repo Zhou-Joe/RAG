@@ -1,3 +1,4 @@
+const t = text => globalThis.FOSI18n?.t(text) || text;
 const labels = {
   wonum: '工单号', workorderid: '记录编号', jpnum: '作业计划', description: '说明',
   description_zh: '中文说明', description_en: '英文说明', long_description: '详细说明',
@@ -38,12 +39,12 @@ const labels = {
 export const sourceNames = {maximo: 'Maximo', splunk: 'Splunk', downtime: 'Downtime'};
 
 export function fieldLabel(key) {
-  return labels[key] || key;
+  return labels[key] ? t(labels[key]) : key;
 }
 
 export function cellText(value) {
-  if (value === false) return '否';
-  if (value === true) return '是';
+  if (value === false) return t('否');
+  if (value === true) return t('是');
   return value == null || value === '' ? '—' : String(value);
 }
 
@@ -90,7 +91,7 @@ const statuses = {
 export function statusInfo(code) {
   const text = code == null ? '' : String(code).trim().toUpperCase();
   const [label, tone] = statuses[text] || [text || '—', 'mute'];
-  return {code: text, label, tone};
+  return {code: text, label: statuses[text] ? t(label) : label, tone};
 }
 
 export function recordsFrom(data) {

@@ -1,0 +1,1377 @@
+{
+  "messages": {
+    "当前密码不正确。": "The current password is incorrect.",
+    "两次输入的新密码不一致。": "The new passwords do not match.",
+    "部门名不能为空，且不能叫「通用」。": "Enter a department name other than “General”.",
+    "新密码至少 6 位。": "The new password must contain at least 6 characters.",
+    "「通用」不可重命名。": "The “General” department cannot be renamed.",
+    "用户名不能为空。": "Enter a username.",
+    "新密码不能与当前密码相同。": "The new password must differ from the current password.",
+    "密码已修改。": "Your password has been changed.",
+    "「通用」不可删除。": "The “General” department cannot be deleted.",
+    "新部门名不能为空，且不能叫「通用」。": "Enter a new department name other than “General”.",
+    "操作完成。": "Done.",
+    "密码至少 6 位。": "The password must contain at least 6 characters.",
+    "同时满足": "All conditions must be met",
+    "满足任一项": "Any condition may be met",
+    "不满足": "Condition not met",
+    "例外": "Exception",
+    "下限": "Lower bound",
+    "上限": "Upper bound",
+    "包含下限": "Include lower bound",
+    "包含上限": "Include upper bound",
+    "检测方法": "Inspection method",
+    "适用标准": "Applicable standard",
+    "版本": "Version",
+    "适用情形": "Applicable conditions",
+    "参数": "Parameter",
+    "比较关系": "Comparison",
+    "取值": "Value",
+    "单位": "Unit",
+    "材料": "Material",
+    "相关原文说明（保留其适用范围）": "Related source text, with its scope of applicability",
+    "关联判定依据": "Related assessment criteria",
+    "内容": "Content",
+    "该条内容的审核状态已更新。": "The review status has been updated.",
+    "该内容已撤回或来源失效，请重新检索。": "This entry was withdrawn or its source is no longer valid. Search again.",
+    "抽取批次": "Extraction batch",
+    "节点": "Node",
+    "对象": "Object",
+    "内容不存在": "Content not found",
+    "当前节点没有可访问的内容": "No accessible content is available for this node",
+    "对象不存在": "Object not found",
+    "查看原文圈注": "View source annotation",
+    "任务不存在": "Task not found",
+    "关系不存在": "Relationship not found",
+    "该关系已撤回或来源失效，请重新检索。": "This relationship was withdrawn or its source is no longer valid. Search again.",
+    "该关系或来源已变化，请重新检索。": "This relationship or its source has changed. Search again.",
+    "知识库不存在": "Knowledge base not found",
+    "无效的活动记录位置。": "Invalid activity log position.",
+    "资料不属于当前知识库": "This document does not belong to the selected knowledge base",
+    "无效的关系页位置。": "Invalid relationship page position.",
+    "未知操作。": "Unknown action.",
+    "已保存。新增原文证据后需重新核对。": "Saved. Review the relationship again after adding source evidence.",
+    "审核状态已更新。": "Review status updated.",
+    "请选择有效的抽取批次。": "Select a valid extraction batch.",
+    "请选择有效的实体。": "Select a valid entity.",
+    "数据集不存在": "Dataset not found",
+    "本库已有同类同名或相同内容的数据集，请先核对版本。": "A dataset with the same name and type, or identical content, already exists in this knowledge base. Check its version first.",
+    "请填写一个关注方面（2–1000字），例如“检测人员的资质和视力要求”。": "Enter a focus topic of 2–1,000 characters, such as “Inspector qualifications and vision requirements”.",
+    "资料不可管理": "You do not have permission to manage this document",
+    "请选择有效的资料。": "Select a valid document.",
+    "旧版全书抽取": "Legacy full-document extraction",
+    "请先选择要归入的业务数据集。": "Select the business dataset to add first.",
+    "请先在关系列表中选择一条关系，再进行操作。": "Select a relationship in the list before continuing.",
+    "请选择要关联的手册。": "Select a manual to link.",
+    "只有已失败的抽取任务可以重试；正在运行的任务无需重复提交。": "Only failed extraction tasks can be retried. Do not resubmit a running task.",
+    "资料已变化，请在上方重新指定关注方面并开始构建。": "The document has changed. Specify the focus topic again and start a new build.",
+    "这份资料已有任务正在构建，已显示当前进度。": "A build is already running for this document. Its current progress is shown below.",
+    "等待抽取": "Waiting to extract",
+    "正在抽取": "Extracting",
+    "抽取完成": "Extraction complete",
+    "抽取失败": "Extraction failed",
+    "请选择有效的已有对象。": "Select a valid existing object.",
+    "已新建重试任务，原有候选保留，仍需逐条确认。": "A retry task has been created. Existing candidates are retained and still require individual review.",
+    "已开始构建，可在下方查看进度。": "Build started. You can follow its progress below.",
+    "任务已删除或访问权限已变化。": "The task was deleted or your access permissions have changed.",
+    "请选择一个采集对象。": "Select a collection object.",
+    "认证配置格式无效。": "Invalid authentication configuration.",
+    "没有可复用的凭据，请重新填写。": "No saved credentials are available to reuse. Enter them again.",
+    "环境变量认证仅供全局管理员配置，请直接使用页面认证表单。": "Only site administrators can configure authentication through environment variables. Use the authentication form instead.",
+    "网页可以访问，将由浏览器继续检查动态内容和实际数据。": "The webpage is accessible. The browser will check its dynamic content and data next.",
+    "请选择有效的已保存任务。": "Select a valid saved task.",
+    "上下文已清空，当前脚本、访问凭据、定时任务和已采集数据均保留。可继续输入修改要求。": "Context cleared. The script, credentials, schedule, and collected data have been retained. You can enter new revision instructions.",
+    "临时任务列表无效。": "Invalid temporary task list.",
+    "暂无网页画面。": "No webpage preview is available yet.",
+    "认证已保存；验证工具和后续定时更新会立即使用新凭据。": "Authentication saved. Validation tools and scheduled updates will use the new credentials immediately.",
+    "内网开关格式无效。": "Invalid private-network access setting.",
+    "连接成功，可以读取接口数据。": "Connected successfully. The API data is accessible.",
+    "请先完成连接器校验。": "Complete connector validation first.",
+    "API 主机已改变，请重新填写该主机的凭据。": "The API host has changed. Enter credentials for the new host.",
+    "API 主机已改变，请重新填写凭据。": "The API host has changed. Enter the credentials again.",
+    "该数据源没有 AI 采集脚本。": "This data source has no AI-generated collection script.",
+    "任务仍在执行，请先停止。": "The task is still running. Stop it first.",
+    "请求内容过大。": "The request is too large.",
+    "生成中暂不能修改凭据，请先停止生成。": "Credentials cannot be changed during generation. Stop generation first.",
+    "API 主机已改变，请重新生成连接器。": "The API host has changed. Generate the connector again.",
+    "认证失败或权限不足，请检查凭据。": "Authentication failed or access was denied. Check your credentials.",
+    "AI 正在执行，请先停止生成后再清空上下文。": "AI is running. Stop generation before clearing the context.",
+    "活动记录位置无效。": "Invalid activity log position.",
+    "已失去数据源管理权限。": "You no longer have permission to manage this data source.",
+    "网页脚本需安装 requirements.txt 和 Chromium：python -m pip install -r requirements.txt；python -m playwright install chromium。Windows 默认复用现有 Edge。": "Webpage scripts require requirements.txt and Chromium: python -m pip install -r requirements.txt; python -m playwright install chromium. Windows uses an installed Edge browser by default.",
+    "API脚本无需额外依赖。": "API scripts need no additional dependencies.",
+    "来源为动态网页，程序会重放已验证的浏览器动作，采集DOM/网络响应及详情页。": "This source is a dynamic webpage. The script replays validated browser actions to collect DOM data, network responses, and detail pages.",
+    "来源为GET JSON接口。": "This source is a GET JSON API.",
+    "页面不存在": "Page not found",
+    "不支持的操作。": "Unsupported action.",
+    "无效的推送令牌。": "Invalid push token.",
+    "请使用页面操作。": "Use the controls on this page.",
+    "Content-Type 必须是 application/json。": "Content-Type must be application/json.",
+    "单批数据不能超过2MB。": "A batch cannot exceed 2 MB.",
+    "请填写不超过100字符的数据源名称。": "Enter a data source name of no more than 100 characters.",
+    "不支持的接入方式。": "Unsupported connection method.",
+    "认证请求头必须由全局管理员配置；可改用脚本推送接入。": "Only site administrators can configure authentication headers. You can use script-based push ingestion instead.",
+    "仅全局管理员能启用内网 API。": "Only site administrators can enable access to private-network APIs.",
+    "数据源配置已保存。": "Data source configuration saved.",
+    "脚本数据源请使用推送接口或 feed_import 命令。": "For script data sources, use the push endpoint or the feed_import command.",
+    "更新任务已开始。": "Update started.",
+    "拉取型数据源不使用推送令牌。": "Pull data sources do not use push tokens.",
+    "令牌只显示这一次；旧令牌已失效。": "This token will only be shown once. The previous token is no longer valid.",
+    "请选择追加保留历史或覆盖更新。": "Choose whether to append history or update existing records.",
+    "已启用后续更新。": "Future updates enabled.",
+    "已暂停后续更新；正在执行的任务会正常结束。": "Future updates paused. Any task already running will finish normally.",
+    "配置格式无效。": "Invalid configuration format.",
+    "任务运行中，请结束后再修改配置。": "The task is running. Wait for it to finish before changing the configuration.",
+    "请选择资料集合或填写新知识库名称。": "Select a document collection or enter a name for a new knowledge base.",
+    "请选择已有部门。": "Select an existing department.",
+    "API 自动更新知识库": "Knowledge base automatically updated through an API",
+    "该数据源尚未保存认证，请填写凭据。": "No authentication has been saved for this data source. Enter the credentials.",
+    "环境变量认证须由全局管理员配置。": "Only site administrators can configure environment-variable authentication.",
+    "请通过认证表单修改已保存的凭据。": "Use the authentication form to update saved credentials.",
+    "API 主机已改变，请重新填写认证。": "The API host has changed. Enter authentication details again.",
+    "关联不存在": "Link not found",
+    "请求内容无效。": "Invalid request content.",
+    "关联编号无效。": "Invalid link ID.",
+    "关系说明最多 1000 字，也可以留空。": "The relationship description can contain up to 1,000 characters, or be left blank.",
+    "请选择两个不同的知识库。": "Select two different knowledge bases.",
+    "已加入队列，将从保存进度继续处理。": "Queued. Processing will resume from the saved progress.",
+    "追踪表": "Tracking table",
+    "会话已删除。": "Conversation deleted.",
+    "仅支持 PDF、Markdown（.md）、TXT 和图片（JPG/PNG/WebP）文件。": "Supported files: PDF, Markdown (.md), TXT, and images (JPG, PNG, or WebP).",
+    "该知识库不存在或已被删除。": "This knowledge base does not exist or has been deleted.",
+    "排队中，等待从保存进度继续": "Queued; waiting to resume from saved progress",
+    "该文档不存在或已被删除。": "This document does not exist or has been deleted.",
+    "图片不存在": "Image not found",
+    "文档不存在": "Document not found",
+    "证据不存在": "Evidence not found",
+    "原文不是 PDF 或文件已删除": "The source is not a PDF, or the file has been deleted",
+    "原文文件已删除": "The source file has been deleted",
+    "该页不属于此证据": "This page does not belong to the cited evidence",
+    "所选引用片段已变化或不属于此文档，请重新检索。": "The selected excerpt has changed or does not belong to this document. Search again.",
+    "暂无知识库，请先上传文档。": "No knowledge bases are available yet. Upload a document first.",
+    "会话不存在": "Conversation not found",
+    "此回答的来源已不可访问或已变化，请重新检索。": "The sources for this answer are no longer accessible or have changed. Search again.",
+    "该会话不存在或已被删除。": "This conversation does not exist or has been deleted.",
+    "配置不存在。": "Configuration not found.",
+    "配置已保存（下一次请求即生效）。": "Configuration saved. It takes effect on the next request.",
+    "仅 PDF 文档支持视觉模式": "Visual mode is only available for PDF documents",
+    "状态未变化": "Status unchanged",
+    "已开启视觉模式，页面向量后台生成中": "Visual mode enabled. Page embeddings are being generated in the background",
+    "名称不能为空": "Enter a name",
+    "自动更新文档请从数据源重试，避免绕过批次发布。": "Retry automatically updated documents from their data source to preserve batch publishing rules.",
+    "文档已在处理或已完成，请勿重复重试": "This document is processing or already complete. Do not retry it again",
+    "进程重启导致抽取中断，请重试": "Extraction was interrupted by a process restart. Retry to continue",
+    "追踪表已启用：先在下方配置字段，之后新文档入库即自动登记。": "Tracking table enabled. Configure its fields below; new documents will then be registered automatically after ingestion.",
+    "状态": "Status",
+    "字段已变更": "Fields changed",
+    "记录时间": "Recorded at",
+    "错误": "Error",
+    "原文不可用": "Source text unavailable",
+    "服务端未安装 PyMuPDF，无法渲染原页": "PyMuPDF is not installed on the server, so the source page cannot be rendered",
+    "无效页码": "Invalid page number",
+    "原页渲染失败，请检查原文或重新建立定位": "Source page rendering failed. Check the original file or rebuild its page references",
+    "该会话已有回答任务，请等待或停止后再提问。": "An answer is already being generated in this conversation. Wait or stop it before asking another question.",
+    "问答服务异常，请重试。": "The answer service encountered an error. Try again.",
+    "回答任务已停止。": "Answer generation stopped.",
+    "只有管理员可以导入结构化数据。": "Only administrators can import structured data.",
+    "请选择 CSV 或 XLSX 文件。": "Select a CSV or XLSX file.",
+    "全部远程 API 已开启。": "All remote APIs enabled.",
+    "总开关已关闭；LLM 恢复使用独立开关，其他服务恢复本机限制。": "The master switch is off. The LLM now uses its own remote-access setting; other services are restricted to this computer.",
+    "请填写配置名称。": "Enter a configuration name.",
+    "分类无效。": "Invalid category.",
+    "未知测试目标": "Unknown test target",
+    "未报告": "Not reported",
+    "请填写手册库名称。": "Enter a manual library name.",
+    "未识别到标准关联字段（原始列已保留）": "No standard relationship fields were detected; the original columns have been retained",
+    "知识库不存在或已被删除。": "The knowledge base does not exist or has been deleted.",
+    "文档不存在或已被删除。": "The document does not exist or has been deleted.",
+    "追踪表已停用（已登记的记录保留，可随时重新启用）。": "Tracking table disabled. Existing records are retained, and it can be enabled again at any time.",
+    "文档名": "Document name",
+    "证据页码与原文不一致，请重新建立定位": "The evidence page number does not match the original file. Rebuild its page references",
+    "正文": "Body",
+    "答案未通过来源核对，草稿未发布。请明确资料范围或补充所需条件后重试。": "The answer did not pass source verification, so the draft was not published. Clarify the document scope or add the required conditions and try again.",
+    "会话不存在或已被删除。": "The conversation does not exist or has been deleted.",
+    "未知来源": "Unknown source",
+    "未识别到关联键（仍已保留原始列）": "No relationship keys were detected; the original columns have been retained",
+    "评估问题已添加。": "Evaluation question added.",
+    "问题不能为空。": "Enter a question.",
+    "请填写 LLM Base URL。": "Enter the LLM base URL.",
+    "请填写 LLM 模型名称。": "Enter the LLM model name.",
+    "接口有响应，但未完整返回测试答案 OK（可能为空、截断或仅有思考内容）。": "The API responded but did not return the complete test answer “OK”. The answer may be empty, truncated, or contain reasoning only.",
+    "请填写向量模型 Base URL。": "Enter the embedding model base URL.",
+    "请填写向量模型名称。": "Enter the embedding model name.",
+    "连接测试": "Connection test",
+    "服务没有返回向量。": "The service did not return an embedding.",
+    "请选择手册要归入的手册库。": "Select the manual library for this document.",
+    "追踪表配置已保存。": "Tracking table configuration saved.",
+    "答案核对未完成，草稿未发布。请重试。": "Answer verification did not finish, so the draft was not published. Try again.",
+    "模型结束了请求，但没有返回答案正文。": "The model finished the request without returning an answer.",
+    "开关值无效": "Invalid switch value",
+    "请先关闭页面顶部的全部 API 总开关": "Turn off the master switch for all APIs at the top of the page first",
+    "开启": "Enabled",
+    "关闭": "Disabled",
+    "保存": "Save",
+    "更新": "Update",
+    "模型名不一致或未报告，不能确认指定模型已启动；请核对代理映射。": "The model name differs or was not reported, so the requested model could not be verified. Check the proxy mapping.",
+    "请选择要上传的手册文件。": "Select a manual file to upload.",
+    "问答服务返回错误。": "The answer service returned an error.",
+    "删除失败：无效的问题 ID。": "Deletion failed: invalid question ID.",
+    "刚刚": "Just now",
+    "没有权限向该手册库上传（仅本部门库可管理）。": "You cannot upload to this manual library. You can only manage libraries in your department.",
+    "记录不存在或已不在待确认状态。": "This record does not exist or is no longer awaiting review.",
+    "记录状态已变化（可能已被重新抽取），请刷新页面。": "The record has changed, possibly because it was extracted again. Refresh the page.",
+    "请先启用追踪表并配置字段，再补录。": "Enable the tracking table and configure its fields before backfilling records.",
+    "没有需要补录的文档（无已完成文档或均已登记）。": "No documents need backfilling. There are no completed documents, or all have already been registered.",
+    "该记录不存在或正在抽取中，请稍候。": "This record does not exist or is currently being extracted. Please wait.",
+    "记录已被删除。": "The record has been deleted.",
+    "已重新排队抽取。": "Queued for extraction again.",
+    "记录已删除。": "Record deleted.",
+    "记录不存在或已被删除。": "This record does not exist or has been deleted.",
+    "URL 格式无效。": "Invalid URL format.",
+    "仅支持不含用户名、密码或片段的 HTTP/HTTPS URL。": "Use an HTTP or HTTPS URL without a username, password, or fragment.",
+    "URL 端口无效。": "Invalid URL port.",
+    "数据必须使用 schema=\"fos-rag-feed/v1\"。": "The data must use schema=\"fos-rag-feed/v1\".",
+    "数据包含不支持的字段，不能使用隐式 snapshot 删除。": "The data contains unsupported fields. Implicit snapshot deletion is not allowed.",
+    "每批最多100项写入和删除；items 必须是数组。": "A batch can contain up to 100 writes and deletions. items must be an array.",
+    "batch_id 请使用1至160位字母、数字、点、冒号、下划线或连字符。": "batch_id must contain 1–160 letters, digits, periods, colons, underscores, or hyphens.",
+    "cursor 必须是最多2048字符的字符串。": "cursor must be a string of no more than 2,048 characters.",
+    "请提交 UTF-8 JSON 数据。": "Submit UTF-8 JSON data.",
+    "每条数据必须有不超过200字符的稳定字符串 id。": "Every record needs a stable string id of no more than 200 characters.",
+    "同一批数据不能重复写入或同时删除同一 id。": "A batch cannot write the same id more than once, or write and delete it at the same time.",
+    "item 字段不符合接入标准。": "The item fields do not match the ingestion specification.",
+    "title 必须是1至200字符，不能包含控制字符。": "title must contain 1–200 characters and no control characters.",
+    "content 必须是非空正文，最多100000字符。": "content must be nonempty and contain no more than 100,000 characters.",
+    "format 仅支持 markdown 或 text。": "format must be markdown or text.",
+    "metadata 必须是最多8000字符的 JSON 对象。": "metadata must be a JSON object of no more than 8,000 characters.",
+    "fields 必须是标量值、最多8000字符的 JSON 对象，供追踪表展示。": "fields must be a JSON object containing scalar values, with a maximum of 8,000 characters, for display in the tracking table.",
+    "updated_at 必须是包含时区的 ISO 8601 时间。": "updated_at must be an ISO 8601 timestamp that includes a time zone.",
+    "非有限 JSON 数值": "Nonfinite JSON number",
+    "请求头配置必须是最多20项的 JSON 对象。": "Request headers must be a JSON object with no more than 20 entries.",
+    "API 主机没有可用地址。": "No address is available for the API host.",
+    "请求头只能引用 FOS_FEED_ 前缀的环境变量，不能设置 Host、Cookie 或连接头。": "Headers can only reference environment variables beginning with FOS_FEED_. Host, Cookie, and connection headers cannot be set.",
+    "API 主机解析失败。": "The API host could not be resolved.",
+    "API 指向受限网络地址；内网服务需由全局管理员明确启用。": "The API points to a restricted network address. A site administrator must explicitly enable access to private-network services.",
+    "原始 API 必须返回 JSON。": "The source API must return JSON.",
+    "原始 API 返回的 JSON 无效。": "The source API returned invalid JSON.",
+    "API 必须返回 application/json。": "The API must return application/json.",
+    "API 请返回未压缩 JSON，以便按字节限制响应大小。": "The API must return uncompressed JSON so its response size can be limited by byte count.",
+    "服务返回压缩内容，无法进行有界采样。": "The service returned compressed content, which cannot be sampled within the size limit.",
+    "API 响应超过30秒，已停止本次拉取。": "The API response exceeded 30 seconds. This fetch has been stopped.",
+    "API 返回数据超过2MB上限。": "The API response exceeds the 2 MB limit.",
+    "工具请求超过30秒。": "The tool request exceeded 30 seconds.",
+    "工具响应超过大小限制。": "The tool response exceeds the size limit.",
+    "标题": "Title",
+    "更新时间": "Updated at",
+    "来源链接": "Source URL",
+    "采集时间": "Collected at",
+    "来源ID": "Source ID",
+    "数据源创建者已无管理权限，更新已停止。": "Updates stopped because the data source owner no longer has management permission.",
+    "环境变量认证必须由仍有效的全局管理员管理。": "Environment-variable authentication must be managed by an active site administrator.",
+    "更新达到10分钟上限，整批未发布；原有版本与游标保留。": "The update reached the 10-minute limit and the batch was not published. The previous version and cursor have been retained.",
+    "本次执行锁已失效，禁止继续发布。": "The execution lock has expired. Further publishing is not allowed.",
+    "数据源已暂停。": "The data source is paused.",
+    "本次计划尚未到期。": "This scheduled update is not due yet.",
+    "数据源已有运行中的任务。": "A task is already running for this data source.",
+    "执行进程失去租约；已有发布版本保留，游标未由该任务推进。": "The process lost its execution lease. The published version has been retained and this task has not advanced the cursor.",
+    "执行锁已失效。": "The execution lock has expired.",
+    "同一个 batch_id 不能用于不同内容。": "The same batch_id cannot be reused for different content.",
+    "执行进程已停止或租约超时，原有版本与游标保留。": "The process stopped or its lease expired. The previous version and cursor have been retained.",
+    "请明确给出 type：none / bearer(token) / api_key(header_name,value) / basic(username,password) / login(username,password) / headers([{name,value}])。": "Specify type explicitly: none / bearer(token) / api_key(header_name,value) / basic(username,password) / login(username,password) / headers([{name,value}]).",
+    "Basic 用户名与密码": "Basic username and password",
+    "网页登录账号与密码": "Web login username and password",
+    "自定义请求头": "Custom request headers",
+    "凭据加密密钥不可用，请恢复部署备份中的密钥文件。": "The credential encryption key is unavailable. Restore the key file from your deployment backup.",
+    "凭据所属账号已停用。": "The account that owns these credentials is disabled.",
+    "API 凭据归属校验未通过。": "API credential ownership verification failed.",
+    "API 主机发生变化，请在页面重新填写该主机的凭据。": "The API host has changed. Enter credentials for that host on this page.",
+    "认证引用已变化，请重新保存凭据。": "The authentication reference has changed. Save the credentials again.",
+    "已有环境变量认证": "Existing environment-variable authentication",
+    "无需认证": "No authentication required",
+    "认证配置缺少 type，且无法安全推断，不会按「不认证」处理。": "The authentication configuration has no type and cannot be inferred safely. It will not be treated as unauthenticated access.",
+    "Token 格式无效，请粘贴完整令牌。": "Invalid token format. Paste the complete token.",
+    "无法解密 API 凭据，请在页面重新保存。": "The API credentials could not be decrypted. Save them again on this page.",
+    "API 认证": "API authentication",
+    "用户名": "Username",
+    "密码": "Password",
+    "Basic 用户名不能包含冒号。": "A Basic authentication username cannot contain a colon.",
+    "请求头名称": "Header name",
+    "网页登录账号": "Web login username",
+    "网页登录密码": "Web login password",
+    "请选择支持的认证方式。": "Select a supported authentication method.",
+    "请填写1至10项请求头名称和值。": "Enter 1–10 request header names and values.",
+    "请求头格式无效。": "Invalid request header format.",
+    "请求头名称和值不能为空或包含换行。": "Header names and values cannot be empty or contain line breaks.",
+    "请求头名称不能重复。": "Header names cannot be duplicated.",
+    "Cron 在未来五年没有可运行时间。": "This cron expression has no scheduled run in the next five years.",
+    "Cron 必须是五字段：分 时 日 月 星期。": "Cron requires five fields: minute, hour, day of month, month, and day of week.",
+    "调度时间必须包含时区。": "The scheduled time must include a time zone.",
+    "请使用有效 IANA 时区，例如 Asia/Shanghai。": "Use a valid IANA time zone, such as Asia/Shanghai.",
+    "Cron 字段包含不支持的字符。": "A cron field contains unsupported characters.",
+    "Cron 数值超出允许范围。": "A cron value is outside the allowed range.",
+    "Cron 步长格式无效。": "Invalid cron step format.",
+    "Cron 步长无效。": "Invalid cron step.",
+    "Cron 范围无效。": "Invalid cron range.",
+    "Cron 范围起点不能大于终点。": "A cron range cannot start after it ends.",
+    "Cron 步长请搭配 * 或范围。": "Use a cron step with * or a range.",
+    "搜索词必须在1至300字符之间。": "Search terms must contain 1–300 characters.",
+    "认证信息请使用请求头环境变量，不要写入 URL 或查询参数。": "Provide authentication through header environment variables, not in URLs or query parameters.",
+    "来源地址尚未确认，请先用浏览器打开用户提供或搜索到的真实网页。": "The source URL is not confirmed. Open a real webpage supplied by the user or found in search first.",
+    "不能新增或修改用户未授权的认证环境变量。": "Authentication environment variables cannot be added or changed without the user's authorization.",
+    "尚无响应样例，请使用 probe_api 或请用户提供脱敏 JSON。": "No response sample is available yet. Use probe_api or provide a redacted JSON sample.",
+    "样例没有记录，无法验证稳定 ID 和必需字段；请提供非空样例。": "The sample contains no records, so stable IDs and required fields cannot be validated. Provide a nonempty sample.",
+    "使用认证时请单独填写实际 API 地址，以确定凭据接收主机。": "When using authentication, enter the actual API URL separately to specify which host receives the credentials.",
+    "公开网页搜索暂不可用，请提供 API 文档链接或配置 Tavily/SearXNG。": "Public web search is unavailable. Provide an API documentation link or configure Tavily/SearXNG.",
+    "采集上限": "Collection limit",
+    "spec（完整对象）": "spec (complete object)",
+    "browser.max_records与browser.output.max_records冲突。": "browser.max_records conflicts with browser.output.max_records.",
+    "dom 必须有 rows 和 fields；network 必须有 url_contains 和 path": "dom requires rows and fields; network requires url_contains and path",
+    "计算正则需为不超过300字符的简单模式。": "The calculation regex must be a simple pattern of no more than 300 characters.",
+    "computed需要op；取原字段使用{\"field\":\"路径\"}。": "computed requires op. To read an original field, use {\"field\":\"path\"}.",
+    "计算结果不是有限数。": "The calculation result is not a finite number.",
+    "计算规则超过12层或200个节点，请拆分规则。": "The calculation rule exceeds 12 levels or 200 nodes. Split it into smaller rules.",
+    "match需要pattern。": "match requires pattern.",
+    "计算正则group须为0至8。": "The calculation regex group must be between 0 and 8.",
+    "group超过计算正则的捕获组数量。": "group exceeds the number of capture groups in the calculation regex.",
+    "distinct必须是布尔值。": "distinct must be a boolean.",
+    "round的digits须为0至8。": "round digits must be between 0 and 8.",
+    "date_part需指定date/year/month/day/weekday/hour。": "date_part must specify date, year, month, day, weekday, or hour.",
+    "join的separator必须是短字符串。": "The join separator must be a short string.",
+    "计算步骤超过10000，请缩小集合或简化表达式。": "The calculation exceeded 10,000 steps. Reduce the collection size or simplify the expression.",
+    "数组或对象常量请放在literal中。": "Put array or object constants inside literal.",
+    "计算常量必须为有限数。": "Calculation constants must be finite numbers.",
+    "计算常量过长。": "The calculation constant is too long.",
+    "field必须是短字段路径。": "field must be a short field path.",
+    "literal常量过大。": "The literal constant is too large.",
+    "duration需指定start/end路径或两个args。": "duration requires start/end paths or two args.",
+    "duration时间格式或单位无效。": "Invalid duration time format or unit.",
+    "group_by需要每条记录内的分组path。": "group_by requires a grouping path within each record.",
+    "join需要最多1000项的数组。": "join requires an array of no more than 1,000 items.",
+    "输入须为最多1000项的数组。": "The input must be an array of no more than 1,000 items.",
+    "分组键必须为标量。": "Grouping keys must be scalar values.",
+    "计算文本超过20000字符。": "Calculation text exceeds 20,000 characters.",
+    "需要数组或可拆分文本，最多1000项。": "An array or splittable text is required, with no more than 1,000 items.",
+    "需要最多1000项的数值数组，记录数组请先map。": "A numeric array of no more than 1,000 items is required. Apply map first if the array contains records.",
+    "除数为0，无法计算。": "Cannot calculate because the divisor is zero.",
+    "上下文归属不匹配。": "Context ownership does not match.",
+    "已保存的 AI 上下文无法读取，请检查部署密钥；原定时任务仍可运行。": "The saved AI context could not be read. Check the deployment encryption key. Existing scheduled tasks can still run.",
+    "对话归属不匹配。": "Conversation ownership does not match.",
+    "本轮已结束，此工具未执行。": "This turn has ended; the tool was not executed.",
+    "连接器配置包含不支持的字段。": "The connector configuration contains unsupported fields.",
+    "请提供连接器名称。": "Enter a connector name.",
+    "source_type 仅支持 api 或 browser。": "source_type must be api or browser.",
+    "write_mode 仅支持 append（追加保留历史）或 upsert（覆盖相同 ID）。": "write_mode must be append (retain history) or upsert (update matching IDs).",
+    "请提供明确的 HTTP(S) URL；网页模式支持完整的 # 路由，API模式不能带片段。": "Provide an explicit HTTP(S) URL. Browser mode supports full # routes; API mode cannot include a fragment.",
+    "on_error仅支持raw（保留原文）或fail。": "on_error must be raw (retain source content) or fail.",
+    "records_path 必须是 JSON 路径。": "records_path must be a JSON path.",
+    "single_record 必须是布尔值。": "single_record must be a boolean.",
+    "id_paths 必须明确指定1至4个稳定 ID 字段。": "id_paths must specify 1–4 stable ID fields.",
+    "请指定1至30个业务字段及采集日期。": "Specify 1–30 business fields and the collection date.",
+    "业务字段最多30个，另保留采集日期。": "There can be up to 30 business fields, plus the collection date.",
+    "query 仅支持最多20个简单查询参数。": "query supports no more than 20 simple query parameters.",
+    "请求头只能引用 FOS_FEED_ 环境变量。": "Request headers can only reference FOS_FEED_ environment variables.",
+    "不支持的时间戳格式。": "Unsupported timestamp format.",
+    "连接器配置过大。": "The connector configuration is too large.",
+    "records_path 没有定位到数组；单对象接口请使用 single_record=true。": "records_path did not resolve to an array. Use single_record=true for an API that returns one object.",
+    "API 返回超过100条，请在 query 中设置分页大小。": "The API returned more than 100 records. Set the page size in query.",
+    "deleted_path 只能指向显式删除 ID 的数组。": "deleted_path must point to an array of IDs explicitly marked for deletion.",
+    "单批写入与删除总数不能超过100。": "A batch cannot contain more than 100 writes and deletions in total.",
+    "采集日期": "Collection date",
+    "正文字段必须包含 label，并指定 path、source 或 computed。": "Body fields must include label and specify path, source, or computed.",
+    "正文source仅支持today（采集日期）或now（采集时间）。": "Body source must be today (collection date) or now (collection timestamp).",
+    "正文字段需指定path、source或computed，computed不能与其他取值方式混用。": "A body field must specify path, source, or computed. computed cannot be combined with another value source.",
+    "不支持的字段格式。": "Unsupported field format.",
+    "字段名称、路径或单位过长或格式无效。": "A field name, path, or unit is too long or has an invalid format.",
+    "required 必须是布尔值。": "required must be a boolean.",
+    "稳定 ID 字段为空或不是字符串/整数。": "The stable ID field is empty or is not a string or integer.",
+    "采集提示": "Collection notes",
+    "原始内容": "Original content",
+    "生成的单条报告超过100000字符。": "A generated report exceeds 100,000 characters.",
+    "required_unless 必须指定实际状态字段 path 和有限 regex。": "required_unless must specify an actual status field path and a bounded regex.",
+    "状态条件包含不支持的复杂正则。": "The status condition contains an unsupported complex regex.",
+    "computed 字段不支持 table 等特殊格式。": "computed fields do not support special formats such as table.",
+    "表格字段必须指定 columns 的 label/path。": "Table fields must specify label/path for their columns.",
+    "来源链接缺失或格式变化，使用采集页面地址": "The source link is missing or has changed format. The collection page URL is used instead",
+    "游标必须是字符串或整数。": "The cursor must be a string or integer.",
+    "required_unless 正则无效。": "Invalid required_unless regex.",
+    "明细表超过100行，请缩小 API 查询范围。": "The detail table exceeds 100 rows. Narrow the API query.",
+    "时间缺失或没有时区": "The time is missing or has no time zone",
+    "来源更新时间格式变化，使用本次采集时间": "The source update time has changed format. The current collection time is used instead",
+    "未能按原规则提取，保留抓到的原文": "The original extraction rule could not be applied. The captured source content has been retained",
+    "账号已停用或失去管理权限，生成已停止。": "Generation stopped because the account was disabled or lost management permission.",
+    "已失去目标知识库管理权限。": "You no longer have permission to manage the target knowledge base.",
+    "已失去环境变量认证配置权限。": "You no longer have permission to configure environment-variable authentication.",
+    "生成进程已停止或超过120分钟，请重试。": "Generation stopped or exceeded 120 minutes. Try again.",
+    "已在浏览器打开网页并读取动态内容。": "Opened the webpage in the browser and read its dynamic content.",
+    "已更新当前网页画面与正文。": "Updated the current webpage preview and text.",
+    "仅试算。将同一公式放进body_fields.computed，最终用真实采集样例验证脚本。": "This is only a calculation preview. Put the same formula in body_fields.computed, then validate the script against a real collection sample.",
+    "生成任务已停止。": "Generation stopped.",
+    "已达到120分钟生成时限。": "The 120-minute generation limit has been reached.",
+    "试采与格式校验已完成，请审核真实样例。确认后才会入库并启动定时更新。": "Test collection and format validation are complete. Review the real samples. Data will only be published and scheduled updates enabled after confirmation.",
+    "仅允许探测用户明确提供的 API 主机。": "Only API hosts explicitly supplied by the user can be probed.",
+    "请使用有限非认证查询参数。": "Use a bounded set of query parameters without authentication values.",
+    "认证接收主机必须是用户明确提供的来源地址；请先询问实际URL。": "Credentials can only be sent to a source host explicitly supplied by the user. Provide the actual URL first.",
+    "真实数据已获取并格式化，样例已展示；等待用户审核后才会入库和启用定时更新。": "Real data has been collected and formatted, and the samples are ready for review. Publishing and scheduled updates require user confirmation.",
+    "此工具需要 source_type=browser。": "This tool requires source_type=browser.",
+    "缺少用户要求的 duration：添加 computed 时间差字段后再验证。": "The requested duration field is missing. Add a computed time-difference field and validate again.",
+    "网页采集步骤已实际重放，真实样例已展示；等待用户审核。": "The webpage collection steps were replayed successfully. Real samples are ready for review.",
+    "开始生成连接器，正在准备模型、工具与接入标准。": "Starting connector generation and preparing the model, tools, and ingestion specification.",
+    "沿用已获得的页面、工具结果、数据和脚本；仅在必要时补充读取。": "Reusing the pages, tool results, data, and script already collected. Additional information will only be read when needed.",
+    "模型调用预算已用尽，未生成可验证的连接器。": "The model-call budget was exhausted before a verifiable connector was generated.",
+    "模型请求超过120秒仍未完成，已停止本次生成；已有样例和日志保留，可重试。": "The model request exceeded 120 seconds, so generation was stopped. Existing samples and logs have been retained; you can retry.",
+    "不能猜测或生成认证值，只能使用用户明确提供的信息。": "Authentication values cannot be guessed or generated. Use only information explicitly supplied by the user.",
+    "认证值未由用户提供，请先在对话中询问。": "The user has not supplied this authentication value. Ask for it in the conversation first.",
+    "当前没有捕获到JSON请求。可以继续按真实DOM采集，不必反复调用本工具。": "No JSON request has been captured. Continue collecting from the actual DOM instead of repeatedly calling this tool.",
+    "计算输入缺失或无法匹配；检查原始字段及规则，不能把未知值编成0。": "The calculation input is missing or cannot be matched. Check the source fields and rules; do not replace unknown values with zero.",
+    "连续6轮没有取得新页面或有效数据，停止重复探索。": "No new page content or useful data was found in six consecutive rounds. Repeated exploration has stopped.",
+    "预算内最后一轮。": "Final round within the budget.",
+    "已达到模型输入预算，请缩小需求后重试。": "The model input budget has been reached. Narrow the request and try again.",
+    "已恢复保存的模型上下文与工具结果。": "Restored the saved model context and tool results.",
+    "已接续完整模型上下文、工具结果及浏览器。": "Resumed the full model context, tool results, and browser session.",
+    "已一次性压缩旧观察，保留页面结构、有效样例和失败定位；后续继续追加上下文。": "Older observations have been compacted while retaining page structure, valid samples, and failed selectors. New context will continue to be appended.",
+    "模型已接受当前网页截图与清洗DOM。": "The model received the current webpage screenshot and cleaned DOM.",
+    "已达到工具调用上限；请补充响应样例后重试。": "The tool-call limit has been reached. Provide a response sample and try again.",
+    "模型输出被截断。": "The model output was truncated.",
+    "结果必须是 JSON 对象。": "The result must be a JSON object.",
+    "缺少 connector 或 questions。": "connector or questions is missing.",
+    "正在保存已知信息并收尾。": "Saving the information collected and wrapping up.",
+    "当前模型拒绝图片输入，已自动改用清洗DOM与真实元素信息。": "The current model does not accept images. Using the cleaned DOM and observed elements instead.",
+    "下一轮模型将收到当前网页截图和清洗DOM。": "The next model request will include the current webpage screenshot and cleaned DOM.",
+    "不支持的工具。": "Unsupported tool.",
+    "当前页面和参数没有改变；相同失败操作已拦截，请依据真实结构修正。": "The page and parameters have not changed. The repeated failing action was blocked; revise it using the actual page structure.",
+    "工具执行完成。": "Tool execution complete.",
+    "已自动规范配置层级：max_records与output平级，网页模式使用records数组。": "Configuration structure normalized: max_records is alongside output, and browser mode uses a records array.",
+    "当前账号没有资料管理权限，无法配置自动采集。": "This account cannot manage documents, so it cannot configure automatic collection.",
+    "环境变量认证仅供全局管理员配置，请直接使用认证表单填写凭据。": "Only site administrators can configure environment-variable authentication. Enter credentials in the authentication form instead.",
+    "请用10至10000字符说明数据来源、采集内容与更新频率。": "Describe the data source, collection requirements, and update frequency in 10–10,000 characters.",
+    "已有生成任务正在运行，请等待完成。": "A generation task is already running. Wait for it to finish.",
+    "没有该知识库的管理权限。": "You do not have permission to manage this knowledge base.",
+    "请在「实际 API 地址」填写接收凭据的接口地址。": "Enter the endpoint that should receive credentials in “Actual API URL”.",
+    "请提供不超过40000字符的脱敏 JSON 样例。": "Provide a redacted JSON sample of no more than 40,000 characters.",
+    "原任务不属于当前账号。": "The original task does not belong to this account.",
+    "请等待当前预览完成后再调整；已启用的数据源请在数据源页面管理。": "Wait for the current preview to finish before making changes. Manage enabled sources on the data sources page.",
+    "已有预览正在生成，请等待或停止后重试。": "A preview is already being generated. Wait for it to finish, or stop it before retrying.",
+    "请用1至4000字符回答问题或说明修改要求。": "Answer the question or describe the changes in 1–4,000 characters.",
+    "用户已停止生成。": "Generation stopped by the user.",
+    "凭据引用与实际请求头不一致，请重新填写认证。": "The credential reference does not match the actual request headers. Enter authentication details again.",
+    "请先完成连接器生成和样例校验。": "Complete connector generation and sample validation first.",
+    "连接器正在启用，请稍后查看。": "The connector is being enabled. Check again shortly.",
+    "网页脚本尚未通过完整批次验证，请继续对话重新验证后确认。": "The webpage script has not passed full-batch validation. Continue the conversation to validate it before confirming.",
+    "API 主机已改变，请在认证表单重新填写凭据。": "The API host has changed. Enter credentials again in the authentication form.",
+    "原数据源已被删除，请创建新任务。": "The original data source was deleted. Create a new task.",
+    "该对话上下文已清空，请重新打开数据源继续修改。": "The conversation context was cleared. Reopen the data source to continue editing.",
+    "该预览已被更新或启用，请查看最新任务。": "This preview was updated or enabled. Open the latest task.",
+    "请选择预览中已有的保留字段。": "Select fields already present in the preview to keep.",
+    "由采集脚本自动更新的业务数据": "Business data automatically updated by a collection script",
+    "原任务不属于当前用户。": "The original task does not belong to the current user.",
+    "原数据源所属知识库已变化，请重新建立任务。": "The original data source belongs to a different knowledge base now. Create a new task.",
+    "原数据源正在更新，请完成后再批准新脚本。": "The original data source is being updated. Wait for it to finish before approving a new script.",
+    "浏览器只接受不含用户名或密码的 HTTP(S) 地址。": "The browser only accepts HTTP(S) URLs without a username or password.",
+    "网页采集配置字段无效。": "Invalid webpage collection configuration fields.",
+    "每批网页采集最多100条记录。": "A webpage collection batch can contain up to 100 records.",
+    "browser.output必须是取数对象；dom需rows/fields，network需url_contains/path。": "browser.output must be a data extraction object: dom requires rows/fields, and network requires url_contains/path.",
+    "网页主机没有可用地址。": "No address is available for the webpage host.",
+    "不支持的浏览器操作。": "Unsupported browser action.",
+    "网页动作最多30步。": "A browser recipe can contain up to 30 actions.",
+    "browser.max_records须为1至100。": "browser.max_records must be between 1 and 100.",
+    "网络取数需要实际观察到的 url_contains。": "Network extraction requires a url_contains value observed in a real request.",
+    "网络取数 path 必须是 JSON 路径。": "Network extraction path must be a JSON path.",
+    "network详情需要url_field；点击式详情请使用dom模式。": "Network detail extraction requires url_field. Use dom mode for click-based detail pages.",
+    "output.kind 仅支持 dom 或 network。": "output.kind must be dom or network.",
+    "网页请求指向未授权的内网地址。": "The webpage request points to an unauthorized private-network address.",
+    "只能主动打开用户提供的主机或已在网页中观察到的链接。": "Only user-supplied hosts or links observed on the webpage can be opened directly.",
+    "元素存在但当前不可见，请选择快照中的可见控件或先打开对应区域。": "The element exists but is not visible. Choose a visible control in the snapshot or open the relevant section first.",
+    "采集工具不执行购买、支付或删除操作。": "Collection tools cannot make purchases, payments, or deletions.",
+    "选择器未匹配到内容": "The selector matched no content",
+    "网页动作字段无效。": "Invalid browser action fields.",
+    "仅支持打开、点击、填写、选择、等待和滚动。": "Only open, click, fill, select, wait, and scroll actions are supported.",
+    "只允许引用已保存的网页登录账号或密码。": "Only saved web login usernames and passwords may be referenced.",
+    "填写或选择需要 value 或 credential 引用。": "Fill and select actions require value or a credential reference.",
+    "不支持的等待状态。": "Unsupported wait state.",
+    "网页列表需要 rows 选择器。": "A webpage list requires a rows selector.",
+    "翻页选择器格式无效。": "Invalid pagination selector format.",
+    "每批最多浏览10页列表。": "A batch can browse up to 10 list pages.",
+    "网页请求量超过本次采集上限。请减少整页导航与逐条详情访问，优先network或html渲染取数，并用max_pages缩小范围；图片等静态资源已自动拦截，无需处理。": "The request limit for this collection has been reached. Reduce full-page navigation and individual detail requests, prefer network extraction or HTML detail rendering, and narrow the scope with max_pages. Images and other static resources are already blocked automatically.",
+    "没有观察到匹配的真实 JSON 网络响应。": "No matching real JSON network response was observed.",
+    "网络响应 path 必须指向记录数组。": "The network response path must point to an array of records.",
+    "网络响应超过100条，请在页面选择范围或使用分页。": "The network response contains more than 100 records. Select a range on the page or use pagination.",
+    "网页记录超过100条，请选择范围或配置分页。": "The webpage contains more than 100 records. Select a range or configure pagination.",
+    "未找到记录选择器，不能将空结果当作采集成功。": "The record selector was not found. An empty result cannot be treated as successful collection.",
+    "网络响应已过期或不是 JSON。": "The network response has expired or is not JSON.",
+    "网页动作参数过长或格式无效。": "A browser action parameter is too long or has an invalid format.",
+    "网页动作需要 selector。": "This browser action requires selector.",
+    "网页等待或滚动超出范围。": "The browser wait or scroll value is out of range.",
+    "网页字段必须是1至30项映射。": "Webpage fields must contain 1–30 mappings.",
+    "详情页需要 url_field 或 click_selector。": "Detail pages require url_field or click_selector.",
+    "详情render仅支持auto、browser或html。": "Detail render must be auto, browser, or html.",
+    "HTML详情模式需要实际url_field链接，点击操作请使用browser模式。": "HTML detail mode requires an actual url_field link. Use browser mode for click actions.",
+    "网页资源超过5MB限制。": "The webpage resource exceeds the 5 MB limit.",
+    "网页资源读取超过25秒限制。": "Reading the webpage resource exceeded 25 seconds.",
+    "部分字段未找到，请依据页面真实结构修正；这还不是验证成功的采集方案。": "Some fields were not found. Revise the extraction using the actual page structure; the collection recipe has not passed validation yet.",
+    "采集脚本不能保存当前页面的瞬时元素编号，请使用观察结果中的真实稳定CSS选择器。": "Collection scripts cannot save temporary element IDs from the current page. Use the stable CSS selectors shown in the observations.",
+    "网页字段配置无效。": "Invalid webpage field configuration.",
+    "网页缺失提示 default 必须是不超过500字符的文本。": "The missing-value default must be text of no more than 500 characters.",
+    "字段 source 仅支持 url、today（日期）或 now（含时区的采集时间）。": "Field source must be url, today (date), or now (collection timestamp with time zone).",
+    "all/required 必须是布尔值。": "all and required must be boolean values.",
+    "regex group 超出范围。": "regex group is out of range.",
+    "网页取数模式包含不支持的复杂表达式。": "The webpage extraction pattern contains an unsupported complex expression.",
+    "详情页定位格式无效。": "Invalid detail-page locator format.",
+    "详情链接缺失，保留列表中的原始记录": "The detail link is missing. The original list record has been retained",
+    "网页选择器或模式格式无效。": "Invalid webpage selector or pattern format.",
+    "网页取数 regex 无效。": "Invalid webpage extraction regex.",
+    "浏览器操作超时。": "The browser action timed out.",
+    "不能在其他主机的页面填写登录凭据。": "Login credentials cannot be entered on a different host.",
+    "请在页面保存网页登录账号与密码。": "Save the web login username and password on this page.",
+    "当前记录": "Current record",
+    "详情链接字段为空。": "The detail link field is empty.",
+    "请输入有效图号。": "Enter a valid drawing number.",
+    "图号仅支持3–40位字母、数字和短横线。": "Drawing numbers must contain 3–40 letters, digits, or hyphens.",
+    "文档不存在或无权查看。": "The document does not exist or you do not have permission to view it.",
+    "原PDF不可用。": "The original PDF is unavailable.",
+    "原文已更新，请刷新图号出处后重新定位。": "The source has been updated. Refresh the drawing references before locating it again.",
+    "页码超出原PDF范围。": "The page number is outside the original PDF's range.",
+    "此页未匹配到该图号，可查看相邻页的上下文。": "This drawing number was not found on this page. Check adjacent pages for context.",
+    "原文已更新，请刷新出处后重试。": "The source has been updated. Refresh its references and try again.",
+    "QAQC 本地同步记录": "Locally synchronized QAQC records",
+    "提问内容必须是JSON对象。": "The question must be a JSON object.",
+    "请输入1–1600字的问题。": "Enter a question of 1–1,600 characters.",
+    "不支持此分析类型。": "This analysis type is not supported.",
+    "当前车辆资料未就绪，请刷新页面后重试。": "The vehicle data is not ready. Refresh the page and try again.",
+    "请选择有效的固定部件。": "Select a valid fixed component.",
+    "项目资料格式无效。": "Invalid project data format.",
+    "项目摘要格式无效。": "Invalid project summary format.",
+    "本次追踪记录样本过多，请缩小分析范围。": "Too many tracking records were included. Narrow the analysis scope.",
+    "核对摘要格式无效。": "Invalid review summary format.",
+    "部件备注格式无效。": "Invalid component note format.",
+    "所选部件没有可查询的单一图号。": "The selected component has no single drawing number that can be queried.",
+    "对话历史过长，请开启新的车辆对话。": "The conversation history is too long. Start a new vehicle conversation.",
+    "车辆AI正在处理一个分析，请稍后再试。": "Vehicle AI is already processing an analysis. Try again shortly.",
+    "模型未返回可显示的回答，请重试。": "The model did not return a displayable answer. Try again.",
+    "追踪记录格式无效。": "Invalid tracking record format.",
+    "追踪记录引用了未知部件。": "A tracking record references an unknown component.",
+    "追踪记录超出了本次分析范围。": "A tracking record falls outside the current analysis scope.",
+    "车辆对话历史格式无效。": "Invalid vehicle conversation history format.",
+    "QAQC 本地记录中没有该图号。": "No local QAQC record was found for this drawing number.",
+    "编号只能包含字母、数字和短横线（3–40 位）。": "IDs must contain 3–40 letters, digits, or hyphens.",
+    "Maximo只读查询": "Read-only Maximo query",
+    "不支持的资料类型。": "Unsupported document type.",
+    "此PDF超过20MB页内预览上限。": "This PDF exceeds the 20 MB inline preview limit.",
+    "实时Maximo暂不可用，以下为已同步的工单资料。": "Live Maximo is unavailable. Previously synchronized work order data is shown below.",
+    "登录已失效，请刷新页面并重新登录。": "Your session has expired. Refresh the page and sign in again.",
+    "查询内容过长。": "The query is too long.",
+    "查询内容必须是 JSON 对象。": "The query must be a JSON object.",
+    "本次资料过多，请缩小分析范围。": "Too much data was included. Narrow the analysis scope.",
+    "请先登录。": "Sign in first.",
+    "提问内容不是有效JSON。": "The question is not valid JSON.",
+    "已省略深层明细": "Nested details omitted",
+    "景点": "Attraction",
+    "工作组（班组）": "Crew",
+    "工单状态": "Work order status",
+    "工单类型": "Work order type",
+    "景点代码": "Attraction code",
+    "工艺": "Process",
+    "计划状态": "Plan status",
+    "目标设备": "Target equipment",
+    "消息代码": "Message code",
+    "分类": "Category",
+    "运维数据分析使用本机回答模型，请配置本机模型地址。": "Operations analysis uses a local answer model. Configure a model address on this computer.",
+    "明确的起止日期": "Explicit start and end dates",
+    "对话历史过长，请开启新对话。": "The conversation history is too long. Start a new conversation.",
+    "请输入 1–1600 字的运维问题。": "Enter an operations question of 1–1,600 characters.",
+    "请选择有效的数据来源。": "Select a valid data source.",
+    "运维 AI 正在处理查询，请稍后再试。": "Operations AI is processing a query. Try again shortly.",
+    "模型未生成可执行的查询，请补充数据来源和查询条件后重试。": "The model did not generate an executable query. Specify the data source and query conditions, then try again.",
+    "对话历史格式无效，请开启新对话。": "Invalid conversation history format. Start a new conversation.",
+    "查询已完成，模型暂未生成说明。可展开下方来源查看结果。": "The query is complete, but the model has not provided an explanation. Expand the sources below to view the results.",
+    "更短的日期范围": "A shorter date range",
+    "请先导入 Splunk 连接配置。": "Import the Splunk connection configuration first.",
+    "请指定已配置的原始 Oracle 和 Splunk 模块目录。": "Specify the configured original Oracle and Splunk module directories.",
+    "固定当前 Splunk 服务器证书（仅在公司网络中执行，并与管理员核对指纹）": "Pin the current Splunk server certificate; run only on the company network and verify the fingerprint with an administrator",
+    "请同时指定 --toolbox 和 --apex，或使用 --pin-splunk-cert。": "Specify both --toolbox and --apex, or use --pin-splunk-cert.",
+    "运维数据与本机连接配置已就绪。": "Operations data and local connection settings are ready.",
+    "停机代码": "Downtime code",
+    "数据来源": "Data source",
+    "资产编号": "Asset number",
+    "精确设备位置": "Exact equipment location",
+    "工单号": "Work order number",
+    "作业计划号": "Job plan number",
+    "描述关键词": "Description keywords",
+    "工单 ID": "Work order ID",
+    "已导入停机记录": "Imported downtime records",
+    "开始日期": "Start date",
+    "结束日期": "End date",
+    "含 104 闭园后停机": "Include code 104 downtime after park closing",
+    "图表筛选": "Chart filter",
+    "图表筛选值": "Chart filter value",
+    "维护标记": "Maintenance flag",
+    "包含历史工单": "Include historical work orders",
+    "页码": "Page",
+    "每页数量": "Records per page",
+    "预防维护编号": "Preventive maintenance number",
+    "优先级": "Priority",
+    "班组": "Crew",
+    "已关联作业计划": "Linked job plan",
+    "包含取消工单": "Include cancelled work orders",
+    "结果上限": "Result limit",
+    "记录偏移": "Record offset",
+    "遵从类型": "Compliance type",
+    "频率": "Frequency",
+    "计划类型": "Plan type",
+    "工单检索": "Search work orders",
+    "作业计划检索": "Search job plans",
+    "工单详情": "Work order details",
+    "作业计划详情": "Job plan details",
+    "Apex 日志检索": "Search Apex logs",
+    "停机事件": "Downtime events",
+    "停机统计": "Downtime statistics",
+    "设备故障履历": "Equipment failure history",
+    "停机工单详情": "Downtime work order details",
+    "停机时段日志": "Logs during downtime",
+    "不支持此查询操作。": "This query operation is not supported.",
+    "查询参数必须是对象。": "Query parameters must be an object.",
+    "含有此操作不支持的参数。": "The request includes parameters that this operation does not support.",
+    "此工单不在已导入的停机记录中。": "This work order is not in the imported downtime records.",
+    "任务、状态变更及关联工单请切换至实时 Maximo 查看。": "Switch to live Maximo to view tasks, status changes, and related work orders.",
+    "此查询不支持导出。": "Export is not supported for this query.",
+    "实时查询正在处理中，请稍后重试。": "A live query is being processed. Try again shortly.",
+    "日期": "Date",
+    "资产": "Asset",
+    "暂时无法读取工作台数据源，请检查本机连接配置。": "The workbench data source could not be read. Check the local connection settings.",
+    "查询值超出范围。": "The query value is out of range.",
+    "数据源查询未完成，请缩小范围后重试。": "The data source query did not finish. Narrow the scope and try again.",
+    "数据源查询超时，请缩小范围后重试。": "The data source query timed out. Narrow the scope and try again.",
+    "当前数据源连接不可用，请稍后重试。": "The data source connection is unavailable. Try again later.",
+    "不支持的报表类型。": "Unsupported report type.",
+    "实时 Maximo": "Live Maximo",
+    "查看关联工单": "View related work orders",
+    "关联工单上限": "Related work order limit",
+    "开始时间（上海）": "Start time (Shanghai)",
+    "结束时间（上海）": "End time (Shanghai)",
+    "消息关键词": "Message keywords",
+    "排序": "Sort order",
+    "仅 07:00–22:00": "Only 07:00–22:00",
+    "设备位置": "Equipment location",
+    "景点英文名称": "Attraction name in English",
+    "停机时间": "Downtime start",
+    "恢复时间": "Restored at",
+    "报告时间": "Reported at",
+    "截止时间": "Cutoff time",
+    "前后缓冲分钟": "Buffer minutes before and after",
+    "检查实时连接": "Check live connection",
+    "结果上限须在 1–500 以内。": "The result limit must be between 1 and 500.",
+    "最新在前": "Newest first",
+    "最早在前": "Oldest first",
+    "Splunk 服务已响应，账号验证成功。": "Splunk responded and account verification succeeded.",
+    "Splunk Apex · 实时": "Splunk Apex · Live",
+    "Splunk 证书指纹配置无效，须为 SHA-256。": "Invalid Splunk certificate fingerprint. Use SHA-256.",
+    "尚未配置 Splunk 只读连接。": "No read-only Splunk connection has been configured.",
+    "Splunk 服务器地址或端口配置无效。": "Invalid Splunk server address or port.",
+    "Splunk 未返回预期的查询结果。": "Splunk did not return the expected query result.",
+    "未能确认 Splunk 服务端状态。": "The Splunk server status could not be confirmed.",
+    "日志筛选值最多 120 字符，不能包含查询命令或控制字符。": "Log filter values can contain up to 120 characters and cannot include query commands or control characters.",
+    "Splunk 返回结果格式异常。": "Splunk returned an unexpected result format.",
+    "Splunk 未能完成本次查询，请核对账号权限及查询条件。": "Splunk could not complete the query. Check account permissions and query conditions.",
+    "日志结束时间需晚于开始时间，最多可查 31 天。": "The log end time must be after the start time, and the range cannot exceed 31 days.",
+    "请选择目录中的有效 Splunk 景点。": "Select a valid Splunk attraction from the list.",
+    "日志排序方式无效。": "Invalid log sort order.",
+    "此停机记录未匹配到日志景点。": "No log attraction matched this downtime record.",
+    "Splunk 证书与已固定的指纹不一致。": "The Splunk certificate does not match the pinned fingerprint.",
+    "无法连接 Splunk，请检查公司网络、VPN 及服务器证书配置。": "Could not connect to Splunk. Check the company network, VPN, and server certificate configuration.",
+    "Splunk 返回了无法读取的数据。": "Splunk returned unreadable data.",
+    "请输入有效的日志起止时间。": "Enter valid log start and end times.",
+    "Splunk 拒绝访问，请核对连接账号及查询权限。": "Splunk denied access. Check the connection account and query permissions.",
+    "指纹": "Fingerprint",
+    "Splunk 服务器证书未通过校验。请在运维工作台连接配置中固定服务器证书指纹（SPLUNK_CERT_SHA256）或提供 CA 证书（SPLUNK_CA_BUNDLE）。": "Splunk server certificate validation failed. Pin the server certificate fingerprint (SPLUNK_CERT_SHA256) in the workbench connection settings, or provide a CA certificate (SPLUNK_CA_BUNDLE).",
+    "日志过滤条件格式无效。": "Invalid log filter format.",
+    "每项筛选最多 12 个值，以逗号分隔。": "Each filter can contain up to 12 comma-separated values.",
+    "未能统计日志总数，仅显示本页记录。": "The total log count could not be calculated. Only this page's records are shown.",
+    "查询结果过大，请缩小时间范围或每页数量。": "The query result is too large. Narrow the time range or reduce the page size.",
+    "运维数据工作台": "Operations Workbench",
+    "请使用 JSON 查询参数。": "Use JSON query parameters.",
+    "查询条件过长。": "The query conditions are too long.",
+    "请选择操作，并填写有效的查询条件。": "Select an operation and enter valid query conditions.",
+    "查询参数格式无效。": "Invalid query parameter format.",
+    "请先登录工作台。": "Sign in to the workbench first.",
+    "此账号需要运维数据工作台访问权限。": "This account needs permission to access the Operations Workbench.",
+    "运维服务暂时无法完成请求，请稍后重试。": "The operations service could not complete the request. Try again later.",
+    "数据源暂未返回可用结果。": "The data source has not returned usable results yet.",
+    "提交的表单数据存在冲突。请再试一次。": "The submitted form data conflicts. Try again.",
+    "密码修改成功。": "Your password has been changed.",
+    "输入的两个密码不一致。": "The two passwords do not match.",
+    "密码确认": "Confirm password",
+    "为了校验，请输入与上面相同的密码。": "Enter the same password again to confirm it.",
+    "该帐号未激活。": "This account is inactive.",
+    "你的旧密码不正确。请重新输入。": "The old password is incorrect. Enter it again.",
+    "已存在一位使用该名字的用户。": "A user with this username already exists.",
+    "你的密码不能与你的其他个人信息太相似。": "Your password cannot be too similar to your other personal information.",
+    "这个密码太常见了。": "This password is too common.",
+    "你的密码不能是一个常见密码。": "Your password cannot be a commonly used password.",
+    "密码只包含数字。": "This password contains only digits.",
+    "你的密码不能全都是数字。": "Your password cannot consist entirely of digits.",
+    "请输入合法的用户名。只能包含小写和大写字母、数字和@/./+/-/_符号。": "Enter a valid username using letters, numbers, and @/./+/-/_ characters only.",
+    "请输入合法的用户名。只能包含英文字母、数字、特殊字符“@”、“.”、“-”和“_”。": "Enter a valid username using letters, numbers, and @/./+/-/_ characters only.",
+    "必填；长度为150个字符或以下；只能包含字母、数字、特殊字符“@”、“.”、“-”和“_”。": "Required. Use up to 150 characters: letters, numbers, and @/./+/-/_ only.",
+    "这个字段是必填项。": "This field is required.",
+    "输入一个有效的值。": "Enter a valid value.",
+    "请输入一个有效的电子邮件地址。": "Enter a valid email address.",
+    "请输入一个有效的URL。": "Enter a valid URL.",
+    "输入一个数字。": "Enter a number.",
+    "请输入一个整数。": "Enter a whole number.",
+    "选择一个有效的选项。 该选择不在可用的选项中。": "Select a valid choice from the available options.",
+    "无权访问": "Access denied",
+    "操作失败": "Action failed",
+    "rerank 服务不可用或未启用": "The reranking service is unavailable or disabled",
+    "无法识别 CSV 编码，请保存为 UTF-8 后重试。": "The CSV encoding could not be detected. Save the file as UTF-8 and try again.",
+    "上传文件为空。": "The uploaded file is empty.",
+    "文件超过 25 MB，请拆分后再导入。": "The file exceeds 25 MB. Split it into smaller files before importing.",
+    "暂不支持旧版 .xls，请在 Excel 中另存为 .xlsx。": "Legacy .xls files are not supported. Save the workbook as .xlsx in Excel.",
+    "仅支持 CSV、TSV、XLSX 和 XLSM 文件。": "Only CSV, TSV, XLSX, and XLSM files are supported.",
+    "没有管理该知识库的权限。": "You do not have permission to manage this knowledge base.",
+    "请选择正确的数据类型。": "Select the correct data type.",
+    "文件中没有可导入的数据行。": "The file contains no rows that can be imported.",
+    "输出中没有 JSON 对象": "The output contains no JSON object",
+    "输出不是 JSON 对象": "The output is not a JSON object",
+    "请填写有效的 API Base URL，不要在地址中放入密钥或查询参数": "Enter a valid API base URL without credentials or query parameters",
+    "此地址不在本机，请在回答模型配置中开启‘允许远程回答 API’": "This address is not on this computer. Enable “Allow remote answer API” in the answer model settings",
+    "已连通，但未报告版本号，将按 4.0 File API 解析。": "Connected, but no version was reported. Parsing will use the 4.0 File API.",
+    "MinerU 结果中无 markdown": "The MinerU result contains no Markdown",
+    "MinerU 结果包中没有 markdown.md / structured_content.json": "The MinerU result package contains neither markdown.md nor structured_content.json",
+    "WeMM 批次必须为 1–32，超时必须为正数": "WeMM batch size must be 1–32, and timeout must be positive",
+    "EmbeddingGemma 2 维度仅支持 128/256/512/768": "EmbeddingGemma 2 supports only 128, 256, 512, or 768 dimensions",
+    "EmbeddingGemma 图文输入不能为空": "EmbeddingGemma text/image input cannot be empty",
+    "向量服务未配置 Base URL。": "No base URL is configured for the embedding service.",
+    "EMBEDDING_BATCH_SIZE 必须在 1–32 范围内": "EMBEDDING_BATCH_SIZE must be between 1 and 32",
+    "解析内容清洗后为空，停止索引，请核对原文": "No content remains after cleaning. Indexing stopped; check the original document",
+    "向量模型配置已变化，请重建该库，不能继续混用旧模型片段": "The embedding model configuration has changed. Rebuild this knowledge base before adding chunks; embeddings from different models cannot be mixed",
+    "请输入一个正确的用户名和密码。注意，两者都区分大小写。": "Enter a correct username and password. Both fields may be case-sensitive.",
+    "密码跟 用户名 太相似了。": "The password is too similar to your username.",
+    "密码跟 名字 太相似了。": "The password is too similar to your first name.",
+    "密码跟 姓氏 太相似了。": "The password is too similar to your last name.",
+    "密码跟 电子邮件地址 太相似了。": "The password is too similar to your email address.",
+    "请填写有效的请求头名称，不能包含换行。": "Enter a valid header name without line breaks.",
+    "请填写有效的用户名，不能包含换行。": "Enter a valid username without line breaks.",
+    "请填写有效的密码，不能包含换行。": "Enter a valid password without line breaks.",
+    "请填写有效的网页登录账号，不能包含换行。": "Enter a valid web login username without line breaks.",
+    "请填写有效的网页登录密码，不能包含换行。": "Enter a valid web login password without line breaks.",
+    "请填写有效的Token，不能包含换行。": "Enter a valid token without line breaks.",
+    "请填写有效的API Key，不能包含换行。": "Enter a valid API key without line breaks.",
+    "已导入停机记录 无效。": "Invalid imported downtime records.",
+    "实时 Maximo 无效。": "Invalid live Maximo.",
+    "最新在前 无效。": "Invalid newest first.",
+    "最早在前 无效。": "Invalid oldest first.",
+    "景点 无效。": "Invalid attraction.",
+    "请选择有效的景点。": "Select a valid attraction.",
+    "停机代码 无效。": "Invalid downtime code.",
+    "停机代码 的多选值无效。": "Invalid selection for downtime code.",
+    "请选择有效的停机代码。": "Select a valid downtime code.",
+    "数据来源 无效。": "Invalid data source.",
+    "分类 无效。": "Invalid category.",
+    "请选择有效的分类。": "Select a valid category.",
+    "资产编号 无效。": "Invalid asset number.",
+    "精确设备位置 无效。": "Invalid exact equipment location.",
+    "工单号 无效。": "Invalid work order number.",
+    "作业计划号 无效。": "Invalid job plan number.",
+    "描述关键词 无效。": "Invalid description keywords.",
+    "开始日期 无效。": "Invalid start date.",
+    "结束日期 无效。": "Invalid end date.",
+    "含 104 闭园后停机 无效。": "Invalid include code 104 downtime after park closing.",
+    "含 104 闭园后停机 须为布尔值。": "Include code 104 downtime after park closing must be a boolean.",
+    "图表筛选 无效。": "Invalid chart filter.",
+    "请选择有效的图表筛选。": "Select a valid chart filter.",
+    "图表筛选值 无效。": "Invalid chart filter value.",
+    "维护标记 无效。": "Invalid maintenance flag.",
+    "请选择有效的维护标记。": "Select a valid maintenance flag.",
+    "包含历史工单 无效。": "Invalid include historical work orders.",
+    "包含历史工单 须为布尔值。": "Include historical work orders must be a boolean.",
+    "页码 无效。": "Invalid page.",
+    "页码 须为非负整数。": "Page must be a nonnegative integer.",
+    "每页数量 无效。": "Invalid records per page.",
+    "每页数量 须为非负整数。": "Records per page must be a nonnegative integer.",
+    "预防维护编号 无效。": "Invalid preventive maintenance number.",
+    "工单类型 无效。": "Invalid work order type.",
+    "工单类型 的多选值无效。": "Invalid selection for work order type.",
+    "请选择有效的工单类型。": "Select a valid work order type.",
+    "状态 无效。": "Invalid status.",
+    "状态 的多选值无效。": "Invalid selection for status.",
+    "请选择有效的状态。": "Select a valid status.",
+    "优先级 无效。": "Invalid priority.",
+    "优先级 的多选值无效。": "Invalid selection for priority.",
+    "请选择有效的优先级。": "Select a valid priority.",
+    "班组 无效。": "Invalid crew.",
+    "班组 的多选值无效。": "Invalid selection for crew.",
+    "请选择有效的班组。": "Select a valid crew.",
+    "已关联作业计划 无效。": "Invalid linked job plan.",
+    "已关联作业计划 须为布尔值。": "Linked job plan must be a boolean.",
+    "包含取消工单 无效。": "Invalid include cancelled work orders.",
+    "包含取消工单 须为布尔值。": "Include cancelled work orders must be a boolean.",
+    "结果上限 无效。": "Invalid result limit.",
+    "结果上限 须为非负整数。": "Result limit must be a nonnegative integer.",
+    "记录偏移 无效。": "Invalid record offset.",
+    "记录偏移 须为非负整数。": "Record offset must be a nonnegative integer.",
+    "遵从类型 无效。": "Invalid compliance type.",
+    "遵从类型 的多选值无效。": "Invalid selection for compliance type.",
+    "请选择有效的遵从类型。": "Select a valid compliance type.",
+    "工艺 无效。": "Invalid process.",
+    "工艺 的多选值无效。": "Invalid selection for process.",
+    "请选择有效的工艺。": "Select a valid process.",
+    "频率 无效。": "Invalid frequency.",
+    "频率 的多选值无效。": "Invalid selection for frequency.",
+    "请选择有效的频率。": "Select a valid frequency.",
+    "计划类型 无效。": "Invalid plan type.",
+    "计划类型 的多选值无效。": "Invalid selection for plan type.",
+    "请选择有效的计划类型。": "Select a valid plan type.",
+    "景点代码 无效。": "Invalid attraction code.",
+    "景点代码 的多选值无效。": "Invalid selection for attraction code.",
+    "请选择有效的景点代码。": "Select a valid attraction code.",
+    "查看关联工单 无效。": "Invalid view related work orders.",
+    "查看关联工单 须为布尔值。": "View related work orders must be a boolean.",
+    "关联工单上限 无效。": "Invalid related work order limit.",
+    "关联工单上限 须为非负整数。": "Related work order limit must be a nonnegative integer.",
+    "开始时间（上海） 无效。": "Invalid start time (Shanghai).",
+    "结束时间（上海） 无效。": "Invalid end time (Shanghai).",
+    "目标设备 无效。": "Invalid target equipment.",
+    "消息代码 无效。": "Invalid message code.",
+    "消息关键词 无效。": "Invalid message keywords.",
+    "排序 无效。": "Invalid sort order.",
+    "请选择有效的排序。": "Select a valid sort order.",
+    "仅 07:00–22:00 无效。": "Invalid only 07:00–22:00.",
+    "仅 07:00–22:00 须为布尔值。": "Only 07:00–22:00 must be a boolean.",
+    "工单 ID 无效。": "Invalid work order ID.",
+    "请填写工单 ID。": "Enter work order ID.",
+    "设备位置 无效。": "Invalid equipment location.",
+    "景点英文名称 无效。": "Invalid attraction name in English.",
+    "停机时间 无效。": "Invalid downtime start.",
+    "恢复时间 无效。": "Invalid restored at.",
+    "报告时间 无效。": "Invalid reported at.",
+    "截止时间 无效。": "Invalid cutoff time.",
+    "前后缓冲分钟 无效。": "Invalid buffer minutes before and after.",
+    "前后缓冲分钟 须为非负整数。": "Buffer minutes before and after must be a nonnegative integer.",
+    "当前回答模型认证失败，请检查站点中的模型连接。": "Authentication failed for the answer model. Check its connection settings.",
+    "回答模型暂时不可用，请稍后重试。": "The answer model is temporarily unavailable. Try again shortly.",
+    "回答模型响应超时，请缩小范围后重试。": "The answer model timed out. Narrow the scope and try again.",
+    "未能从当前回答模型取得有效内容，请稍后重试。": "The answer model did not return usable content. Try again shortly.",
+    "回答模型连接未能完成，请稍后重试。": "The connection to the answer model could not be completed. Try again shortly.",
+    "请先在站点配置中选择可用的回答模型。": "Select an available answer model in Site Settings first.",
+    "本次分析超时，请缩小范围后重试。": "The analysis timed out. Narrow the scope and try again.",
+    "回答模型暂时无法完成分析，请稍后重试。": "The answer model could not complete the analysis. Try again shortly.",
+    "模型未返回有效内容，请重试。": "The model did not return usable content. Try again.",
+    "模型连接失败。": "The model connection failed.",
+    "模型未返回分析内容，请重试。": "The model did not return an analysis. Try again."
+  },
+  "patterns": [
+    {
+      "source": "部门「{name}」已存在。",
+      "target": "Department “{name}” already exists."
+    },
+    {
+      "source": "部门「{name}」已创建。",
+      "target": "Department “{name}” has been created."
+    },
+    {
+      "source": "部门「{name}」不存在。",
+      "target": "Department “{name}” does not exist."
+    },
+    {
+      "source": "部门「{old}」已重命名为「{new}」（用户与知识库已同步更新）。",
+      "target": "Department “{old}” has been renamed to “{new}”. User profiles and knowledge bases have been updated."
+    },
+    {
+      "source": "部门「{name}」仍有 {users} 个用户、{libraries} 个知识库在使用，不能删除（先把它们迁到其它部门）。",
+      "target": "Department “{name}” is still used by {users} users and {libraries} knowledge bases. Move them to another department before deleting it."
+    },
+    {
+      "source": "部门「{name}」已删除。",
+      "target": "Department “{name}” has been deleted."
+    },
+    {
+      "source": "用户名「{username}」已存在。",
+      "target": "Username “{username}” already exists."
+    },
+    {
+      "source": "账号「{username}」已创建（部门：{department}，初始密码已生效）。",
+      "target": "Account “{username}” has been created in department “{department}”. The initial password is active."
+    },
+    {
+      "source": "已归入知识库，生成 {count} 条待核对关系。",
+      "target": "Added to the knowledge base. {count} relationships are awaiting review."
+    },
+    {
+      "source": "已生成 {count} 条新候选，已有审核结论保持不变。",
+      "target": "Generated {count} new candidates. Existing review decisions have been retained."
+    },
+    {
+      "source": "来源返回 HTTP {status}，未能读取数据；请检查地址与参数。",
+      "target": "The source returned HTTP {status} and its data could not be read. Check the URL and parameters."
+    },
+    {
+      "source": "已关闭视觉模式（移除 {count} 个整页块）",
+      "target": "Visual mode disabled; {count} full-page chunks removed"
+    },
+    {
+      "source": "已上传「{name}」，正在后台处理…",
+      "target": "“{name}” has been uploaded and is being processed in the background…"
+    },
+    {
+      "source": "已上传手册「{name}」，正在后台处理。",
+      "target": "Manual “{name}” has been uploaded and is being processed in the background."
+    },
+    {
+      "source": "已确认：采纳 {count} 个新值。",
+      "target": "Confirmed: {count} new values accepted."
+    },
+    {
+      "source": "已排队补录 {count} 份文档，抽取完成后自动刷新。",
+      "target": "{count} documents queued for backfilling. This page will refresh when extraction finishes."
+    },
+    {
+      "source": "配置「{name}」已删除。",
+      "target": "Configuration “{name}” has been deleted."
+    },
+    {
+      "source": "已切换到配置「{name}」（下一次请求即生效）。",
+      "target": "Switched to configuration “{name}”. It takes effect on the next request."
+    },
+    {
+      "source": "远程／局域网 API 已开启，已保存为当前自定义配置。",
+      "target": "Remote and LAN API access enabled and saved as the current custom configuration."
+    },
+    {
+      "source": "远程／局域网 API 已关闭，已保存为当前自定义配置。",
+      "target": "Remote and LAN API access disabled and saved as the current custom configuration."
+    },
+    {
+      "source": "真实向量生成成功（模型：{model}，维度：{dimensions}）。",
+      "target": "Embedding generation succeeded (model: {model}; dimensions: {dimensions})."
+    },
+    {
+      "source": "实际推理通过；请求模型：{requested}；服务返回模型：{actual}。",
+      "target": "Inference succeeded. Requested model: {requested}; reported model: {actual}."
+    },
+    {
+      "source": "向量服务调用成功；索引兼容性警告：配置 {expected} 维，实际 {actual} 维。当前模型不能直接用于旧索引，须按此模型重建索引或恢复原嵌入模型。",
+      "target": "The embedding request succeeded, but the index dimensions do not match: configured {expected}, actual {actual}. Rebuild the index with this model or restore the original embedding model before using the existing index."
+    },
+    {
+      "source": "保存失败：{error}",
+      "target": "Save failed: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "调用失败：{error}",
+      "target": "Request failed: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "API 认证失败或权限不足（HTTP {status}），请在页面更新凭据；原有数据保留。",
+      "target": "API authentication failed or access was denied (HTTP {status}). Update credentials on this page. Existing data has been retained."
+    },
+    {
+      "source": "原始 API 返回 HTTP {status}，本次未更新数据。",
+      "target": "The source API returned HTTP {status}. No data was updated."
+    },
+    {
+      "source": "API 返回 HTTP {status}；未提交本次更新。",
+      "target": "The API returned HTTP {status}. This update was not committed."
+    },
+    {
+      "source": "API 连接失败或超时（{error}），原有数据保留。",
+      "target": "The API connection failed or timed out ({error}). Existing data has been retained.",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "未配置请求头环境变量：{name}",
+      "target": "The request-header environment variable is not configured: {name}"
+    },
+    {
+      "source": "工具网络请求失败：{error}",
+      "target": "The tool network request failed: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "更新失败（{error}），原有版本与游标保留。",
+      "target": "Update failed ({error}). The previous version and cursor have been retained.",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "请填写有效的{field}，不能包含换行。",
+      "target": "Enter a valid {field} without line breaks."
+    },
+    {
+      "source": "{count}条记录未完全按规则解析，已保留原文和采集提示，可直接审核或继续对话调整。",
+      "target": "{count} records could not be fully parsed using the rules. Their original text and collection notes have been retained. Review them or continue the conversation to revise the rules."
+    },
+    {
+      "source": "以下字段存在缺失：{fields}。已保留实际内容，请查看样例。",
+      "target": "The following fields are missing: {fields}. The captured content has been retained; check the samples."
+    },
+    {
+      "source": "文档返回 HTTP {status}",
+      "target": "The documentation request returned HTTP {status}"
+    },
+    {
+      "source": "SearXNG 搜索返回 HTTP {status}",
+      "target": "SearXNG search returned HTTP {status}"
+    },
+    {
+      "source": "Tavily 搜索返回 HTTP {status}",
+      "target": "Tavily search returned HTTP {status}"
+    },
+    {
+      "source": "计算输入不是数字：{value}",
+      "target": "The calculation input is not numeric: {value}"
+    },
+    {
+      "source": "计算操作未实现：{operation}",
+      "target": "This calculation operation is not implemented: {operation}"
+    },
+    {
+      "source": "计算正则无效：{error}",
+      "target": "Invalid calculation regex: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "数值格式无法解析：{value}",
+      "target": "Cannot parse the numeric value: {value}"
+    },
+    {
+      "source": "计算输入类型不符或超出范围：{error}",
+      "target": "The calculation input has the wrong type or is out of range: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "不支持的计算op：{operation}；可用：{available}",
+      "target": "Unsupported calculation op: {operation}. Available operations: {available}"
+    },
+    {
+      "source": "{operation}需要{count}个args。",
+      "target": "{operation} requires {count} args."
+    },
+    {
+      "source": "时间格式无效（应为 HH:MM）：{value}",
+      "target": "Invalid time format; expected HH:MM: {value}"
+    },
+    {
+      "source": "时间超出一天范围：{value}",
+      "target": "The time is outside the range of one day: {value}"
+    },
+    {
+      "source": "时间戳不是数字：{value}",
+      "target": "The timestamp is not numeric: {value}"
+    },
+    {
+      "source": "时间不是有效的 ISO 8601：{value}",
+      "target": "The time is not valid ISO 8601: {value}"
+    },
+    {
+      "source": "API 响应缺少字段：{field}",
+      "target": "The API response is missing a field: {field}"
+    },
+    {
+      "source": "表格字段不是数组：{field}",
+      "target": "The table field is not an array: {field}"
+    },
+    {
+      "source": "记录「{record}」采集字段缺失：{fields}",
+      "target": "Collected fields are missing from record “{record}”: {fields}"
+    },
+    {
+      "source": "{field}：表格结构变化，保留原值",
+      "target": "{field}: the table structure changed; the original value has been retained"
+    },
+    {
+      "source": "{field}：明细列发生变化，保留原始明细",
+      "target": "{field}: the detail columns changed; original details have been retained"
+    },
+    {
+      "source": "第 {round} 轮，正在构建连接器。",
+      "target": "Building the connector, round {round}."
+    },
+    {
+      "source": "取数配置未变，复用已验证的{count}条原始记录，仅重新计算本次字段。",
+      "target": "The extraction configuration is unchanged. Reusing {count} validated source records and recalculating only the changed fields."
+    },
+    {
+      "source": "网页操作完成：{action}",
+      "target": "Browser action completed: {action}"
+    },
+    {
+      "source": "连接器生成失败（{error}），请检查模型连接或补充样例。",
+      "target": "Connector generation failed ({error}). Check the model connection or provide additional samples.",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "使用工具：{tool}",
+      "target": "Using tool: {tool}"
+    },
+    {
+      "source": "试算结果：{result}",
+      "target": "Calculation preview: {result}"
+    },
+    {
+      "source": "连接器校验未通过：{error}",
+      "target": "Connector validation failed: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "校验未通过，正在预算内修正：{error}",
+      "target": "Validation failed. Applying a correction within the remaining budget: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "取得 {count} 条真实样例。",
+      "target": "Collected {count} real samples."
+    },
+    {
+      "source": "读取 {count} 个可用元素。",
+      "target": "Read {count} available elements."
+    },
+    {
+      "source": "工具暂不可用（{error}）；请检查当前页面或尝试另一种取数方式。",
+      "target": "The tool is temporarily unavailable ({error}). Check the current page or try another extraction method.",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "browser.output含不支持的字段：{fields}。max_records应放在browser内，与output平级。",
+      "target": "browser.output contains unsupported fields: {fields}. Put max_records inside browser, alongside output."
+    },
+    {
+      "source": "网页返回 HTTP {status}",
+      "target": "The webpage returned HTTP {status}"
+    },
+    {
+      "source": "定位不存在：{selector}。已立即返回当前页面的真实内容和可用元素，不必等待或重复猜同一定位。",
+      "target": "Locator not found: {selector}. The actual page content and available elements have been returned. Use them instead of waiting or retrying the same locator."
+    },
+    {
+      "source": "当前页面不存在该元素：{selector}。请使用最近快照中的元素编号或真实 selector，不要重复等待。",
+      "target": "This element is not on the current page: {selector}. Use an element ID or an actual selector from the latest snapshot instead of waiting again."
+    },
+    {
+      "source": "原文不符合取数规则：{field}",
+      "target": "The source text does not match the extraction rule: {field}"
+    },
+    {
+      "source": "项目「{item}」读取失败：{error}",
+      "target": "Could not read item “{item}”: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "工单PDF暂不可用：{error}",
+      "target": "The work order PDF is unavailable: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "{field} 的多选值无效。",
+      "target": "Invalid selection for {field}."
+    },
+    {
+      "source": "{field} 须为布尔值。",
+      "target": "{field} must be a boolean."
+    },
+    {
+      "source": "{field} 须为非负整数。",
+      "target": "{field} must be a nonnegative integer."
+    },
+    {
+      "source": "请选择有效的{field}。",
+      "target": "Select a valid {field}."
+    },
+    {
+      "source": "请填写{field}。",
+      "target": "Enter {field}."
+    },
+    {
+      "source": "{field}须为 {minimum}–{maximum} 的整数。",
+      "target": "{field} must be an integer between {minimum} and {maximum}."
+    },
+    {
+      "source": "Splunk 查询服务返回 HTTP {status}。",
+      "target": "The Splunk query service returned HTTP {status}."
+    },
+    {
+      "source": "请输入一个正确的{username}和密码。注意，两者都区分大小写。",
+      "target": "Enter a correct {username} and password. Both fields may be case-sensitive."
+    },
+    {
+      "source": "此密码太短，至少要包含 {count} 个字符。",
+      "target": "This password is too short. It must contain at least {count} characters."
+    },
+    {
+      "source": "你的密码必须包含至少 {count} 个字符。",
+      "target": "Your password must contain at least {count} characters."
+    },
+    {
+      "source": "密码跟 {field} 太相似了。",
+      "target": "The password is too similar to {field}."
+    },
+    {
+      "source": "手册库「{name}」已创建（部门：{department}），可以上传手册了。",
+      "target": "Manual library “{name}” has been created in department “{department}”. You can upload manuals now."
+    },
+    {
+      "source": "知识库「{name}」已删除。",
+      "target": "Knowledge base “{name}” has been deleted."
+    },
+    {
+      "source": "文档「{name}」已删除。",
+      "target": "Document “{name}” has been deleted."
+    },
+    {
+      "source": "已更新「{name}」。",
+      "target": "“{name}” has been updated."
+    },
+    {
+      "source": "已识别为业务数据并导入「{name}」（{kind}）：{count} 行；{fields}。",
+      "target": "Detected and imported business dataset “{name}” ({kind}): {count} rows; {fields}."
+    },
+    {
+      "source": "已导入 {name}：{count} 行；识别字段：{fields}。",
+      "target": "Imported {name}: {count} rows. Detected fields: {fields}."
+    },
+    {
+      "source": "{category} 配置「{name}」已保存并启用。",
+      "target": "{category} configuration “{name}” has been saved and enabled.",
+      "translate": [
+        "category"
+      ]
+    },
+    {
+      "source": "{category} 配置「{name}」已更新并启用。",
+      "target": "{category} configuration “{name}” has been updated and enabled.",
+      "translate": [
+        "category"
+      ]
+    },
+    {
+      "source": "真实向量生成成功（模型：{model}，维度：{dimensions}）",
+      "target": "Embedding generation succeeded (model: {model}; dimensions: {dimensions})"
+    },
+    {
+      "source": "网页导航失败：{url}；{reason}；已请求 {requests} 个资源，读取 {size} MB。",
+      "target": "Webpage navigation failed: {url}; {reason}. Requested {requests} resources and read {size} MB.",
+      "translate": [
+        "reason"
+      ]
+    },
+    {
+      "source": "无法读取 Excel：{error}",
+      "target": "Could not read the Excel workbook: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "相同文件已经导入：{name}",
+      "target": "An identical file has already been imported: {name}"
+    },
+    {
+      "source": "连接失败：{error}",
+      "target": "Connection failed: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "MinerU {version} 可达，PDF 将按 {protocol} 解析。",
+      "target": "MinerU {version} is reachable. PDFs will be parsed using {protocol}."
+    },
+    {
+      "source": "无法连接 MinerU ({url}): {error}",
+      "target": "Could not connect to MinerU ({url}): {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "MinerU 上传未返回 file: {detail}",
+      "target": "MinerU upload did not return file: {detail}"
+    },
+    {
+      "source": "MinerU 任务失败: {error}",
+      "target": "MinerU task failed: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "MinerU 任务状态异常: {status}",
+      "target": "Unexpected MinerU task status: {status}"
+    },
+    {
+      "source": "MinerU 提交失败 HTTP {status}: {error}",
+      "target": "MinerU submission failed with HTTP {status}: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "MinerU 未返回 task_id: {detail}",
+      "target": "MinerU did not return task_id: {detail}"
+    },
+    {
+      "source": "MinerU 取结果失败 HTTP {status}: {error}",
+      "target": "Could not retrieve the MinerU result, HTTP {status}: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "MinerU 解析失败: {error}",
+      "target": "MinerU parsing failed: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "MinerU 建任务失败 HTTP {status}: {error}",
+      "target": "Could not create the MinerU task, HTTP {status}: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "MinerU 上传失败 HTTP {status}: {error}",
+      "target": "MinerU upload failed with HTTP {status}: {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "MinerU 未返回 result_url: {detail}",
+      "target": "MinerU did not return result_url: {detail}"
+    },
+    {
+      "source": "不支持的文件类型: {type}",
+      "target": "Unsupported file type: {type}"
+    },
+    {
+      "source": "EmbeddingGemma 不支持此内容类型：{type}",
+      "target": "EmbeddingGemma does not support this content type: {type}"
+    }
+  ]
+}

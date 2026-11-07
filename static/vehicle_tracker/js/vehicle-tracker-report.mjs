@@ -1,6 +1,7 @@
 // QA green tags transcribed from the 5# train final assembly visual inspection report
 // (SHDR-NDT-VTR001, WO 3281713, 2020-08-27). Pages 3–22: wheel carriers; 23–27: coaches.
 import {PART_MAP,KINDS,uid,log,newProject} from './vehicle-tracker-core.mjs';
+const t=text=>globalThis.FOSI18n?.t(text)||text;
 
 export const REPORT = {
   file:'VT Report_Appearance_SDMT_WO3281713.pdf',
@@ -61,7 +62,7 @@ const COACH_PAGES = [
 
 function record(partId,batch,serial,page,extra={}) {
   const part=PART_MAP.get(partId);
-  if(!part)throw Error(`报告位置未对应部件：${partId}`);
+  if(!part)throw Error(t(`报告位置未对应部件：${partId}`));
   const kind=KINDS[part.kind];
   return {id:uid(),...BATCH[batch],...extra,serial,drawing:kind.dwg,slot:part.code||'',reportWo:REPORT.wonum,
     description:`${kind.zh} · ${kind.en}`,partId,source:REPORT.file,sourceUnit:'页',sourceRow:page};
@@ -70,7 +71,7 @@ export function reportRecords() {
   const records=[];
   for(const [page,carrier,list] of CARRIER_PAGES) {
     const serials=list.split(' ');
-    if(serials.length!==SLOTS.length)throw Error(`第 ${page} 页标签数量不符`);
+    if(serials.length!==SLOTS.length)throw Error(t(`第 ${page} 页标签数量不符`));
     serials.forEach((raw,i)=>{
       const [slot,batch]=SLOTS[i],serial=raw.replace(/^[*!]/,'');
       const id=`${carrier}-${slot}`;

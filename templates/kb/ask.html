@@ -55,7 +55,7 @@
       </div>
 
       <div id="messages">
-        <div class="msg ai"><div class="msg-who"><span class="who-ava">{% include 'kb/_assistant_avatar.html' %}</span><span class="who-name">EnGenie</span></div><div class="bubble"><div class="answer">向 EnGenie 提问，查找工程知识与原文依据。</div></div></div>
+        <div class="msg ai"><div class="msg-who"><span class="who-ava">{% include 'kb/_assistant_avatar.html' %}</span><span class="who-name">EnGenie</span></div><div class="bubble"><div class="answer" data-i18n-ui>向 EnGenie 提问，查找工程知识与原文依据。</div></div></div>
       </div>
 
       <div class="composer">
@@ -664,7 +664,7 @@ except ImportError:
     sessionTokens = { in: 0, out: 0 };
     sessionMax = { in: 0, out: 0 };
     if (convTitleEl) convTitleEl.textContent = '新对话';
-    messages.innerHTML = AI_WHO + '<div class="msg ai"><div class="bubble"><div class="answer">输入问题。</div></div></div>';
+    messages.innerHTML = AI_WHO + '<div class="msg ai"><div class="bubble"><div class="answer" data-i18n-ui>输入问题。</div></div></div>';
     const welcome=document.getElementById('ragChatWelcomeTemplate');
     if(welcome)messages.replaceChildren(welcome.content.cloneNode(true));
     input.value='';input.dispatchEvent(new Event('input'));
@@ -778,7 +778,7 @@ except ImportError:
           }
         });
         if (!messages.children.length) {
-          messages.innerHTML = AI_WHO + '<div class="msg ai"><div class="bubble"><div class="answer">（无历史消息）</div></div></div>';
+          messages.innerHTML = AI_WHO + '<div class="msg ai"><div class="bubble"><div class="answer" data-i18n-ui>（无历史消息）</div></div></div>';
         }
         messages.scrollTop = messages.scrollHeight;
     }, onError(error) {

@@ -32,7 +32,9 @@ _VERIFY_MAX_ITEMS = 24            # 证据条数上限
 def build_llm(llm_cfg: dict, timeout: float = 45):
     """按站点配置构建 ChatOpenAI（规划/核实与主回答共用同一模型配置）。"""
     from .clocked_chat import ClockedChatOpenAI as ChatOpenAI
+    from django.utils.translation import get_language
     return ChatOpenAI(
+        interface_language=llm_cfg.get("response_language") or get_language() or "zh-hans",
         model=llm_cfg["model"],
         # OpenAI's client requires a non-empty credential even when a local
         # OpenAI-compatible server (for example LM Studio) disables auth.

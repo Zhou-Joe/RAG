@@ -11,7 +11,7 @@
 </header>
 <section class="graph-compose">
   <label class="graph-document-label" for="graphDocument">资料</label>
-  <select id="graphDocument" aria-label="选择资料"><option value="">请选择资料</option>{% for group in document_groups %}<optgroup label="{{ group.name }}">{% for doc in group.documents %}<option value="{{ doc.pk }}" {% if selected_document.pk == doc.pk %}selected{% endif %}>{{ doc.original_name }}</option>{% endfor %}</optgroup>{% endfor %}</select>
+  <select id="graphDocument" aria-label="选择资料"><option value="">请选择资料</option>{% for group in document_groups %}<optgroup label="{{ group.name }}">{% for doc in group.documents %}<option value="{{ doc.pk }}" {% if selected_document.pk == doc.pk %}selected{% endif %} translate="no">{{ doc.original_name }}</option>{% endfor %}</optgroup>{% endfor %}</select>
   {% if can_manage %}<form id="extractForm" class="graph-compose-form">
     {% csrf_token %}<input type="hidden" name="action" value="extract"><input type="hidden" name="document" value="{{ selected_document.pk|default:'' }}">
     <label for="graphFocus">关注什么</label><div class="graph-compose-input"><textarea id="graphFocus" name="focus" required minlength="2" maxlength="1000" rows="2" placeholder="例如：锻件的质量分级、各级参数和适用条件"></textarea>

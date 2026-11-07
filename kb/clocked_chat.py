@@ -1,4 +1,4 @@
-from langchain_openai import ChatOpenAI
+from fos_rag.interface_model import InterfaceChatOpenAI as ChatOpenAI
 from fos_rag.ai_clock import with_runtime_clock
 
 
