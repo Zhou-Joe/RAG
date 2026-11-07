@@ -144,7 +144,7 @@
         return;
       }
       const item = element('li');
-      item.appendChild(element('time',new Date(event.at).toLocaleTimeString('zh-CN',{hour12:false})));
+      item.appendChild(element('time',new Date(event.at).toLocaleTimeString(window.FOSI18n?.locale || 'zh-CN',{hour12:false})));
       item.appendChild(element('span',data.message || event.kind));
       if (event.kind === 'tool_start') item.appendChild(element('pre',data.name + '(' + JSON.stringify(data.arguments) + ')'));
       chunkLinks(item,data.chunks);

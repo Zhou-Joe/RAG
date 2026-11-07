@@ -167,7 +167,7 @@ export class BubbleCanvas {
       bubble.style.width=size+'px';bubble.style.height=size+'px';
       if(settling.has(item.slug)){bubble.classList.add('is-settling');setTimeout(()=>bubble.classList.remove('is-settling'),1800);}
       const body=node('button','kl-bubble-body');body.type='button';body.dataset.kbBody=item.slug;
-      const count=Math.max(0,Number(item.category==='business' ? item.record_count : item.document_count)||0),volume=new Intl.NumberFormat('zh-CN').format(count)+(item.category==='business' ? ' 条记录' : ' 份文档');
+      const count=Math.max(0,Number(item.category==='business' ? item.record_count : item.document_count)||0),volume=new Intl.NumberFormat(globalThis.FOSI18n?.locale || 'zh-CN').format(count)+(item.category==='business' ? ' 条记录' : ' 份文档');
       body.title=item.name+' · '+volume;body.setAttribute('aria-label',`选择知识库：${item.name}，${volume}`);body.setAttribute('aria-pressed','false');
       const icon=svg('svg',{viewBox:'0 0 24 24','aria-hidden':'true'});
       icon.append(svg('path',{d:item.category==='business' ? 'M4 4h16v16H4zM4 9h16M4 14h16M10 4v16' : 'M4 5c3-1 5-1 8 1 3-2 5-2 8-1v14c-3-1-5-1-8 1-3-2-5-2-8-1zM12 6v14'}));

@@ -2,12 +2,17 @@ import {PARTS,PART_MAP,CHILDREN,TYPES,KINDS,COACHES,CARRIERS,SPEC_DOC,LINKS,link
 import {REPORT,reportProject} from './vehicle-tracker-report.mjs';
 
 const $=id=>document.getElementById('vt-'+id);
+const t=text=>globalThis.FOSI18n?.t(text)||text;
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmt=value=>new Date(value).toLocaleString('zh-CN',{hour12:false});
+const fmt=value=>new Date(value).toLocaleString(window.FOSI18n?.locale || 'zh-CN',{hour12:false});
 const fileSize=size=>size<1024*1024?`${(size/1024).toFixed(1)} KB`:`${(size/1024/1024).toFixed(1)} MB`;
 const label=id=>project?.parts[id]?.name||PART_MAP.get(id)?.name||id;
 const where=id=>`${PART_MAP.get(id).position} / ${label(id)}`;
-const sourceText=r=>`${r.source}${r.sourceRow?` · ${r.sourceUnit==='页'?`第 ${r.sourceRow} 页`:`行 ${r.sourceRow}`}`:''}`;
+// Translate the built-in structure without changing editable names or persisted records.
+const displayLabel=id=>{const original=PART_MAP.get(id)?.name,value=label(id);return value===original?t(value):value;};
+const displayPosition=part=>t(typeof part==='string'?PART_MAP.get(part).position:part.position);
+const displayWhere=id=>`${displayPosition(id)} / ${displayLabel(id)}`;
+const sourceText=r=>`${r.source==='手工登记'?t(r.source):r.source}${r.sourceRow?` · ${t(r.sourceUnit==='页'?`第 ${r.sourceRow} 页`:`行 ${r.sourceRow}`)}`:''}`;
 const woButton=(r,wonum=r.wonum)=>linkable(wonum)?`<button type="button" class="vt-wo" data-wo="${escape(wonum)}" data-record="${escape(r.id)}" title="打开 Maximo / MRB 工单">${escape(wonum)}</button>`:escape(wonum||'—');
 const drawingCode=value=>String(value??'').trim().replace(/\s+Item\s*\d+\s*$/i,'');
 const partNoButton=label=>{const code=drawingCode(label);return linkable(code)?`<button type="button" class="vt-dwg" data-part-no="${escape(code)}" title="查看图号出处、原PDF位置与安装记录">${escape(label)}</button>`:escape(label||'—');};
@@ -22,19 +27,19 @@ function persist() {
   const version=++saveVersion,snapshot=structuredClone(project);
   $('save-status').textContent='正在保存…';$('save-status').classList.remove('error');
   saveQueue=saveQueue.catch(()=>{}).then(()=>store.put(snapshot)).then(()=>{
-    if(version===saveVersion)$('save-status').textContent=`✓ 已保存到本机浏览器 · ${new Date().toLocaleTimeString('zh-CN',{hour12:false})}`;
+    if(version===saveVersion)$('save-status').textContent=`✓ 已保存到本机浏览器 · ${new Date().toLocaleTimeString(window.FOSI18n?.locale || 'zh-CN',{hour12:false})}`;
   }).catch(e=>{
     $('save-status').textContent='保存失败，请立即导出完整备份';$('save-status').classList.add('error');toast('本地保存失败（空间不足或浏览器限制），请使用「完整备份」导出当前数据。',true);throw e;
   });
   // Preserve the rejection for callers while avoiding an unhandled promise.
   saveQueue.catch(()=>{});return saveQueue;
 }
-function dialog(title,html) {$('dialog').dispatchEvent(new Event('vt:preview-reset'));$('dialog-title').textContent=title;$('dialog-body').innerHTML=html;if(!$('dialog').open)$('dialog').showModal();}
+function dialog(title,html,sourceTitle=false) {$('dialog-title').setAttribute('translate',sourceTitle?'no':'yes');$('dialog').dispatchEvent(new Event('vt:preview-reset'));$('dialog-title').textContent=title;$('dialog-body').innerHTML=html;if(!$('dialog').open)$('dialog').showModal();}
 function closeDialog() {$('dialog').dispatchEvent(new Event('vt:preview-reset'));$('dialog').close();$('dialog-body').innerHTML='';}
 function dialogError(e) {let el=$('dialog-body').querySelector('.vt-dialog-error');if(!el){el=document.createElement('p');el.className='vt-dialog-error';el.setAttribute('role','alert');$('dialog-body').append(el);}el.textContent=e.message;}
 function dialogAction(id,fn) {document.getElementById(id).addEventListener('click',async e=>{const button=e.currentTarget;button.disabled=true;try{await fn();}catch(error){dialogError(error);}finally{if(button.isConnected)button.disabled=false;}});}
 function download(content,name,type='application/json') {const blob=content instanceof Blob?content:new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
-function projectOptions() {$('project').innerHTML=projects.map(p=>`<option value="${escape(p.id)}">${escape(p.name)}</option>`).join('');$('project').value=project.id;}
+function projectOptions() {$('project').innerHTML=projects.map(p=>`<option value="${escape(p.id)}" translate="no">${escape(p.name)}</option>`).join('');$('project').value=project.id;}
 function stats() {
   const bound=project.records.filter(r=>r.partId).length;
   $('record-count').textContent=project.records.length;
@@ -46,7 +51,7 @@ function stats() {
 }
 function matching(text) {return String(text).normalize('NFKC').toLowerCase().includes(query.normalize('NFKC').toLowerCase());}
 function recordMatches(r) {return matching([r.wonum,r.serial,r.drawing,r.inspector,r.slot,r.reportWo,r.description,r.date,r.partId,r.partId?label(r.partId):'',r.partId?PART_MAP.get(r.partId)?.position:'',r.source].join(' '));}
-function partMatches(p) {const k=KINDS[p.kind];return matching([p.id,p.name,label(p.id),p.position,p.code,k.en,k.dwg,k.shdr].join(' '));}
+function partMatches(p) {const k=KINDS[p.kind];return matching([p.id,p.name,label(p.id),displayLabel(p.id),p.position,displayPosition(p),p.code,k.en,k.dwg,k.shdr].join(' '));}
 function latestByPart() {
   const latest=new Map();
   for(const r of project.records) if(r.partId){const best=latest.get(r.partId);if(!best||(r.date||'')>=(best.date||''))latest.set(r.partId,r);}
@@ -65,7 +70,7 @@ function renderTree() {
   const row=(id,depth)=>{
     if(matches&&!matches.has(id))return '';
     const p=PART_MAP.get(id),children=CHILDREN.get(id),open=expanded.has(id)||!!query,bound=tracked.has(id),serial=latest.get(id)?.serial;
-    return `<div class="vt-tree-row ${selected===id?'selected':''} type-${p.type}" role="treeitem" aria-level="${depth+1}" aria-selected="${selected===id}" ${children.length?`aria-expanded="${open}"`:''} data-part="${id}" style="padding-left:${depth*13+3}px"><button class="vt-tree-caret" data-expand="${id}" ${children.length?'':'disabled tabindex="-1"'} aria-label="${open?'折叠':'展开'} ${escape(label(id))}">${children.length?(open?'⌄':'›'):''}</button><span class="vt-tree-type" aria-hidden="true">${icons[p.type]}</span><button class="vt-tree-label" data-select="${id}" title="${escape(p.position+' · '+KINDS[p.kind].en+' · '+id)}"><span class="vt-tree-name">${escape(label(id))}</span>${serial?`<small class="vt-tree-sn">${escape(serial)}</small>`:''}</button><i class="vt-dot ${bound?'teal':'gray'}" title="${bound?'此部件或下级已有追踪记录':'暂无追踪记录'}"></i></div>`+(open?children.map(c=>row(c,depth+1)).join(''):'');
+    return `<div class="vt-tree-row ${selected===id?'selected':''} type-${p.type}" role="treeitem" aria-level="${depth+1}" aria-selected="${selected===id}" ${children.length?`aria-expanded="${open}"`:''} data-part="${id}" style="padding-left:${depth*13+3}px"><button class="vt-tree-caret" data-expand="${id}" ${children.length?'':'disabled tabindex="-1"'} aria-label="${t(open?'折叠':'展开')} ${escape(displayLabel(id))}">${children.length?(open?'⌄':'›'):''}</button><span class="vt-tree-type" aria-hidden="true">${icons[p.type]}</span><button class="vt-tree-label" data-select="${id}" title="${escape(displayPosition(p)+' · '+t(KINDS[p.kind].en)+' · '+id)}"><span class="vt-tree-name" translate="no">${escape(displayLabel(id))}</span>${serial?`<small class="vt-tree-sn">${escape(serial)}</small>`:''}</button><i class="vt-dot ${bound?'teal':'gray'}" title="${bound?'此部件或下级已有追踪记录':'暂无追踪记录'}"></i></div>`+(open?children.map(c=>row(c,depth+1)).join(''):'');
   };
   $('tree').innerHTML=row('TRAIN',0)||'<p class="vt-empty">没有匹配的部件</p>';$('tree').scrollTop=scroll;
   renderNav(latest);
@@ -78,13 +83,13 @@ function renderNav(latest=latestByPart()) {
   const cell=(c,wc)=>{
     const id=`${c}-${wc}`,tags=[...latest.keys()].filter(k=>within(k,id)&&TAGGED.has(PART_MAP.get(k).kind)).length;
     const state=tags>=CARRIER_TAGS?'full':tags?'part':'none',active=within(selected,id);
-    return `<button type="button" class="vt-nav-cell ${state}${active?' active':''}" data-nav="${id}" title="${escape(PART_MAP.get(id).position)} · 绿标 ${tags}/${CARRIER_TAGS}">${wc}</button>`;
+    return `<button type="button" class="vt-nav-cell ${state}${active?' active':''}" data-nav="${id}" title="${escape(displayPosition(id))} · 绿标 ${tags}/${CARRIER_TAGS}">${wc}</button>`;
   };
   $('nav').innerHTML=`<button type="button" class="vt-nav-title" data-nav-toggle aria-expanded="${!navCollapsed}">轮架速查 <small>${navCollapsed?'展开 ▴':'行进方向 → · 收起 ▾'}</small></button><div class="vt-nav-train"${navCollapsed?' hidden':''}>${[...COACHES].reverse().map(({no})=>{const c=`C${no}`;return `<div class="vt-nav-coach${within(selected,c)?' active':''}"><button type="button" class="vt-nav-name" data-nav="${c}">${c}</button><div class="vt-nav-grid">${cell(c,'LR')}${cell(c,'LF')}${cell(c,'RR')}${cell(c,'RF')}</div></div>`;}).join('')}</div>`;
 }
 function crumbs(id) {
   const path=[];for(let p=PART_MAP.get(id);p;p=PART_MAP.get(p.parent))path.unshift(p.id);
-  return path.map((pid,i)=>i===path.length-1?`<strong>${escape(pid==='TRAIN'?'全车':label(pid))}</strong>`:`<button type="button" data-crumb="${pid}">${escape(pid==='TRAIN'?'全车':label(pid))}</button>`).join('<i>›</i>');
+  return path.map((pid,i)=>i===path.length-1?`<strong translate="no">${escape(pid==='TRAIN'?t('全车'):displayLabel(pid))}</strong>`:`<button type="button" data-crumb="${pid}" translate="no">${escape(pid==='TRAIN'?t('全车'):displayLabel(pid))}</button>`).join('<i>›</i>');
 }
 function selectPart(id,{reveal=false,fly=false}={}) {
   if(!PART_MAP.has(id))return;
@@ -93,7 +98,7 @@ function selectPart(id,{reveal=false,fly=false}={}) {
   model?.select(id);renderTree();renderDetails();renderTable();renderHotspots();
   $('selection-label').innerHTML=crumbs(id);
   if(fly&&model)id==='TRAIN'?model.fit():model.focus(id);
-  $('binding-target').textContent=`绑定目标：${PART_MAP.get(id).position} / ${label(id)}`;
+  $('binding-target').textContent=t(`绑定目标：${displayWhere(id)}`);
   assistant?.refresh();
   if(reveal)$('tree').querySelector(`[data-part="${id}"]`)?.scrollIntoView({block:'nearest'});
 }
@@ -108,24 +113,24 @@ function specCard(id) {
 }
 function recordCard(r) {
   const links=[['工单资料','maximo-workorder'],['MRB / 检验','qaqc-workorder'],['工单 PDF','workorder-pdf']].filter(()=>linkable(r.wonum));
-  return `<article class="vt-record-card"><header>${woButton(r)}<span>${escape([r.inspector,r.date].filter(Boolean).join(' · ')||'—')}</span></header><dl><dt>序列号</dt><dd><strong class="vt-serial">${escape(r.serial||'—')}</strong></dd><dt>图号</dt><dd>${partNoButton(r.drawing)}</dd>${r.slot?`<dt>位置码</dt><dd>${escape(r.slot)}</dd>`:''}<dt>部件</dt><dd>${escape(where(r.partId))}</dd>${r.reportWo?`<dt>总装报告</dt><dd>${woButton(r,r.reportWo)}</dd>`:''}${r.description&&r.source==='手工登记'?`<dt>说明</dt><dd>${escape(r.description)}</dd>`:''}<dt>来源</dt><dd>${escape(sourceText(r))}</dd></dl><div class="vt-card-actions">${links.map(([name,kind])=>`<button type="button" data-inline-kind="${kind}" data-inline-code="${escape(r.wonum)}" data-jump="${escape(name)}" data-record="${escape(r.id)}">${name}</button>`).join('')}<button data-locate-record="${r.id}">在表中核对</button>${r.source==='手工登记'?`<button data-delete-record="${r.id}">删除</button>`:''}</div></article>`;
+  return `<article class="vt-record-card"><header>${woButton(r)}<span>${escape([r.inspector,r.date].filter(Boolean).join(' · ')||'—')}</span></header><dl><dt>序列号</dt><dd><strong class="vt-serial">${escape(r.serial||'—')}</strong></dd><dt>图号</dt><dd>${partNoButton(r.drawing)}</dd>${r.slot?`<dt>位置码</dt><dd translate="no">${escape(r.slot)}</dd>`:''}<dt>部件</dt><dd>${escape(displayWhere(r.partId))}</dd>${r.reportWo?`<dt>总装报告</dt><dd>${woButton(r,r.reportWo)}</dd>`:''}${r.description&&r.source==='手工登记'?`<dt>说明</dt><dd translate="no">${escape(r.description)}</dd>`:''}<dt>来源</dt><dd>${escape(sourceText(r))}</dd></dl><div class="vt-card-actions">${links.map(([name,kind])=>`<button type="button" data-inline-kind="${kind}" data-inline-code="${escape(r.wonum)}" data-jump="${escape(name)}" data-record="${escape(r.id)}">${name}</button>`).join('')}<button data-locate-record="${r.id}">在表中核对</button>${r.source==='手工登记'?`<button data-delete-record="${r.id}">删除</button>`:''}</div></article>`;
 }
 function registerForm(id) {
   const current=latestRecord(project,id);
-  return `<form id="vt-register" class="vt-register"><strong>为此部件登记工单</strong><p class="vt-subtle">例如年度销轴 MT/UT 检验或更换后的检验工单。序列号默认沿用当前序列号，更换后请改为新件序列号。</p><div class="vt-register-grid"><label>工单号 *<input name="wonum" maxlength="40" required placeholder="如 3281713"></label><label>序列号 *<input name="serial" maxlength="200" required value="${escape(current?.serial||'')}"></label><label>检验日期<input name="date" type="date" value="${new Date().toISOString().slice(0,10)}"></label><label>检验员<input name="inspector" maxlength="60" placeholder="如 QA16"></label></div><label>说明<input name="description" maxlength="500" placeholder="如 年度 MT + UT，合格"></label><button class="vt-primary" type="submit">登记到 ${escape(label(id))}</button></form>`;
+  return `<form id="vt-register" class="vt-register"><strong>为此部件登记工单</strong><p class="vt-subtle">例如年度销轴 MT/UT 检验或更换后的检验工单。序列号默认沿用当前序列号，更换后请改为新件序列号。</p><div class="vt-register-grid"><label>工单号 *<input name="wonum" maxlength="40" required placeholder="如 3281713"></label><label>序列号 *<input name="serial" maxlength="200" required value="${escape(current?.serial||'')}"></label><label>检验日期<input name="date" type="date" value="${new Date().toISOString().slice(0,10)}"></label><label>检验员<input name="inspector" maxlength="60" placeholder="如 QA16"></label></div><label>说明<input name="description" maxlength="500" placeholder="如 年度 MT + UT，合格"></label><button class="vt-primary" type="submit">登记到 ${escape(displayLabel(id))}</button></form>`;
 }
 function renderDetails() {
   const p=PART_MAP.get(selected),meta=project.parts[selected]||{},records=project.records.filter(r=>within(r.partId,selected)),files=project.attachments.filter(f=>within(f.partId,selected));
-  $('selected').innerHTML=`<span class="vt-type-pill">${escape(TYPES[p.type])} / ${p.id}</span><h3>${escape(label(selected))}</h3><p>${escape(p.position)}</p>`;
+  $('selected').innerHTML=`<span class="vt-type-pill">${escape(t(TYPES[p.type]))} / ${p.id}</span><h3 translate="no">${escape(displayLabel(selected))}</h3><p translate="no">${escape(displayPosition(p))}</p>`;
   $('spec').innerHTML=specCard(selected);
-  $('part-name').value=meta.name||p.name;$('part-id').value=p.id;$('part-position').value=p.position;$('part-notes').value=meta.notes||'';
+  $('part-name').value=meta.name||p.name;$('part-id').value=p.id;$('part-position').value=displayPosition(p);$('part-notes').value=meta.notes||'';
   $('bound-count').textContent=records.length;$('file-count').textContent=files.length;
   records.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   $('detail-records').innerHTML=(selected==='TRAIN'||p.type==='coach'?'':registerForm(selected))+(records.length?records.slice(0,100).map(recordCard).join('')+(records.length>100?'<p class="vt-subtle">仅显示前 100 条记录，请在下方表格核对全部记录。</p>':''):'<div class="vt-empty"><h3>尚未关联追踪记录</h3><p>登记工单，或在下方追踪表勾选记录后点击「绑定到所选部件」。</p></div>');
-  $('files').innerHTML=files.map(f=>`<div class="vt-file"><div><strong>${escape(f.name)}</strong><small>${fileSize(f.size)} · ${escape(label(f.partId))}</small></div><button data-preview="${f.id}">查看</button><button data-download="${f.id}" aria-label="下载 ${escape(f.name)}">↓</button></div>`).join('');
+  $('files').innerHTML=files.map(f=>`<div class="vt-file"><div><strong translate="no">${escape(f.name)}</strong><small>${fileSize(f.size)} · ${escape(displayLabel(f.partId))}</small></div><button data-preview="${f.id}">查看</button><button data-download="${f.id}" aria-label="下载 ${escape(f.name)}">↓</button></div>`).join('');
   const history=project.history.filter(h=>!h.partId||within(h.partId,selected)).slice().reverse();
   if(drawing)renderDrawing();
-  $('history').innerHTML=history.length?history.slice(0,200).map(h=>`<div class="vt-history-item"><time>${escape(fmt(h.at))}</time><strong>${escape(h.action)}</strong><p>${escape(h.detail)}</p></div>`).join('')+(history.length>200?'<p class="vt-subtle">显示最近 200 条；完整履历包含在项目备份中。</p>':''):'<p class="vt-empty">暂无操作记录</p>';
+  $('history').innerHTML=history.length?history.slice(0,200).map(h=>`<div class="vt-history-item"><time>${escape(fmt(h.at))}</time><strong>${escape(h.action)}</strong><p translate="no">${escape(h.detail)}</p></div>`).join('')+(history.length>200?'<p class="vt-subtle">显示最近 200 条；完整履历包含在项目备份中。</p>':''):'<p class="vt-empty">暂无操作记录</p>';
 }
 function filteredRecords() {
   const filter=$('record-filter').value;
@@ -134,7 +139,7 @@ function filteredRecords() {
 function renderTable() {
   const rows=filteredRecords(),pages=Math.max(1,Math.ceil(rows.length/PAGE_SIZE));page=Math.max(0,Math.min(page,pages-1));
   const current=rows.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE);
-  $('records').innerHTML=current.map(r=>`<tr class="${checked.has(r.id)?'checked':''}"><td><input type="checkbox" data-check="${r.id}" aria-label="选择记录 ${escape(r.wonum)} / ${escape(r.serial)}" ${checked.has(r.id)?'checked':''}></td><td>${woButton(r)}</td><td><strong class="vt-serial">${escape(r.serial||'—')}</strong></td><td>${partNoButton(r.drawing)}</td><td>${r.inspector||r.date?`<span class="vt-qqc">${escape([r.inspector,r.date].filter(Boolean).join(' · '))}</span>`:'—'}</td><td>${r.partId?`<button data-select="${r.partId}" title="${escape(r.partId)}">${escape(where(r.partId))}</button>`:'<span class="vt-unbound">○ 待人工绑定</span>'}</td><td>${escape(r.slot||'—')}</td><td title="${escape(sourceText(r)+(r.description?' · '+r.description:''))}">${escape(sourceText(r))}</td></tr>`).join('');
+  $('records').innerHTML=current.map(r=>`<tr class="${checked.has(r.id)?'checked':''}"><td><input type="checkbox" data-check="${r.id}" aria-label="选择记录 ${escape(r.wonum)} / ${escape(r.serial)}" ${checked.has(r.id)?'checked':''}></td><td>${woButton(r)}</td><td><strong class="vt-serial">${escape(r.serial||'—')}</strong></td><td>${partNoButton(r.drawing)}</td><td>${r.inspector||r.date?`<span class="vt-qqc">${escape([r.inspector,r.date].filter(Boolean).join(' · '))}</span>`:'—'}</td><td>${r.partId?`<button data-select="${r.partId}" title="${escape(r.partId)}">${escape(displayWhere(r.partId))}</button>`:'<span class="vt-unbound">○ 待人工绑定</span>'}</td><td translate="no">${escape(r.slot||'—')}</td><td translate="no" title="${escape(sourceText(r)+(r.description?' · '+r.description:''))}">${escape(sourceText(r))}</td></tr>`).join('');
   $('records-empty').hidden=rows.length>0;
   $('page').textContent=`${rows.length? page*PAGE_SIZE+1:0}–${Math.min((page+1)*PAGE_SIZE,rows.length)} / ${rows.length}`;
   $('prev').disabled=page===0;$('next').disabled=page===pages-1;
@@ -147,7 +152,7 @@ function renderTable() {
 function reference() {return project.references.find(r=>r.id===referenceId);}
 function renderReferences() {
   if(!reference())referenceId=project.references[0]?.id||'';
-  $('reference-select').innerHTML=project.references.length?project.references.map(r=>`<option value="${r.id}">${escape(r.name)}</option>`).join(''):'<option value="">尚无参考图</option>';
+  $('reference-select').innerHTML=project.references.length?project.references.map(r=>`<option value="${r.id}" translate="no">${escape(r.name)}</option>`).join(''):'<option value="">尚无参考图</option>';
   $('reference-select').value=referenceId;
   const ref=reference();$('reference-empty').hidden=!!ref;$('reference-image-wrap').hidden=!ref;$('annotate').disabled=!ref;
   if(ref){$('reference-image').src=ref.data;$('reference-image').alt=ref.name;}
@@ -159,7 +164,7 @@ function fitReference() {
   $('reference-image-wrap').style.width=`${ref.width*scale}px`;$('reference-image-wrap').style.height=`${ref.height*scale}px`;
 }
 function renderHotspots() {
-  $('hotspots').innerHTML=(reference()?.hotspots||[]).map((h,i)=>`<button class="vt-hotspot ${h.partId===selected?'selected':''}" data-hotspot="${h.id}" style="left:${h.x*100}%;top:${h.y*100}%" aria-label="热点 ${i+1}：${escape(h.label)}，${escape(PART_MAP.get(h.partId).position)}" title="${escape(h.label+' · '+PART_MAP.get(h.partId).position)}">${i+1}</button>`).join('');
+  $('hotspots').innerHTML=(reference()?.hotspots||[]).map((h,i)=>`<button class="vt-hotspot ${h.partId===selected?'selected':''}" data-hotspot="${h.id}" style="left:${h.x*100}%;top:${h.y*100}%" aria-label="热点 ${i+1}：${escape(h.label)}，${escape(displayPosition(h.partId))}" title="${escape(h.label+' · '+displayPosition(h.partId))}">${i+1}</button>`).join('');
   $('delete-hotspot').disabled=!reference()?.hotspots.some(h=>h.id===hotspotId);
 }
 function setView(next) {view=next;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===next));$('model').hidden=next!=='model';$('reference').hidden=next!=='reference';$('camera').disabled=next!=='model';$('focus').disabled=next!=='model';$('fit').disabled=next!=='model';if(next==='reference')fitReference();else model?.resize();}
@@ -179,7 +184,7 @@ function confirmBinding(unbind=false) {
   const records=project.records.filter(r=>checked.has(r.id)),target=selected,projectId=project.id;
   const affected=unbind?records.filter(r=>r.partId):records.filter(r=>!r.partId),conflicts=records.filter(r=>r.partId&&r.partId!==target);
   if(!affected.length){toast(unbind?'所选记录没有绑定关系':'所选记录均已绑定；调整关联前请先解除原绑定',true);return;}
-  dialog(unbind?'确认解除绑定':'确认人工绑定',`<p>${unbind?'将解除以下记录与部件之间的关联。':'请核对目标部件与记录后确认。'}</p><div class="vt-summary"><strong>${unbind?'解除绑定的记录数：'+affected.length:escape(PART_MAP.get(target).position+' / '+label(target))}</strong><p class="vt-subtle">${unbind?'工单、绿标与序列号仍保留在追踪表中。':escape(target)+' · '+affected.length+' 条未绑定记录'}</p></div>${!unbind&&records.length!==affected.length?`<p class="vt-warning">另有 ${records.length-affected.length} 条已绑定记录将跳过${conflicts.length?'（含绑定其他部件的记录）':''}。</p>`:''}<div class="vt-import-preview"><table><thead><tr><th>工单号</th><th>序列号</th><th>图号</th><th>原绑定</th></tr></thead><tbody>${affected.map(r=>`<tr><td>${escape(r.wonum)}</td><td>${escape(r.serial)}</td><td>${escape(r.drawing)}</td><td>${escape(r.partId||'未绑定')}</td></tr>`).join('')}</tbody></table></div><div class="vt-dialog-actions"><button id="vt-cancel-binding">取消</button><button id="vt-confirm-binding" class="vt-primary">${unbind?'确认解除':'确认绑定'}</button></div>`);
+  dialog(unbind?'确认解除绑定':'确认人工绑定',`<p>${unbind?'将解除以下记录与部件之间的关联。':'请核对目标部件与记录后确认。'}</p><div class="vt-summary"><strong>${unbind?'解除绑定的记录数：'+affected.length:escape(displayWhere(target))}</strong><p class="vt-subtle">${unbind?'工单、绿标与序列号仍保留在追踪表中。':escape(target)+' · '+affected.length+' 条未绑定记录'}</p></div>${!unbind&&records.length!==affected.length?`<p class="vt-warning">另有 ${records.length-affected.length} 条已绑定记录将跳过${conflicts.length?'（含绑定其他部件的记录）':''}。</p>`:''}<div class="vt-import-preview"><table><thead><tr><th>工单号</th><th>序列号</th><th>图号</th><th>原绑定</th></tr></thead><tbody>${affected.map(r=>`<tr><td>${escape(r.wonum)}</td><td>${escape(r.serial)}</td><td>${escape(r.drawing)}</td><td>${escape(r.partId||'未绑定')}</td></tr>`).join('')}</tbody></table></div><div class="vt-dialog-actions"><button id="vt-cancel-binding">取消</button><button id="vt-confirm-binding" class="vt-primary">${unbind?'确认解除':'确认绑定'}</button></div>`);
   document.getElementById('vt-cancel-binding').onclick=closeDialog;
   dialogAction('vt-confirm-binding',async()=>{if(project.id!==projectId)throw Error('项目已变化，请重新选择');for(const r of affected)unbind?unbindRecord(project,r.id):bindRecord(project,r.id,target);checked.clear();await persist();renderTree();renderDetails();renderTable();closeDialog();toast(`${affected.length} 条记录已${unbind?'解除绑定':'绑定到 '+label(target)}`);});
 }
@@ -261,7 +266,7 @@ function asBlob(file) {const binary=atob(file.data.slice(file.data.indexOf(',')+
 function previewAttachment(id) {
   const f=project.attachments.find(f=>f.id===id);if(!f)return;
   const safeImages=['image/png','image/jpeg','image/webp','image/gif'];
-  dialog(f.name,`<p class="vt-subtle">${escape(PART_MAP.get(f.partId).position+' / '+label(f.partId))} · ${fileSize(f.size)}</p><div id="vt-preview-content"></div><div class="vt-dialog-actions"><button id="vt-preview-download" class="vt-primary">下载原始附件</button></div>`);
+  dialog(f.name,`<p class="vt-subtle">${escape(displayWhere(f.partId))} · ${fileSize(f.size)}</p><div id="vt-preview-content"></div><div class="vt-dialog-actions"><button id="vt-preview-download" class="vt-primary">下载原始附件</button></div>`,true);
   const content=document.getElementById('vt-preview-content');
   if(safeImages.includes(f.mime)){const img=document.createElement('img');img.className='vt-preview-image';img.src=f.data;img.alt=f.name;content.append(img);}
   else if(f.mime==='application/pdf') {
@@ -275,7 +280,7 @@ function previewAttachment(id) {
     });
   }
   else if(f.mime.startsWith('text/')||/\.(txt|csv|md|log)$/i.test(f.name)){const pre=document.createElement('pre');asBlob(f).slice(0,200000).text().then(text=>{pre.textContent=text+(f.size>200000?'\n…预览已截断，请下载完整附件':'');});content.append(pre);}
-  else content.innerHTML=`<div class="vt-summary"><strong>${escape(f.name)}</strong><p>此格式暂不支持内容预览。文件已保存在本页部件附件中，可继续核对名称、类型和大小。</p><small>${escape(f.mime)} · ${fileSize(f.size)}</small></div>`;
+  else content.innerHTML=`<div class="vt-summary"><strong translate="no">${escape(f.name)}</strong><p>此格式暂不支持内容预览。文件已保存在本页部件附件中，可继续核对名称、类型和大小。</p><small>${escape(f.mime)} · ${fileSize(f.size)}</small></div>`;
   document.getElementById('vt-preview-download').onclick=()=>download(asBlob(f),f.name);
 }
 function showBackup() {
@@ -294,7 +299,7 @@ function help() {
   dialog('电脑端操作说明',`<dl class="vt-help-grid"><dt>旋转 / 缩放 / 平移</dt><dd>左键拖动 / 滚轮 / 右键拖动</dd><dt>选择部件</dt><dd>左键单击模型或结构树。拖动结束不会触发选择。</dd><dt>聚焦部件</dt><dd>双击模型部件，或点击「聚焦」。快捷键 F 同样可用。</dd><dt>查看车底</dt><dd>点击「透视车底」，可直接选择车轮和车轴；「隔离所选」隐藏其他部件。</dd><dt>调整工作区</dt><dd>拖动两侧分隔线；折叠按钮收起面板。分隔线也可用左右方向键调整。</dd><dt>追踪表</dt><dd>支持 Excel / CSV / TSV 和列映射。记录导入后需勾选并人工确认绑定。</dd><dt>参考图热点</dt><dd>选中部件 → 切换参考图 → 添加热点 → 点击图片定位。调整窗口后热点位置保持一致。</dd><dt>附件</dt><dd>选择部件后进入「附件」，拖入或选择文件。图片、PDF 和文本支持预览。</dd><dt>工单跳转</dt><dd>点击任意工单号：在本页查看工单、QAQC 检验 / MRB 记录或工单 PDF；每次查看连同序列号与位置记入履历。</dd><dt>图号面板</dt><dd>点击任意图号，右侧打开图号面板：全部安装位置与当前序列号、追踪记录、QAQC 检验与 MRB 案件；「标出全部位置」在三维中高亮同图号零件。Esc 返回部件详情。</dd><dt>登记工单</dt><dd>选中销轴后进入「追踪」，登记年度检验或更换工单，序列号默认沿用当前件。</dd></dl><p class="vt-subtle">资料仅保存在当前浏览器和网站地址下，不同步到服务器或其他浏览器。清理网站数据会移除本地项目；迁移或清理前请先导出完整备份。全部三维与表格依赖均由本机提供。</p><p class="vt-subtle">部件结构与名称依据 ${SPEC_DOC}：5 节车厢、每车 4 个轮架，每个轮架含行走 / 导向 / 防脱轮各前后两组及其心轴和枢轴销，共 ${PARTS.length} 个部件。三维几何为示意，不代表实际尺寸。「${escape(REPORT.title)}」项目的绿标信息逐张转录自报告扫描件。</p>`);
 }
 const coachOf=id=>id.split('-')[0];
-const localPosition=p=>p.position.split(' · ').slice(1).join(' · ')||label(p.id);
+const localPosition=p=>displayPosition(p).split(' · ').slice(1).join(' · ')||displayLabel(p.id);
 function openDrawing(code) {
   code=drawingCode(code);if(!linkable(code))return;
   if(drawing!==code){drawing=code;drawingTab='sources';drawingFilter='';drawingMarked=false;model?.mark([]);}
@@ -315,14 +320,14 @@ async function loadQaqc(code) {
   qaqcCache.set(code,entry);if(drawing===code)renderDrawing();
 }
 function drawingParts(s) {
-  const q=drawingFilter.normalize('NFKC').toLowerCase(),hit=({part,record})=>!q||[part.position,label(part.id),part.code,record?.serial,record?.wonum].join(' ').normalize('NFKC').toLowerCase().includes(q);
+  const q=drawingFilter.normalize('NFKC').toLowerCase(),hit=({part,record})=>!q||[part.position,label(part.id),displayPosition(part),displayLabel(part.id),part.code,record?.serial,record?.wonum].join(' ').normalize('NFKC').toLowerCase().includes(q);
   const rows=s.parts.filter(hit);if(!rows.length)return '<p class="vt-empty">没有匹配的位置</p>';
   const groups=new Map();for(const row of rows){const c=coachOf(row.part.id);groups.has(c)||groups.set(c,[]);groups.get(c).push(row);}
-  return [...groups].map(([c,list])=>`<div class="vt-dgroup"><h4><button type="button" data-drawing-part="${c}">${escape(label(c))}</button><span>${list.filter(x=>x.record).length}/${list.length}</span></h4>${list.map(({part,record})=>`<div class="vt-drow${within(selected,part.id)?' selected':''}"><button type="button" class="vt-drow-pos" data-drawing-part="${part.id}" title="${escape(part.position+' / '+label(part.id))}"><span>${escape(localPosition(part))}</span><small>${escape(part.code||part.id)}</small></button><strong class="vt-serial${record?'':' none'}">${escape(record?.serial||'未登记')}</strong><span class="vt-drow-wo">${record?woButton(record):''}</span></div>`).join('')}</div>`).join('');
+  return [...groups].map(([c,list])=>`<div class="vt-dgroup"><h4><button type="button" data-drawing-part="${c}">${escape(displayLabel(c))}</button><span>${list.filter(x=>x.record).length}/${list.length}</span></h4>${list.map(({part,record})=>`<div class="vt-drow${within(selected,part.id)?' selected':''}"><button type="button" class="vt-drow-pos" data-drawing-part="${part.id}" title="${escape(displayWhere(part.id))}"><span>${escape(localPosition(part))}</span><small>${escape(part.code||part.id)}</small></button><strong class="vt-serial${record?'':' none'}">${escape(record?.serial||'未登记')}</strong><span class="vt-drow-wo">${record?woButton(record):''}</span></div>`).join('')}</div>`).join('');
 }
 function drawingRecords(s) {
   if(!s.records.length)return '<p class="vt-empty">追踪表中没有此图号的记录</p>';
-  return s.records.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(r=>`<div class="vt-drec"><header>${woButton(r)}<strong class="vt-serial">${escape(r.serial||'—')}</strong><span>${escape([r.inspector,r.date].filter(Boolean).join(' · ')||'—')}</span></header>${r.partId?`<button type="button" data-drawing-part="${r.partId}">${escape(where(r.partId))}</button>`:'<span class="vt-unbound">○ 待人工绑定</span>'}<small>${escape(sourceText(r))}${r.slot?` · ${escape(r.slot)}`:''}</small></div>`).join('');
+  return s.records.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(r=>`<div class="vt-drec"><header>${woButton(r)}<strong class="vt-serial">${escape(r.serial||'—')}</strong><span>${escape([r.inspector,r.date].filter(Boolean).join(' · ')||'—')}</span></header>${r.partId?`<button type="button" data-drawing-part="${r.partId}">${escape(displayWhere(r.partId))}</button>`:'<span class="vt-unbound">○ 待人工绑定</span>'}<small translate="no">${escape(sourceText(r))}${r.slot?` · ${escape(r.slot)}`:''}</small></div>`).join('');
 }
 function drawingQaqc(s) {
   const q=qaqcCache.get(drawing);
@@ -333,7 +338,7 @@ function drawingQaqc(s) {
   const rate=t.mrb_rate==null?'—':`${Math.round(t.mrb_rate*100)}%`;
   const rows=(d.workorders||[]).slice(0,40).map(w=>{
     const text=[w.description,w.description_en].filter(Boolean).join(' '),mentioned=[...serials].filter(sn=>text.includes(sn));
-    return `<article class="vt-qwo${w.is_mrb?' mrb':''}"><header>${linkable(w.wonum)?`<button type="button" class="vt-wo" data-wo="${escape(w.wonum)}" title="打开 Maximo / MRB 工单">${escape(w.wonum)}</button>`:escape(w.wonum)}<time>${escape(String(w.report_local||'').slice(0,10))}</time>${w.is_mrb?`<span class="vt-tag mrb">MRB · ${escape(w.disposition_label||'无意见')}</span>`:`<span class="vt-tag">${escape(w.status||'')}</span>`}${trackedWo.has(w.wonum)?'<span class="vt-tag own">本车记录</span>':''}</header><p>${escape(text||'（无描述）')}</p>${mentioned.length?`<small>提及序列号 ${mentioned.map(escape).join('、')}</small>`:''}</article>`;
+    return `<article class="vt-qwo${w.is_mrb?' mrb':''}"><header>${linkable(w.wonum)?`<button type="button" class="vt-wo" data-wo="${escape(w.wonum)}" title="打开 Maximo / MRB 工单">${escape(w.wonum)}</button>`:escape(w.wonum)}<time>${escape(String(w.report_local||'').slice(0,10))}</time>${w.is_mrb?`<span class="vt-tag mrb">MRB · ${escape(w.disposition_label||'无意见')}</span>`:`<span class="vt-tag">${escape(w.status||'')}</span>`}${trackedWo.has(w.wonum)?'<span class="vt-tag own">本车记录</span>':''}</header><p${text?' translate="no"':''}>${escape(text||'（无描述）')}</p>${mentioned.length?`<small>提及序列号 ${mentioned.map(escape).join('、')}</small>`:''}</article>`;
   }).join('');
   return `<div class="vt-qstats"><div><strong>${t.inspections??0}</strong><span>检验次数</span></div><div><strong>${t.mrb_cases??0}</strong><span>MRB 案件</span></div><div><strong>${rate}</strong><span>MRB 率</span></div></div>${(d.dispositions||[]).length?`<p class="vt-qdisp">${d.dispositions.map(x=>`<span class="vt-tag">${escape(x.label)} ${x.count}</span>`).join('')}</p>`:''}${rows||'<p class="vt-empty">没有工单</p>'}${(d.workorders||[]).length>40?'<p class="vt-subtle">仅显示最近 40 张工单，以上为最近40张工单，可在本页逐张查看。</p>':''}<p class="vt-subtle">数据来自 QAQC 模块本地同步的 Maximo 记录 · ${escape(String(d.queried_at||'').slice(0,16).replace('T',' '))}</p>`;
 }
@@ -346,7 +351,7 @@ function renderDrawing() {
   if(k?.req)spec.push(['检验要求',`${escape(k.req.method)}<br><small>${escape(k.req.frequency)} · Job Plan <button type="button" class="vt-dwg" data-jp="${escape(k.req.jobPlan)}">${escape(k.req.jobPlan)}</button></small>`]);
   const tabs=[['sources','文档出处',sources?.count(drawing)??'…'],['parts','安装位置',s.parts.length],['records','追踪记录',s.records.length],['qaqc','QAQC / MRB',mrb]];
   const scroll=el.querySelector('.vt-drawing-body')?.scrollTop||0;
-  el.innerHTML=`<div class="vt-drawing-head"><div><span class="vt-eyebrow">DRAWING · 图号</span><h2>${escape(drawing)}</h2><p>${escape(unique(x=>x.zh).join(' / ')||'结构清单中未定义此图号')}</p></div><button type="button" class="vt-icon" data-drawing-close aria-label="关闭图号面板，返回部件详情" title="返回部件详情（Esc）">×</button></div>
+  el.innerHTML=`<div class="vt-drawing-head"><div><span class="vt-eyebrow">DRAWING · 图号</span><h2>${escape(drawing)}</h2><p>${escape(unique(x=>t(x.zh)).join(' / ')||'结构清单中未定义此图号')}</p></div><button type="button" class="vt-icon" data-drawing-close aria-label="关闭图号面板，返回部件详情" title="返回部件详情（Esc）">×</button></div>
   <div class="vt-dstats"><div><strong>${s.parts.length}</strong><span>安装位置</span></div><div><strong>${s.serials}<small>/${s.parts.length}</small></strong><span>已有序列号</span></div><div><strong>${s.records.length}</strong><span>追踪记录</span></div><div class="${mrb&&mrb!=='…'?'warn':''}"><strong>${mrb}</strong><span>MRB 案件</span></div></div>
   <div class="vt-dactions"><button type="button" data-drawing-mark aria-pressed="${drawingMarked}" ${s.parts.length?'':'disabled'}>◎ 标出全部位置</button><button type="button" data-drawing-table>筛选追踪表</button><button type="button" data-drawing-qaqc>QAQC 记录</button><button type="button" data-copy-text="${escape(drawing)}" aria-label="复制图号">复制</button></div>
   ${spec.length?`<details class="vt-dspec"><summary>图纸资料</summary><dl class="vt-spec">${spec.map(([t,d])=>`<dt>${t}</dt><dd>${d}</dd>`).join('')}</dl></details>`:''}
@@ -480,7 +485,7 @@ function setup() {
   // Prevent a dropped file from navigating away when it misses an upload area.
   document.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault();});document.addEventListener('drop',e=>{if(e.dataTransfer.types.includes('Files'))e.preventDefault();});
   on('reference-select','change',e=>{referenceId=e.target.value;hotspotId='';renderReferences();});
-  on('annotate','click',()=>{annotating=!annotating;$('annotate').setAttribute('aria-pressed',annotating);$('reference-image-wrap').classList.toggle('annotating',annotating);$('refhint').textContent=annotating?`点击图片，为「${PART_MAP.get(selected).position} / ${label(selected)}」添加热点；Esc 取消。`:'热点坐标相对于图片保存，调整窗口和侧栏后仍保持定位。';});
+  on('annotate','click',()=>{annotating=!annotating;$('annotate').setAttribute('aria-pressed',annotating);$('reference-image-wrap').classList.toggle('annotating',annotating);$('refhint').textContent=annotating?`点击图片，为「${displayWhere(selected)}」添加热点；Esc 取消。`:'热点坐标相对于图片保存，调整窗口和侧栏后仍保持定位。';});
   on('reference-image-wrap','click',async e=>{
     const button=e.target.closest('[data-hotspot]');
     if(button){hotspotId=button.dataset.hotspot;const h=reference().hotspots.find(h=>h.id===hotspotId);selectPart(h.partId,{reveal:true,fly:view==='model'});return;}
@@ -492,7 +497,7 @@ function setup() {
   });
   on('delete-hotspot','click',async()=>{const ref=reference(),h=ref?.hotspots.find(h=>h.id===hotspotId);if(!h)return;log(project,'删除参考图热点',h.partId,ref.name);ref.hotspots=ref.hotspots.filter(h=>h.id!==hotspotId);hotspotId='';await persist();renderHotspots();renderDetails();});
   new ResizeObserver(fitReference).observe($('reference-drop'));
-  window.addEventListener('beforeunload',e=>{if($('save-status').textContent==='正在保存…'){e.preventDefault();e.returnValue='';}});
+  window.addEventListener('beforeunload',e=>{if(['正在保存…',window.FOSI18n?.t('正在保存…')].includes($('save-status').textContent)){e.preventDefault();e.returnValue='';}});
 }
 async function boot() {
   try {
@@ -515,7 +520,7 @@ async function boot() {
       const {VehicleModel}=await import('./vehicle-tracker-model.mjs');
       model=new VehicleModel($('canvas'),{select:id=>selectPart(id,{reveal:true}),focusRequest:()=>selectPart('TRAIN',{fly:true}),xrayChanged:on=>$('xray').setAttribute('aria-pressed',on),hover:(part,e)=>{
         const el=$('hover');el.hidden=!part;if(!part)return;const rect=$('model').getBoundingClientRect(),current=latestRecord(project,part.id);
-        el.innerHTML=`${escape(label(part.id))}${current?`<b class="vt-serial">${escape(current.serial)}</b>`:''}<small>${escape(part.position)}${part.code?` · ${escape(part.code)}`:''}</small><small class="vt-hover-hint">单击选择 · 双击聚焦</small>`;el.style.left=Math.max(5,Math.min(e.clientX-rect.left+15,rect.width-260))+'px';el.style.top=Math.max(5,Math.min(e.clientY-rect.top+15,rect.height-65))+'px';
+        el.innerHTML=`${escape(displayLabel(part.id))}${current?`<b class="vt-serial">${escape(current.serial)}</b>`:''}<small>${escape(displayPosition(part))}${part.code?` · ${escape(part.code)}`:''}</small><small class="vt-hover-hint">单击选择 · 双击聚焦</small>`;el.style.left=Math.max(5,Math.min(e.clientX-rect.left+15,rect.width-260))+'px';el.style.top=Math.max(5,Math.min(e.clientY-rect.top+15,rect.height-65))+'px';
       }});model.select(selected);
     } catch(error) {
       console.error(error);$('model-error').hidden=false;$('model-error').textContent='三维画布无法启动。请确认浏览器已启用 WebGL / 硬件加速后刷新。结构树、参考图、追踪表和备份仍可使用。';
@@ -526,4 +531,25 @@ async function boot() {
     dialog('无法打开本地项目',error.blocked?`<p>${escape(error.message)}</p>`:`<p>浏览器未允许访问本地项目存储。请使用普通窗口（非 InPrivate / 无痕）并允许此网站保存数据，然后刷新页面。</p><p class="vt-subtle">${escape(error?.message||String(error))}</p>`);$('dialog-close').onclick=closeDialog;
   }
 }
+document.addEventListener('fos:languagechange',()=>{
+  if(!project)return;
+  const drafts=[];
+  for(const root of ['info','detail-records','drawing']){
+    $(root).querySelectorAll('input,textarea,select').forEach((input,index)=>{
+      drafts.push({root,index,value:input.value,checked:input.checked,focused:input===document.activeElement,
+        start:input.selectionStart,end:input.selectionEnd});
+    });
+  }
+  renderTree();renderDetails();renderTable();renderHotspots();
+  $('selection-label').innerHTML=crumbs(selected);
+  $('binding-target').textContent=t(`绑定目标：${displayWhere(selected)}`);
+  $('hover').hidden=true;
+  for(const draft of drafts){
+    const input=$(draft.root).querySelectorAll('input,textarea,select')[draft.index];
+    if(!input||input.id==='vt-part-position')continue;
+    input.value=draft.value;if(typeof draft.checked==='boolean')input.checked=draft.checked;
+    if(draft.focused){input.focus({preventScroll:true});if(draft.start!=null)input.setSelectionRange(draft.start,draft.end);}
+  }
+  if(annotating)$('refhint').textContent=t(`点击图片，为「${displayWhere(selected)}」添加热点；Esc 取消。`);
+});
 boot();

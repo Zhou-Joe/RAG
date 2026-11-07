@@ -60,11 +60,13 @@ def normalize_openai_base_url(value: str, *, ollama: bool = False) -> str:
 
 
 def llm_settings() -> dict:
+    from django.utils.translation import get_language
     c = get_config()
     base_url = normalize_openai_base_url(_eff(c.llm_base_url, settings.LLM_BASE_URL))
     vision = c.llm_vision or getattr(settings, "LLM_VISION", False)
     return {
         "base_url": base_url,
+        "response_language": get_language() or "zh-hans",
         "remote_enabled": c.llm_remote_enabled or c.all_remote_apis_enabled,
         "all_remote_enabled": c.all_remote_apis_enabled,
         "api_key": _eff(c.llm_api_key, settings.LLM_API_KEY),

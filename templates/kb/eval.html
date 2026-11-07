@@ -25,7 +25,7 @@
     <div class="eval-q">
       <span class="eval-q-text">{{ q.question }}</span>
       {% if q.expected_source or q.expected_keyword %}
-      <span class="fos-sub">期望：{{ q.expected_source|default:"—" }} / {{ q.expected_keyword|default:"—" }}</span>
+      <span class="fos-sub"><span>期望：</span><span translate="no">{{ q.expected_source|default:"—" }} / {{ q.expected_keyword|default:"—" }}</span></span>
       {% endif %}
       <form method="post" style="margin:0" data-confirm-title="删除评估问题"
             data-confirm="删除该评估问题？">
@@ -50,7 +50,7 @@
         {% if q.rank_hit %}<span class="dept-badge" style="border-color:var(--ok);color:var(--ok)">✓ 命中@{{ q.rank_hit }}</span>
         {% elif q.expected != "（无期望，仅观察）" %}<span class="dept-badge" style="border-color:var(--danger);color:var(--danger)">✗ 未命中</span>
         {% else %}<span class="dept-badge">观察</span>{% endif %}
-        <strong>{{ q.question }}</strong>
+        <strong translate="no">{{ q.question }}</strong>
         <span class="fos-sub">{{ q.expected }}</span>
       </div>
       {% for r in q.rows|slice:":5" %}

@@ -11,6 +11,8 @@ def complete(value):
                if key not in {"messages", "model", "tools", "tool_choice", "stream", "max_tokens"}}
     payload.update(model=config["model"], messages=value["messages"], temperature=config["temperature"],
                    max_tokens=config["max_tokens"], stream=False)
+    if config.get("language_instruction"):
+        payload["messages"] = [{"role": "system", "content": config["language_instruction"]}, *payload["messages"]]
     try:
         with httpx.Client(timeout=httpx.Timeout(150, connect=5), trust_env=False, follow_redirects=False) as client:
             response = client.post(config["base_url"].rstrip("/") + "/chat/completions",

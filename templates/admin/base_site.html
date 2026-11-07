@@ -1,5 +1,7 @@
 {% extends "admin/base.html" %}
 
+{% block extrahead %}{{ block.super }}{% include '_interface_language.html' %}{% endblock %}
+
 {% block title %}{{ title }} | Django 管理后台{% endblock %}
 
 {% block branding %}
@@ -9,6 +11,7 @@
 {% block footer %}{{ block.super }}{% if user.is_authenticated %}{% include 'kb/_assistant_widget.html' %}{% endif %}{% endblock %}
 
 {% block userlinks %}
+<button class="language-btn" type="button" data-language-toggle translate="no" aria-label="切换到英文" title="切换到英文"><span data-language="en">EN</span><span aria-hidden="true">/</span><span data-language="zh-hans" class="language-current">CN</span></button>
 <a href="/" style="display:inline-block;padding:6px 12px;border:1px solid currentColor;border-radius:5px;font-weight:600;margin-right:10px">← 一键返回业务首页</a>
 {{ block.super }}
 {% endblock %}

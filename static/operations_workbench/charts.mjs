@@ -3,6 +3,9 @@ const echarts = await import('./vendor/echarts-5.6.0/echarts.esm.min.mjs');
 
 const SVG = 'http://www.w3.org/2000/svg';
 const TOP = 10;
+const t = text => globalThis.FOSI18n?.t(text) || text;
+const html = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const eventSummary = (count, minutes) => html(t('事件')) + ' ' + number(count) + ' · ' + html(t('停机')) + ' ' + number(minutes) + ' ' + html(t('分钟'));
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -35,7 +38,7 @@ function tokens() {
 function number(value, digits = 0) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '—';
-  return n.toLocaleString('zh-CN', {maximumFractionDigits: digits});
+  return n.toLocaleString(window.FOSI18n?.locale || 'zh-CN', {maximumFractionDigits: digits});
 }
 
 const METRICS = [
@@ -102,14 +105,15 @@ function dailyOption(summary, theme) {
   const axis = axisStyle(theme);
   return {
     ...baseOption(theme),
-    legend: {top: 0, left: 'center', textStyle: {color: theme.dim, fontSize: 11}, itemWidth: 12, itemHeight: 8},
-    tooltip: {...baseOption(theme).tooltip, trigger: 'axis', axisPointer: {type: 'shadow'}},
+    legend: {top: 0, left: 'center', formatter: name => t(name), textStyle: {color: theme.dim, fontSize: 11}, itemWidth: 12, itemHeight: 8},
+    tooltip: {...baseOption(theme).tooltip, trigger: 'axis', axisPointer: {type: 'shadow'},
+      formatter: items => html(items[0]?.axisValue ?? '') + items.map(item => '<br>' + html(t(item.seriesName)) + ': ' + number(item.value)).join('')},
     grid: {left: 8, right: 8, top: 34, bottom: days.length > 31 ? 40 : 8, containLabel: true},
     xAxis: {type: 'category', data: days.map(day => day.key), ...axis, splitLine: {show: false},
       axisLabel: {...axis.axisLabel, formatter: value => value.slice(5)}},
     yAxis: [
-      {type: 'value', name: '事件', minInterval: 1, nameTextStyle: {color: theme.mute}, ...axis},
-      {type: 'value', name: '分钟', nameTextStyle: {color: theme.mute}, ...axis, splitLine: {show: false}},
+      {type: 'value', name: t('事件'), minInterval: 1, nameTextStyle: {color: theme.mute}, ...axis},
+      {type: 'value', name: t('分钟'), nameTextStyle: {color: theme.mute}, ...axis, splitLine: {show: false}},
     ],
     dataZoom: days.length > 31 ? [{type: 'inside'}, {type: 'slider', height: 18, bottom: 6, borderColor: theme.rule}] : [],
     series: [
@@ -129,12 +133,12 @@ function rankOption(rows, theme, color, valueKey = 'event_count', valueName = '�
     tooltip: {...baseOption(theme).tooltip, trigger: 'axis', axisPointer: {type: 'shadow'},
       formatter: items => {
         const row = top[items[0].dataIndex];
-        return row.label + '<br>事件 ' + number(row.event_count) + ' · 停机 ' + number(row.minutes) + ' 分钟';
+        return html(t(row.label)) + '<br>' + eventSummary(row.event_count, row.minutes);
       }},
     grid: {left: 8, right: 36, top: 8, bottom: 8, containLabel: true},
     xAxis: {type: 'value', minInterval: valueKey === 'event_count' ? 1 : 0, ...axis},
     yAxis: {type: 'category', data: top.map(row => row.label), ...axis, splitLine: {show: false},
-      axisLabel: {...axis.axisLabel, width: 120, overflow: 'truncate'}},
+      axisLabel: {...axis.axisLabel, width: 120, overflow: 'truncate', formatter: value => t(value)}},
     series: [{name: valueName, type: 'bar', data: top.map(row => row[valueKey]), itemStyle: {color, borderRadius: [0, 3, 3, 0]},
       barMaxWidth: 16, label: {show: true, position: 'right', color: theme.dim, fontSize: 11,
         formatter: item => number(item.value)}}],
@@ -147,11 +151,11 @@ function donutOption(rows, theme) {
     ...baseOption(theme),
     color: palette,
     tooltip: {...baseOption(theme).tooltip, trigger: 'item',
-      formatter: item => item.name + '<br>事件 ' + number(item.value) + '（' + number(item.percent, 1) + '%）'},
-    legend: {type: 'scroll', bottom: 0, textStyle: {color: theme.dim, fontSize: 11}, itemWidth: 10, itemHeight: 10},
+      formatter: item => html(t(item.name)) + '<br>' + html(t('事件')) + ' ' + number(item.value) + ' (' + number(item.percent, 1) + '%)'},
+    legend: {type: 'scroll', bottom: 0, formatter: name => t(name), textStyle: {color: theme.dim, fontSize: 11}, itemWidth: 10, itemHeight: 10},
     series: [{type: 'pie', radius: ['45%', '70%'], center: ['50%', '45%'], avoidLabelOverlap: true,
       itemStyle: {borderColor: theme.surface, borderWidth: 2},
-      label: {color: theme.dim, fontSize: 11, formatter: '{b}\n{d}%'},
+      label: {color: theme.dim, fontSize: 11, formatter: item => t(item.name) + '\n' + number(item.percent, 1) + '%'},
       data: rows.map(row => ({name: row.label, value: row.event_count, key: row.key}))}],
   };
   // Narrow cards: slice labels would be clipped, the legend and tooltip carry the values.
@@ -173,13 +177,13 @@ function heatmapOption(summary, theme) {
   const axis = axisStyle(theme);
   return {
     ...baseOption(theme),
-    tooltip: {...baseOption(theme).tooltip, formatter: item => names.get(keys[item.value[1]]) + ' · ' + days[item.value[0]]
-      + '<br>事件 ' + number(item.value[2]) + ' · 停机 ' + number(item.value[3]) + ' 分钟'},
+    tooltip: {...baseOption(theme).tooltip, formatter: item => html(t(names.get(keys[item.value[1]]))) + ' · ' + html(days[item.value[0]])
+      + '<br>' + eventSummary(item.value[2], item.value[3])},
     grid: {left: 8, right: 8, top: 8, bottom: 44, containLabel: true},
     xAxis: {type: 'category', data: days, ...axis, splitArea: {show: false},
       axisLabel: {...axis.axisLabel, formatter: value => value.slice(5)}},
     yAxis: {type: 'category', data: keys.map(key => names.get(key)), ...axis,
-      axisLabel: {...axis.axisLabel, width: 110, overflow: 'truncate'}},
+      axisLabel: {...axis.axisLabel, width: 110, overflow: 'truncate', formatter: value => t(value)}},
     visualMap: {dimension: 2, min: 0, max: Math.max(1, ...data.map(item => item[2])), calculable: true, orient: 'horizontal',
       left: 'center', bottom: 0, itemHeight: 120, itemWidth: 10, textStyle: {color: theme.dim, fontSize: 11},
       // Theme surfaces can be translucent, so scale the brand colour's opacity rather than interpolating colours.
@@ -190,7 +194,7 @@ function heatmapOption(summary, theme) {
 }
 
 function describe(rows, unit = '次') {
-  return rows.slice(0, 3).map(row => row.label + ' ' + number(row.event_count) + ' ' + unit).join('，');
+  return rows.slice(0, 3).map(row => t(row.label) + ' ' + number(row.event_count) + ' ' + t(unit)).join(' · ');
 }
 
 /**
@@ -216,15 +220,14 @@ export function renderCharts(target, summary, comparison, {onDrill, fileName = '
     const canvas = el('div', null, 'ops-dt-canvas');
     canvas.style.height = height + 'px';
     canvas.setAttribute('role', 'img');
-    canvas.setAttribute('aria-label', title + (label ? '：' + label : ''));
     box.append(head, canvas);
     grid.append(box);
-    const entry = {canvas, build, chart: null, title};
+    const entry = {canvas, build, chart: null, title, label};
     save.addEventListener('click', () => {
       if (!entry.chart) return;
       const link = el('a');
       link.href = entry.chart.getDataURL({type: 'png', pixelRatio: 2, backgroundColor: tokens().surface});
-      link.download = fileName + '-' + title + '.png';
+      link.download = (fileName === '停机统计' ? t(fileName) : fileName) + '-' + t(title) + '.png';
       document.body.append(link);
       link.click();
       link.remove();
@@ -242,18 +245,18 @@ export function renderCharts(target, summary, comparison, {onDrill, fileName = '
   const reasons = summary.reasons || [];
   const assets = summary.assets || [];
   card('每日趋势', '柱：事件数 · 线：停机分钟；点击柱筛选当天事件', theme => dailyOption(summary, theme),
-    {wide: true, height: 280, label: '共 ' + (summary.daily || []).length + ' 天'}).onClick = drill('day', summary.daily || []);
+    {wide: true, height: 280, label: () => t('共 ' + (summary.daily || []).length + ' 天')}).onClick = drill('day', summary.daily || []);
   const topAttractions = attractions.slice(0, TOP).reverse();
   card('景点 Top 10', '按事件数；点击筛选', theme => rankOption(attractions, theme, tokens().brand),
-    {label: describe(attractions)}).onClick = drill('attraction', topAttractions);
-  card('停机代码分布', '点击扇区筛选', theme => donutOption(codes, theme), {label: describe(codes)}).onClick = drill('code', codes);
+    {label: () => describe(attractions)}).onClick = drill('attraction', topAttractions);
+  card('停机代码分布', '点击扇区筛选', theme => donutOption(codes, theme), {label: () => describe(codes)}).onClick = drill('code', codes);
   const topReasons = reasons.slice(0, TOP).reverse();
   card('分类 Top 10', '按事件数；点击筛选', theme => rankOption(reasons, theme, tokens().violet),
-    {label: describe(reasons)}).onClick = drill('reason', topReasons);
+    {label: () => describe(reasons)}).onClick = drill('reason', topReasons);
   const topAssets = assets.slice(0, TOP).reverse();
   card('设备（资产）Top 10', '按停机分钟' + (summary.asset_count ? '，共 ' + summary.asset_count + ' 台' : '') + '；点击筛选',
     theme => rankOption(assets, theme, tokens().warn, 'minutes', '停机分钟'),
-    {label: assets.slice(0, 3).map(row => row.label + ' ' + number(row.minutes) + ' 分钟').join('，')}).onClick = drill('asset', topAssets);
+    {label: () => assets.slice(0, 3).map(row => row.label + ' ' + number(row.minutes) + ' ' + t('分钟')).join(' · ')}).onClick = drill('asset', topAssets);
   if ((summary.heatmap || []).length) {
     card('日期 × 景点热力图', '事件数，前 15 个景点', theme => heatmapOption(summary, theme), {wide: true, height: 380});
   }
@@ -261,6 +264,8 @@ export function renderCharts(target, summary, comparison, {onDrill, fileName = '
   function draw() {
     const theme = tokens();
     for (const entry of charts) {
+      const label = typeof entry.label === 'function' ? entry.label() : entry.label;
+      entry.canvas.setAttribute('aria-label', t(entry.title) + (label ? ': ' + label : ''));
       entry.chart?.dispose();
       entry.chart = echarts.init(entry.canvas, null, {renderer: 'canvas'});
       entry.chart.setOption(entry.build(theme));
@@ -275,10 +280,12 @@ export function renderCharts(target, summary, comparison, {onDrill, fileName = '
   charts.forEach(entry => resize.observe(entry.canvas));
   const theme = new MutationObserver(draw);
   theme.observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme', 'class']});
+  document.addEventListener('fos:languagechange', draw);
   return {
     dispose() {
       resize.disconnect();
       theme.disconnect();
+      document.removeEventListener('fos:languagechange', draw);
       charts.forEach(entry => entry.chart?.dispose());
     },
   };

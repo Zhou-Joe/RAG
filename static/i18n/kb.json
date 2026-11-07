@@ -1,0 +1,1923 @@
+{
+  "messages": {
+    "业务数据 · 趋势洞察": "Business data · Trend insights",
+    "采集参数分析": "Collected parameter analysis",
+    "选择同一对象的参数，按采集时间分析变化与周期统计。": "Select parameters for the same item to analyze changes and summarize them over time.",
+    "只读分析": "Read-only analysis",
+    "采集对象": "Collected item",
+    "搜索名称、来源或 ID": "Search by name, source, or ID",
+    "搜索采集对象": "Search collected items",
+    "正在读取对象…": "Loading items…",
+    "最多显示 200 个对象，请搜索以缩小范围。": "Showing up to 200 items. Search to narrow the results.",
+    "分析参数": "Parameters to analyze",
+    "正在读取参数…": "Loading parameters…",
+    "时间粒度": "Time interval",
+    "每小时": "Hourly",
+    "每天": "Daily",
+    "每周": "Weekly",
+    "每月": "Monthly",
+    "每年": "Yearly",
+    "开始日期时间": "Start date and time",
+    "结束日期时间": "End date and time",
+    "应用筛选": "Apply filters",
+    "重置时间": "Reset time range",
+    "按数据源的采集时区统计": "Grouped using the data source's collection time zone",
+    "正在准备分析…": "Preparing analysis…",
+    "当前范围没有采集样本，请调整对象或时间范围。": "No samples in this range. Select another item or adjust the time range.",
+    "参数趋势": "Parameter trends",
+    "统计指标": "Statistic",
+    "均值": "Average",
+    "期末有效值": "Last valid value",
+    "合计": "Total",
+    "最低值": "Minimum",
+    "最高值": "Maximum",
+    "分析视图": "Analysis view",
+    "表格": "Table",
+    "图表": "Chart",
+    "周期分析表": "Period summary",
+    "周期分析表，可横向滚动": "Period summary; scroll horizontally to see more",
+    "按采集时间汇总的参数分析": "Parameter analysis grouped by collection time",
+    "检索评估 · SHDR RAG": "Retrieval evaluation · SHDR RAG",
+    "检索评估": "Retrieval evaluation",
+    "用一组真实业务问法检验检索命中率（hit@1 / hit@3），调整配置后可重新运行对比。": "Measure retrieval accuracy (hit@1 / hit@3) using real business questions. Rerun after changing settings to compare results.",
+    "▶ 运行评估": "▶ Run evaluation",
+    "问题集": "Question set",
+    "题": "questions",
+    "评估问题（真实业务问法）": "Evaluation question (a real business question)",
+    "评估问题": "Evaluation question",
+    "期望来源文档（可选）": "Expected source document (optional)",
+    "期望来源文档": "Expected source document",
+    "期望关键词（可选）": "Expected keywords (optional)",
+    "期望关键词": "Expected keywords",
+    "＋ 添加": "＋ Add",
+    "期望：": "Expected:",
+    "删除评估问题": "Delete evaluation question",
+    "删除该评估问题？": "Delete this evaluation question?",
+    "删": "Delete",
+    "还没有评估问题。添加几个真实业务问法（含编号类和语义类）。": "No evaluation questions yet. Add real questions, including identifier searches and natural-language queries.",
+    "评估结果": "Evaluation results",
+    "✓ 命中@": "✓ Hit@",
+    "✗ 未命中": "✗ No hit",
+    "观察": "Observations",
+    "自主数据引擎 · SHDR RAG": "Automated data engine · SHDR RAG",
+    "资料上传中心": "Document upload center",
+    "自主数据引擎": "Automated data engine",
+    "告诉 EnGenie 数据来源和更新时间，先查看采集样例，确认后自动更新到知识库。": "Tell EnGenie where the data is and when to refresh it. Review a sample, then confirm to update your knowledge base automatically.",
+    "用 EnGenie 创建自动任务": "Create an automated task with EnGenie",
+    "资料集合": "Collection",
+    "全部": "All",
+    "新建自动更新知识库": "New auto-updating knowledge base",
+    "放入资料集合": "Add to collection",
+    "创建新知识库": "Create a knowledge base",
+    "新知识库名称": "New knowledge base name",
+    "所属部门": "Department",
+    "数据源名称": "Data source name",
+    "例如：设备每日运行报告": "For example: Daily equipment operating report",
+    "接入方式": "Connection method",
+    "定时拉取 API": "Scheduled API pull",
+    "外部脚本推送": "Push from an external script",
+    "数据写入方式": "Write mode",
+    "追加新记录，保留全部历史（推荐）": "Append new records and retain all history (recommended)",
+    "按相同 ID 覆盖当前记录": "Replace the current record with the same ID",
+    "追加适合运营时间、价格、指标及同比分析，每次采集都保留快照；切换方式不会清除已有历史。": "Append mode suits operating hours, prices, metrics, and year-over-year analysis. Each collection saves a snapshot; switching modes retains existing history.",
+    "标准数据 API 地址": "Standard data API URL",
+    "API 返回 fos-rag-feed/v1 JSON。网页或其他接口格式可通过 EnGenie 创建自动采集任务。": "The API must return fos-rag-feed/v1 JSON. Use EnGenie to create collection tasks for webpages or other API formats.",
+    "Cron（分 时 日 月 星期）": "Cron (minute hour day month weekday)",
+    "每小时：0 * * * * 每天早上8点：0 8 * * *": "Hourly: 0 * * * * · Daily at 08:00: 0 8 * * *",
+    "时区": "Time zone",
+    "内网配置": "Private network settings",
+    "允许访问内网或本机 API": "Allow access to private-network or local APIs",
+    "脚本可用任意语言，按接入标准生成 JSON 后推送。保存数据源后生成专属令牌；脚本由你自己的 cron 或任务计划运行。": "Use any scripting language to generate JSON in the integration format and push it. Generate a source token after saving. Run the script with your own cron or task scheduler.",
+    "整批成功后直接写入追踪表，自动记录采集时间和来源 ID；失败时保留已有数据。": "A successful batch writes directly to the tracker, recording collection time and source ID. Existing data is retained if collection fails.",
+    "取消": "Cancel",
+    "保存": "Save",
+    "脚本推送接入": "Script push integration",
+    "此令牌只显示一次；生成后旧令牌立即失效。": "This token is shown once. Generating it immediately invalidates the previous token.",
+    "推送地址": "Push URL",
+    "Bearer 令牌": "Bearer token",
+    "将令牌放入脚本运行环境，按接入包示例调用。暂停数据源或轮换令牌可停用旧接入。": "Store the token in your script's environment and follow the integration package example. Pause the source or rotate the token to disable old access.",
+    "已保存，关闭": "Saved — close",
+    "智能问答 · SHDR RAG": "Intelligent Q&A · SHDR RAG",
+    "← 首页": "← Home",
+    "退出": "Exit",
+    "输入问题。": "Enter a question.",
+    "思考中…": "Thinking…",
+    "检查项提取 · SHDR RAG": "Inspection requirements · SHDR RAG",
+    "检查项提取": "Inspection requirements",
+    "从已处理的手册中抽取图纸号、部件、检查频率与要求，可筛选并导出 CSV。": "Extract drawing numbers, parts, inspection intervals, and requirements from processed manuals. Filter results and export them as CSV.",
+    "选择文档": "Select a document",
+    "暂无已完成的文档。请先上传并处理文档。": "No completed documents yet. Upload and process a document first.",
+    "来源知识库：": "Source knowledge base:",
+    "· 提取到": "· Extracted",
+    "个检查项": "inspection items",
+    "筛选图纸号、部件或要求…": "Filter by drawing number, part, or requirement…",
+    "筛选检查项": "Filter inspection items",
+    "导出 CSV": "Export CSV",
+    "图纸号": "Drawing number",
+    "部件名称": "Part name",
+    "检查频率": "Inspection interval",
+    "检查要求": "Inspection requirement",
+    "详细要求": "Detailed requirements",
+    "章节": "Section",
+    "该文档未提取到检查项。可能文档中不包含检查相关内容。": "No inspection requirements were extracted. This document may not contain inspection-related information.",
+    "选择上方文档，自动提取检查项。": "Select a document above to extract inspection requirements.",
+    "正在提取检查项…": "Extracting inspection requirements…",
+    "提取失败：": "Extraction failed:",
+    "资料上传中心 · SHDR RAG": "Document upload center · SHDR RAG",
+    "管理各部门的手册库与业务数据；上传后自动解析、分块并建立索引。": "Manage departmental manuals and business data. Uploaded files are parsed, split into passages, and indexed automatically.",
+    "＋ 新建手册库": "＋ New manual library",
+    "手册库": "Manual libraries",
+    "PDF / MD / TXT / 图片（JPG·PNG·WebP）· xlsx / csv 自动识别为业务数据": "PDF / MD / TXT / images (JPG · PNG · WebP) · XLSX / CSV files are recognized as business data",
+    "新建手册库": "New manual library",
+    "手册库名称": "Manual library name",
+    "描述（可选，会展示给 AI 帮它判断该搜哪个库）": "Description (optional; helps AI choose the right library)",
+    "部门（通用 = 所有人可见）": "Department (General is visible to everyone)",
+    "创建": "Create",
+    "部门：": "Department:",
+    "（通用 = 所有部门可见）": "(General is visible to all departments)",
+    "该库向量所用的 embedding 模型（向量化时自动记录）": "Embedding model used for this library's vectors (recorded automatically during indexing)",
+    "文档": "Documents",
+    "向量块": "Indexed passages",
+    "管理 / 上传": "Manage / Upload",
+    "检索": "Search",
+    "关联": "Connect",
+    "改名": "Rename",
+    "删除知识库": "Delete knowledge base",
+    "确定删除「": "Delete “",
+    "份文档及所有向量数据将丢失。": "documents and all vector data will be lost.",
+    "删除": "Delete",
+    "还没有手册库": "No manual libraries yet",
+    "编辑知识库": "Edit knowledge base",
+    "名称": "Name",
+    "部门（通用 = 所有部门可见；文件夹会同步其下全部子库）": "Department (General is visible to all departments; changes to a folder apply to all its libraries)",
+    "业务数据": "Business data",
+    "自动采集的数据与导入的 xlsx / csv 在这里管理。": "Manage automatically collected data and imported XLSX / CSV files here.",
+    "个采集库": "collection libraries",
+    "个导入表": "imported tables",
+    "自动采集 ·": "Automatic collection ·",
+    "条记录": "records",
+    "查看追踪表": "View tracker",
+    "管理自动更新": "Manage automatic updates",
+    "删除采集库": "Delete collection library",
+    "条记录、追踪表及关联的自动更新任务将一并删除，不可恢复。": "records, the tracker, and associated update tasks will be permanently deleted.",
+    "行 ·": "rows ·",
+    "尚未导入业务数据": "No business data imported yet",
+    "创建中…": "Creating…",
+    "创建失败": "Could not create",
+    "请求失败：": "Request failed:",
+    "保存中…": "Saving…",
+    "保存失败": "Could not save",
+    "已保存": "Saved",
+    "图谱事实依据 · SHDR RAG": "Graph evidence · SHDR RAG",
+    "知识图谱": "Knowledge graph",
+    "图谱事实依据": "Graph evidence",
+    "已人工核对 · 当前来源有效": "Manually reviewed · Source is current",
+    "知识库：": "Knowledge base:",
+    "· 核对时间：": "· Reviewed at:",
+    "设备范围": "Equipment scope",
+    "核对范围是上述关系及其适用条件。来源中的其它字段、延伸解释和维修建议仍需分别核对。": "This review covers only the relationship above and its applicable conditions. Other source fields, further interpretations, and maintenance recommendations require separate verification.",
+    "查看关联关系": "View related relationships",
+    "打开 EnGenie 工程助手": "Open the EnGenie engineering assistant",
+    "打开 EnGenie 聊天": "Open EnGenie chat",
+    "随时提问": "Ask anytime",
+    "知识检索 · 原文溯源 · 数据分析": "Knowledge search · Source references · Data analysis",
+    "新建对话": "New chat",
+    "展开聊天面板": "Expand chat panel",
+    "收起聊天面板": "Collapse chat panel",
+    "EnGenie 正在准备对话…": "EnGenie is preparing your chat…",
+    "· 文档查看": "· Document viewer",
+    "此文档是历史版本，已不参与当前检索。": "This is a historical document version and is no longer included in current searches.",
+    "自动更新数据源：": "Automatic update source:",
+    "· 上游更新时间：": "· Upstream updated at:",
+    "查看原始报告": "View original report",
+    "⚠ 暂无内容 NOTICE": "⚠ No content available",
+    "空": "Empty",
+    "该文档尚未生成可查看的正文（可能仍在 OCR 处理中）。": "This document has no readable content yet. OCR may still be in progress.",
+    "个片段未在文档中精确定位（可能被改写）": "passages could not be located exactly in the document (their wording may have changed)",
+    "知识图谱 · SHDR RAG": "Knowledge graph · SHDR RAG",
+    "从资料中按主题抽取对象、属性与取值，逐条核对原文后用于问答。": "Extract objects, properties, and values from source materials by topic. Review each against the original text before using it in answers.",
+    "资料": "Source material",
+    "选择资料": "Select source material",
+    "请选择资料": "Please select source material",
+    "关注什么": "Topic to explore",
+    "例如：锻件的质量分级、各级参数和适用条件": "For example: Forging quality grades, parameters, and applicable conditions",
+    "开始构建": "Start extraction",
+    "跨资料追加到已有对象（可选）": "Add to an existing object across sources (optional)",
+    "追加到已有对象": "Add to an existing object",
+    "自动按集合与对象身份归并": "Group automatically by collection and object identity",
+    "按主题定位原文，自动展开相关表格的分类、参数和取值；逐条确认后用于问答。": "Find relevant passages by topic and expand classifications, parameters, and values in related tables. Review each result before using it in answers.",
+    "筛选与历史": "Filters and history",
+    "实体 / 关键词": "Entity / Keyword",
+    "实体名称、编号或术语": "Entity name, identifier, or term",
+    "状态": "Status",
+    "全部可见关系": "All visible relationships",
+    "关注批次": "Extraction batch",
+    "全部批次": "All batches",
+    "查询关系": "Find relationships",
+    "对象与层级属性": "Objects and hierarchical properties",
+    "对象知识": "Object knowledge",
+    "只看本次抽取": "Only this extraction",
+    "选择知识对象": "Select a knowledge object",
+    "正在读取对象知识…": "Loading object knowledge…",
+    "属性与子参数": "Properties and subparameters",
+    "内容、条件与原文审核": "Review content, conditions, and sources",
+    "展开属性并选择具体内容，查看完整取值和原文。": "Expand a property and select an entry to view its full value and source.",
+    "旧版关系图与历史记录": "Legacy relationship graph and history",
+    "图谱": "Graph",
+    "待确认": "Pending review",
+    "已确认": "Confirmed",
+    "已拒绝": "Rejected",
+    "来源失效": "Source no longer valid",
+    "适应画布": "Fit to canvas",
+    "重置视图": "Reset view",
+    "上一页关系": "Previous relationships",
+    "下一页关系": "Next relationships",
+    "正在加载关系图…": "Loading relationship graph…",
+    "知识关系图：点击实体查看关联，点击连线查看来源并确认结果。也可使用右侧和下方的文字列表。": "Knowledge graph: select an entity to explore its relationships, or a connection to review its source and confirm the result. Text lists are also available on the right and below.",
+    "关系与原文审核": "Review relationships and sources",
+    "点击一条连线查看关系、适用条件与原文依据；点击实体查看关联。": "Select a connection to review its relationship, applicable conditions, and source evidence. Select an entity to explore its relationships.",
+    "查看文字列表": "View text list",
+    "高级工具": "Advanced tools",
+    "高级：手动补充原文依据（可选）": "Advanced: Add source evidence manually (optional)",
+    "在上方选择一条关系，再粘贴手册原文中的连续片段。原文将用于检索与引用；保存后关系返回待核对状态。": "Select a relationship above and paste a continuous excerpt from the manual. It will be used for retrieval and citations. Saving returns the relationship to pending review.",
+    "请先在上方关系中点击「关联原文」": "Select “Link source text” on a relationship above first",
+    "连续原文": "Continuous source excerpt",
+    "保存原文依据": "Save source evidence",
+    "构建候选关系": "Build candidate relationships",
+    "上传到本库的 CSV/XLSX 会自动生成候选。缺少设备编号的行保留独立作用域，不自动合并同名部件。": "CSV/XLSX files uploaded to this library generate candidates automatically. Rows without equipment identifiers keep separate scopes; parts with the same name are not merged automatically.",
+    "补建本库候选": "Build missing candidates for this library",
+    "未归属数据集": "Unassigned dataset",
+    "归入本库并构建": "Assign to this library and build",
+    "当前节点内容较多，请使用状态或本次批次筛选继续查看。": "This node contains many entries. Filter by status or the current batch to continue.",
+    "命中切片 ·": "Matching passages ·",
+    "命中切片": "Matching passages",
+    "处": "matches",
+    "查看整个文档": "View full document",
+    "以上为本次检索命中的": "These are the",
+    "个切片 ·": "matching passages ·",
+    "查看整个文档（含高亮）": "View full document with highlights",
+    "你好，我是 EnGenie": "Hi, I'm EnGenie",
+    "需要我帮您查阅资料吗": "How can I help you explore your documents?",
+    "查找原文依据": "Find source evidence",
+    "定位要求与判断条件": "Locate requirements and decision criteria",
+    "分析追踪表": "Analyze tracker data",
+    "筛选历史、统计趋势与变化": "Filter history and analyze trends and changes",
+    "＋ 新建对话": "＋ New chat",
+    "删除此会话": "Delete this chat",
+    "删除会话": "Delete chat",
+    "还没有会话": "No chats yet",
+    "历史会话": "Chat history",
+    "EnGenie · 知识检索": "EnGenie · Knowledge search",
+    "代码分析沙箱状态": "Code analysis environment status",
+    "⬚ 沙箱准备中…": "⬚ Preparing analysis environment…",
+    "向 EnGenie 提问，查找工程知识与原文依据。": "Ask EnGenie to find engineering knowledge and source evidence.",
+    "发送": "Send",
+    "停止回答": "Stop response",
+    "Enter 发送 · Shift+Enter 换行": "Enter to send · Shift+Enter for a new line",
+    "✓ 沙箱就绪": "✓ Analysis environment ready",
+    "✗ 沙箱失败": "✗ Analysis environment unavailable",
+    "数据分析按需加载": "Data analysis loads when needed",
+    "PDF 导出失败：": "PDF export failed:",
+    "下载 WASM 运行时…（首次约 10MB）": "Downloading the WASM runtime… (about 10 MB on first use)",
+    "Pyodide 运行时下载失败（检查网络）": "Could not download the Pyodide runtime. Check your connection.",
+    "初始化 Pyodide…": "Initializing Pyodide…",
+    "加载 pandas/numpy/matplotlib…（约 40MB）": "Loading pandas, NumPy, and Matplotlib… (about 40 MB)",
+    "openpyxl 安装失败（沙箱仍可用，xlsx 读写受限）:": "Could not install openpyxl (analysis is still available, but XLSX support is limited):",
+    "⬚ 代码分析 · Pyodide 沙箱": "⬚ Code analysis · Pyodide environment",
+    "运行中…": "Running…",
+    "准备中…": "Preparing…",
+    "执行代码…": "Running code…",
+    "完成": "Done",
+    "（脚本无 print 输出）": "(The script produced no print output)",
+    "下载": "Download",
+    "导出 PDF": "Export PDF",
+    "失败": "Failed",
+    "正在思考 / 生成…": "Thinking / Generating…",
+    "新回答未读": "New unread answer",
+    "回答已完成，点击会话标为已读": "Answer complete. Select this chat to mark it as read.",
+    "已切换页面，回答仍在后台生成。": "You left the page, but the answer is still being generated in the background.",
+    "已请求停止回答。": "Stop requested.",
+    "token 用量统计": "Token usage",
+    "累计": "Cumulative",
+    "本会话内单次 LLM 调用的最大值。本地部署模型时，上下文窗口建议 ≥ 单次最大入 × 1.5~2": "Largest single model call in this chat. For local models, a context window of 1.5–2 times the largest input is recommended.",
+    "单次最大": "Largest call",
+    "入": "Input",
+    "出": "Output",
+    "新对话": "New chat",
+    "该会话": "this chat",
+    "」？此操作不可撤销。": "”? This cannot be undone.",
+    "删除失败": "Could not delete",
+    "删除失败：": "Could not delete:",
+    "会话": "Chat",
+    "后台生成中": "Generating in the background",
+    "此前的回答未完成，旧记录没有保存中断原因。": "The previous answer was incomplete. The older record did not save the reason.",
+    "已保留部分正文，不能作为完整结论。": "Partial text was saved, but it should not be treated as a complete conclusion.",
+    "尚未生成答案正文。": "No answer text has been generated yet.",
+    "请重试原问题。": "Please try the original question again.",
+    "（无历史消息）": "(No previous messages)",
+    "，正在重试…": "; retrying…",
+    "📎 来源出处": "📎 Sources",
+    "▦ 追踪表查询": "▦ Tracker query",
+    "追踪表数据库结果（发布前复核） ·": "Tracker database results (review before publication) ·",
+    "图谱原始依据": "Original graph evidence",
+    "查看已核对的关系与原始来源": "View the reviewed relationship and its original sources",
+    "证据定位": "Locate evidence",
+    "查看证据定位：": "Locate evidence:",
+    "查看本次检索命中的切片（": "View matching passages from this search (",
+    "个锚点）": "anchors)",
+    "命中图片": "Matching image",
+    "（来自": "(from",
+    "）· 点击看原图": ") · Select to view the original image",
+    "⚠ 本次未能形成已核实的结论": "⚠ A verified conclusion could not be produced",
+    "✓ 核心结论已核实 · 附带信息未核实：": "✓ Main conclusion verified · Additional information not verified:",
+    "✓ 结论已对照检索证据核实": "✓ Conclusion checked against retrieved evidence",
+    "本轮未完成": "This response is incomplete",
+    "正在恢复回答状态：": "Restoring response status:",
+    "· 刚刚": "· Just now",
+    "知识库视图": "Knowledge base view",
+    "按分类": "By category",
+    "按关联群": "By connected group",
+    "＋ 连接知识库": "＋ Connect knowledge bases",
+    "知识库关联群": "Connected knowledge base groups",
+    "连接你的知识": "Connect your knowledge",
+    "拖动气泡旁的圆点到另一个知识库，即可建立关联。备注可稍后补充。": "Drag the dot beside a knowledge base to another one to connect them. You can add a note later.",
+    "搜索库名或关系说明": "Search library names or relationship notes",
+    "搜索关联群": "Search connected groups",
+    "定位关联群": "Locate a connected group",
+    "知识库气泡画布，拖动圆点连线、拖动气泡移动；也可依次点击两个圆点连接": "Knowledge base canvas: drag dots to connect, drag bubbles to move, or select two dots in sequence to connect them",
+    "已有的知识库关联": "Existing knowledge base connections",
+    "画布工具": "Canvas tools",
+    "缩小画布": "Zoom out on canvas",
+    "缩小": "Zoom out",
+    "放大画布": "Zoom in on canvas",
+    "放大": "Zoom in",
+    "显示所有知识库": "Show all knowledge bases",
+    "全览": "Show all",
+    "重新排列气泡": "Rearrange bubbles",
+    "自动排列知识库": "Arrange knowledge bases automatically",
+    "排列": "Arrange",
+    "拖动圆点连线": "Drag a dot to connect",
+    "点击连线编辑 / 删除": "Select a connection to edit or delete",
+    "拖动空白处平移": "Drag empty space to pan",
+    "关联备注": "Connection note",
+    "连接知识库": "Connect knowledge bases",
+    "可以补充这两个知识库如何关联，帮助 EnGenie 更准确地查找资料；也可以直接保存。": "Optionally explain how these knowledge bases relate to help EnGenie find relevant information. You can also save without a note.",
+    "知识库 A": "Knowledge base A",
+    "知识库 B": "Knowledge base B",
+    "选填": "Optional",
+    "例如：维护手册说明设备限值，运行台账记录实际参数，可通过设备编号一起查看。": "For example: The maintenance manual defines equipment limits, while the operating log records actual values. Use the equipment ID to view them together.",
+    "保存关联": "Save connection",
+    "原文对象名：": "Object name in the source:",
+    "判定规则": "Decision rule",
+    "内容与取值": "Content and values",
+    "适用范围": "Applicable scope",
+    "条件与例外": "Conditions and exceptions",
+    "来源已变化，此内容不参与问答。": "The source has changed. This content is excluded from answers.",
+    "· 原文依据": "· Source evidence",
+    "· 查看原文圈注": "· View source annotations",
+    "确认此条内容": "Confirm this entry",
+    "拒绝此条内容": "Reject this entry",
+    "恢复待确认": "Return to pending review",
+    "EnGenie · 自动更新 · SHDR RAG": "EnGenie · Automatic updates · SHDR RAG",
+    "自动任务": "Automated tasks",
+    "对话随此任务保存。告诉 EnGenie 想调整什么，查看新样例并确认后更新任务。": "The conversation is saved with this task. Tell EnGenie what to change, then review and confirm a new sample to update the task.",
+    "告诉我数据在哪，剩下的我们一起完成。": "Tell me where your data is. We'll take it from there together.",
+    "清空历史对话和工具上下文，保留已批准脚本、凭据、定时任务和业务数据": "Clear chat history and tool context while keeping the approved script, credentials, schedule, and business data",
+    "清空上下文": "Clear context",
+    "新任务": "New task",
+    "自动采集 · 定时更新": "Automatic collection · Scheduled updates",
+    "发来数据页面或接口地址，告诉我要采集什么、多久更新一次。": "Send a webpage or API URL and tell me what to collect and how often to update it.",
+    "我会先试采并展示结果，等你确认后再启动自动更新。": "I'll collect a sample and show you the results. Automatic updates start only after you confirm.",
+    "每天更新开放时间": "Update opening hours daily",
+    "采集项目名称、开放时间与持续时长": "Collect attraction names, opening hours, and durations",
+    "定时同步设备状态": "Synchronize equipment status on a schedule",
+    "保留设备编号、温度与报警明细": "Keep equipment IDs, temperatures, and alarm details",
+    "告诉 EnGenie 要采集什么、多久更新一次…": "Tell EnGenie what to collect and how often to update it…",
+    "先查看样例，再确认启用 · Enter 发送，Shift+Enter 换行": "Review a sample, then confirm to enable · Enter to send, Shift+Enter for a new line",
+    "访问凭据（可选）": "Access credentials (optional)",
+    "在这里填写密钥，不要放进需求描述。系统保存后会自动用于 AI 验证和定时采集，无需配置服务器。": "Enter secrets here, not in the task description. After saving, they are used automatically for AI verification and scheduled collection, with no server setup required.",
+    "认证方式": "Authentication method",
+    "无需认证": "No authentication",
+    "Bearer Token（常见令牌）": "Bearer token",
+    "API Key（请求头）": "API key (request header)",
+    "用户名与密码（Basic）": "Username and password (Basic)",
+    "网页登录账号与密码": "Webpage login credentials",
+    "自定义请求头": "Custom request headers",
+    "使用已保存的认证": "Use saved authentication",
+    "在这里粘贴 Token，如 eyJhbGci…": "Paste the token here, for example eyJhbGci…",
+    "只需粘贴令牌；系统自动添加 Bearer 前缀，也接受包含 Bearer 的完整值。": "Paste only the token; the Bearer prefix is added automatically. Full values including Bearer are also accepted.",
+    "请求头名称": "Header name",
+    "按 API 手册填写，如 X-API-Key 或 api-key": "Use the name specified by the API documentation, such as X-API-Key or api-key",
+    "在这里粘贴 API Key": "Paste the API key here",
+    "手册写 X-API-Key: abc123 时，名称填 X-API-Key，值填 abc123。": "If the documentation says X-API-Key: abc123, enter X-API-Key as the name and abc123 as the value.",
+    "用户名": "Username",
+    "登录账号": "Login account",
+    "密码": "Password",
+    "登录密码": "Login password",
+    "网页登录由 agent 操作登录表单；Basic 模式按接口要求发送认证头。": "For webpage login, the agent fills in the login form. Basic authentication sends the headers required by the API.",
+    "按手册逐项填写，例如 Authorization → ApiKey abc123；支持多个认证请求头。": "Add each header as documented, for example Authorization → ApiKey abc123. Multiple authentication headers are supported.",
+    "＋ 添加请求头": "＋ Add header",
+    "凭据加密保存，不回显，也不写入模型提示词、生成日志或脚本。更换密钥时在这里重新填写并保存。": "Credentials are encrypted, never shown again, and excluded from model prompts, generated logs, and scripts. Enter and save a new value here to rotate a secret.",
+    "满足任一条件组（": "Match any condition group (",
+    "组）": "groups)",
+    "组合": "Combination",
+    "同时满足": "All conditions must match",
+    "关联判定依据": "Related decision evidence",
+    "适用条件与原文说明": "Applicable conditions and source notes",
+    "· 知识库管理": "· Knowledge base management",
+    "（无描述）": "(No description)",
+    "· 文档": "· Documents",
+    "· 向量块": "· Indexed passages",
+    "自动更新数据源": "Automatic update sources",
+    "追踪表": "Tracker",
+    "编辑": "Edit",
+    "描述（可选）": "Description (optional)",
+    "启用追踪表": "Enable tracker",
+    "名称用于按名称自动定位知识库；留空描述即清除": "The name helps locate this knowledge base automatically. Leave the description blank to clear it.",
+    "上传": "Upload",
+    "多选文件或拖入整个文件夹，入库进度会实时显示在下方列表。": "Select multiple files or drop an entire folder. Live processing progress appears in the list below.",
+    "点击选择文件": "Choose files",
+    "可按住 Shift/Cmd 多选，或把整个文件夹拖到这里 · PDF / Markdown / TXT / CSV / XLSX / 图片 JPG·PNG·WebP，业务表自动识别": "Hold Shift/Cmd to select multiple files, or drop an entire folder here · PDF / Markdown / TXT / CSV / XLSX / JPG · PNG · WebP. Business tables are detected automatically.",
+    "选择整个文件夹": "Choose a folder",
+    "图纸/扫描件类 PDF：OCR 文字少，整页视觉入库后可按自然语言搜到图纸页；普通文本手册无需开启": "For drawings or scanned PDFs with little OCR text, index full-page images to find drawing pages using natural language. Not needed for ordinary text manuals.",
+    "图纸 / 扫描件（整页视觉入库）": "Drawings / Scans (index full-page images)",
+    "开始上传": "Start upload",
+    "文档列表": "Documents",
+    "视图模式": "View mode",
+    "列表视图": "List view",
+    "☰ 列表": "☰ List",
+    "网格视图": "Grid view",
+    "▦ 网格": "▦ Grid",
+    "文件类型": "File type",
+    "查看文档（含插图）": "View document with illustrations",
+    "✓ 已完成": "✓ Completed",
+    "个片段": "passages",
+    "整页视觉入库：每页渲染成图入多模态向量库": "Full-page visual indexing: render each page as an image for multimodal search",
+    "视觉模式": "Visual mode",
+    "✗ 失败": "✗ Failed",
+    "⏳ 排队中": "⏳ Queued",
+    "重试（继续进度）": "Retry (resume progress)",
+    "更新文档描述（会展示给 AI 帮其判断文档相关性）": "Update the document description to help AI assess relevance",
+    "更新描述": "Update description",
+    "图纸/扫描件类 PDF 开启：每页渲染成图 + 页面文本锚定入多模态向量库，自然语言可搜到图纸页": "For drawings or scanned PDFs: index each page as an image with text anchors so pages can be found using natural language",
+    "关闭视觉模式": "Disable visual mode",
+    "开启视觉模式": "Enable visual mode",
+    "删除此文档及其向量": "Delete this document and its vectors",
+    "还没有文档，上传第一份吧。": "No documents yet. Upload your first file.",
+    "编辑文档描述": "Edit document description",
+    "会展示给 AI 帮其判断文档相关性；留空即清除": "Helps AI assess the document's relevance. Leave blank to clear.",
+    "描述已保存": "Description saved",
+    "描述已清除": "Description cleared",
+    "该文档": "this document",
+    "开启整页视觉入库": "Enable full-page visual indexing",
+    "开启": "Enable",
+    "为「": "For “",
+    "关闭整页视觉入库": "Disable full-page visual indexing",
+    "关闭": "Close",
+    "删除「": "Delete “",
+    "生成中…": "Generating…",
+    "关闭中…": "Disabling…",
+    "已开启视觉模式，页面向量后台生成中（完成后片段数自动更新）": "Visual mode enabled. Page vectors are being generated in the background; the passage count will update when complete.",
+    "已关闭视觉模式，整页向量已移除": "Visual mode disabled. Full-page vectors have been removed.",
+    "操作失败：": "Operation failed:",
+    "已选": "Selected",
+    "个文件": "files",
+    "跳过": "Skipped",
+    "个（不支持的类型或重复）": "(unsupported types or duplicates)",
+    "开始上传（": "Start upload (",
+    "个文件）": "files)",
+    "待上传": "Ready to upload",
+    "上传中…": "Uploading…",
+    "登录已过期，请刷新页面重新登录": "Your session expired. Refresh the page and sign in again.",
+    "上传失败": "Upload failed",
+    "已提交": "Submitted",
+    "删除文档": "Delete document",
+    "确定删除文档「": "Delete document “",
+    "删除中…": "Deleting…",
+    "· 追踪表": "· Tracker",
+    "原始记录": "Original records",
+    "条采集记录 · 展开查看明细": "collected records · Expand for details",
+    "追踪记录": "Tracker records",
+    "全量采集记录 · 分析筛选不改变原始数据": "All collected records · Analysis filters do not change the original data",
+    "已启用 · 新文档入库后自动登记": "Enabled · New documents are registered after indexing",
+    "未启用": "Not enabled",
+    "条": "records",
+    "份已完成文档待补录": "completed documents awaiting registration",
+    "停用": "Disabled",
+    "为库里已完成但未登记的文档排队抽取": "Queue extraction for completed documents that have not yet been registered",
+    "补录已有文档": "Register existing documents",
+    "导出 Excel": "Export Excel",
+    "时间": "Time",
+    "操作": "Actions",
+    "点击展开 / 收起完整字段值": "Expand / collapse the complete field values",
+    "趋势分析 ↗": "Trend analysis ↗",
+    "◆ 待确认": "◆ Review changes",
+    "抽取中": "Extracting",
+    "⏳ 待抽取": "⏳ Awaiting extraction",
+    "追踪字段在该文档登记后有过变更，可点「重试」按新字段补齐": "Tracker fields changed after this document was registered. Select Retry to fill in the new fields.",
+    "字段已变更": "Fields changed",
+    "确认变更": "Review changes",
+    "更新数据源": "Update source",
+    "重试": "Retry",
+    "删除追踪记录": "Delete tracker record",
+    "」的这条追踪记录？": "” from the tracker?",
+    "还没有追踪记录。在下方配置字段后，": "No tracker records yet. Configure fields below, then",
+    "点「补录已有文档」即可把库里": "select “Register existing documents” to register",
+    "份已完成文档登记进来；": "completed documents in this library.",
+    "之后新上传的文档会在入库完成时自动登记。": "New uploads will be registered automatically after indexing completes.",
+    "抽取配置": "Extraction settings",
+    "字段即表格列名；抽取由站点 LLM 完成，失败可重试": "Fields become table columns. Extraction uses the site's model and can be retried if it fails.",
+    "追踪字段（一行一个，最多 12 个，即表格列名）": "Tracker fields (one per line, up to 12; used as column names)",
+    "补充提示（可选，帮 AI 更准地抽取）": "Additional instructions (optional; helps AI extract more accurately)",
+    "保存配置": "Save settings",
+    "确认变更 ·": "Review changes ·",
+    "重抽后与已登记值有差异，请逐字段确认；空值→新值默认采纳，旧值→不同新值默认保留旧值": "Re-extraction produced different values. Review each field: new values for empty fields are selected by default; existing values are kept when a different value is proposed.",
+    "字段": "Field",
+    "当前值（改前）": "Current value",
+    "新值（改后）": "Proposed value",
+    "采纳新值": "Use new value",
+    "全部采纳新值": "Use all new values",
+    "确认": "Confirm",
+    "记录数据解析失败，请刷新页面": "Could not read this record. Refresh the page.",
+    "（空）": "(Empty)",
+    "搜索 · SHDR RAG": "Search · SHDR RAG",
+    "模糊搜索": "Fuzzy search",
+    "共": "Total",
+    "份文档": "documents",
+    "搜索": "Search",
+    "清除": "Clear",
+    "✓ 搜索结果 OK": "✓ Search results",
+    "文件名": "File name",
+    "知识库": "Knowledge base",
+    "匹配内容": "Matching content",
+    "查看": "View",
+    "未找到匹配结果，试试其他关键词。": "No matches found. Try different keywords.",
+    "输入关键词开始搜索。": "Enter keywords to search.",
+    "搜索中…": "Searching…",
+    "搜索失败：": "Search failed:",
+    "图谱实时生成过程": "Live graph generation",
+    "生成进度": "Generation progress",
+    "等待选择任务": "Waiting for a task",
+    "当前生成任务": "Current task",
+    "请选择任务": "Select a task",
+    "等待召回相关正文。": "Waiting for relevant passages.",
+    "本次已用模型调用次数": "Model calls used in this run",
+    "重试抽取": "Retry extraction",
+    "重试会创建新任务，保留原有候选；重新连接日志仅恢复进度显示。": "Retry creates a new task and keeps existing candidates. Reconnecting the log only restores progress updates.",
+    "查看生成过程和原始输出": "View generation activity and raw output",
+    "重新连接日志": "Reconnect log",
+    "跟随最新输出": "Follow latest output",
+    "生成候选后仍需您逐条核对确认。": "Review and confirm each generated candidate before use.",
+    "读取范围与用量": "Reading scope and usage",
+    "抽取阶段": "Extraction stage",
+    "召回正文": "Retrieve source passages",
+    "模型生成 / 读取邻文": "Model generation / Read nearby passages",
+    "结构与原文校验": "Validate structure and source evidence",
+    "待您确认": "Awaiting your review",
+    "读取与校验活动": "Reading and validation activity",
+    "模型实时输出": "Live model output",
+    "未审核": "Not reviewed",
+    "模型公开文本输出": "Model text output",
+    "开始生成后，模型返回的文本会逐步显示在这里。": "The model's output will appear here as generation progresses.",
+    "本次通过结构与引文检查的候选": "Candidates that passed structure and citation checks in this run",
+    "条 · 仍待人工确认": "entries · Still awaiting manual review",
+    "站点配置 · SHDR RAG": "Site settings · SHDR RAG",
+    "站点配置": "Site settings",
+    "模型、向量、重排与 OCR 服务的连接配置，编辑后即时生效。": "Configure connections to the answer model, embeddings, reranking, and OCR services. Saved changes take effect immediately.",
+    "测试当前已保存配置；结果仅代表本次检测，不代表模型一直运行。健康检查不会标为推理成功。": "Test the currently saved settings. Results reflect this test only, not continuous availability. A health check alone does not confirm successful inference.",
+    "一键全部测试": "Test all services",
+    "允许全部远程／局域网 API": "Allow all remote / local-network APIs",
+    "已开启": "Enabled",
+    "已关闭": "Disabled",
+    "点击即保存，支持 HTTP / HTTPS。开启后，LLM、向量、重排和 MinerU 可调用各自配置的远程地址，问题、资料片段或原文件会发送给对应服务。关闭后恢复 LLM 独立开关，其他服务恢复本机限制。": "Changes are saved immediately. Supports HTTP / HTTPS. When enabled, the answer model, embeddings, reranker, and MinerU can use their configured remote addresses; questions, source passages, or original files are sent to the corresponding service. When disabled, the answer model uses its own permission setting, and other services are limited to this computer.",
+    "服务配置": "Service settings",
+    "编辑后即时生效": "Changes take effect immediately",
+    "LLM 大模型": "Answer model",
+    "· 温度": "· Temperature",
+    "· 视觉": "· Vision",
+    "· 规划+核实": "· Planning + Verification",
+    "由页面顶部全部 API 总开关控制": "Controlled by the all-API permission switch at the top of this page",
+    "由顶部总开关开启": "Enabled by the switch above",
+    "远程／局域网 API：": "Remote / local-network API:",
+    "已开启 · 点击关闭": "Enabled · Select to disable",
+    "已关闭 · 点击开启": "Disabled · Select to enable",
+    "点击即保存；支持 HTTP / HTTPS。开启后，问题、历史和检索资料会发送到上方配置的服务。地址、密钥与模型请点「编辑」。": "Saved immediately; supports HTTP / HTTPS. When enabled, questions, chat history, and retrieved material are sent to the configured service. Select Edit to change the URL, key, or model.",
+    "配置：": "Configuration:",
+    "自定义": "Custom",
+    "测试": "Test",
+    "切换到已保存的配置": "Switch to a saved configuration",
+    "＋ 创建新配置…": "＋ New configuration…",
+    "删除当前配置": "Delete current configuration",
+    "向量模型": "Embedding model",
+    "换模型后需重建索引": "Rebuild the index after changing models",
+    "维": "dimensions",
+    "检索参数": "Retrieval settings",
+    "分块": "Chunk size",
+    "· 重叠": "· Overlap",
+    "· 自动识别 4.0 / 4.1": "· Automatically detects 4.0 / 4.1",
+    "重排序 Rerank": "Reranking",
+    "连接测试": "Connection tests",
+    "已保存配置": "Saved configuration",
+    "编辑配置": "Edit settings",
+    "配置名称": "Configuration name",
+    "安全提示": "Security notice",
+    "明文存储": "Plain-text storage",
+    "API 密钥以": "API keys are stored as",
+    "明文": "plain text",
+    "存储于数据库，敏感度等同于": "in the database and are as sensitive as the",
+    "文件。请确保数据库访问受控，并定期轮换密钥。": "file. Restrict database access and rotate keys regularly.",
+    "编辑 LLM 配置": "Edit answer model settings",
+    "允许远程回答 API": "Allow remote answer API",
+    "默认关闭。开启后，问题、历史对话、检索原文及启用视觉时的图片会发送到所填服务。仅支持 OpenAI 兼容的 Chat Completions API；向量、重排和 OCR 配置保持独立。": "Off by default. When enabled, questions, chat history, retrieved source text, and images (if vision is enabled) are sent to this service. Requires an OpenAI-compatible Chat Completions API. Embedding, reranking, and OCR settings remain independent.",
+    "API Base URL（支持 http:// 和 https://）": "API base URL (http:// or https://)",
+    "模型": "Model",
+    "温度": "Temperature",
+    "支持图片输入（视觉）": "Supports image input (vision)",
+    "开启后，检索命中图片时把图片本体发给模型": "Send matching images to the model when image evidence is retrieved",
+    "问答管线增强（规划 + 核实）": "Enhanced Q&A (planning + verification)",
+    "回答前先做问题理解，回答后对照检索证据核实，未核实拒答；每问多两次 LLM 调用": "Interpret the question before answering, then verify the answer against retrieved evidence. Unverified answers are withheld. Adds two model calls per question.",
+    "编辑向量模型配置": "Edit embedding settings",
+    "本地 WeMM / EmbeddingGemma 2 填对应模型名；Gemma 维度为 128、256、512 或 768": "For local WeMM / EmbeddingGemma 2, enter its model name. Gemma supports 128, 256, 512, or 768 dimensions.",
+    "维度": "Dimensions",
+    "编辑检索参数": "Edit retrieval settings",
+    "分块大小": "Chunk size",
+    "分块重叠": "Chunk overlap",
+    "编辑重排序配置": "Edit reranking settings",
+    "启用重排序": "Enable reranking",
+    "混合召回后用 cross-encoder 精排": "Rerank hybrid search results with a cross-encoder",
+    "如 https://api.siliconflow.cn/v1 或本地服务": "For example, https://api.siliconflow.cn/v1 or a local service",
+    "本地服务可留空；SiliconFlow 可复用向量模型的 Key": "Leave blank for local services. SiliconFlow can reuse the embedding API key.",
+    "如 BAAI/bge-reranker-v2-m3": "For example, BAAI/bge-reranker-v2-m3",
+    "编辑 MinerU OCR 配置": "Edit MinerU OCR settings",
+    "服务根地址，如 http://127.0.0.1:8888。支持 MinerU 4.0.x（File API）与 4.1.x（Tasks API），按版本号自动识别": "Service root URL, such as http://127.0.0.1:8888. Supports MinerU 4.0.x (File API) and 4.1.x (Tasks API), detected from the version number.",
+    "服务未开鉴权时留空": "Leave blank if the service does not require authentication",
+    "解析档位 flash / basic / standard / advanced，留空为 standard；旧值 pipeline→standard、vlm→flash": "Parsing level: flash / basic / standard / advanced. Defaults to standard. Legacy values map pipeline → standard and vlm → flash.",
+    "语言": "Language",
+    "已废弃：4.x 不再接收语言参数，留空即可": "Deprecated: version 4.x no longer accepts a language parameter. Leave blank.",
+    "重排序": "Reranking",
+    "创建新配置": "Create configuration",
+    "登录已过期或当前账号无权限，请用管理员账号重新登录": "Your session expired or you do not have permission. Sign in with an administrator account.",
+    "操作失败": "Operation failed",
+    "请填写配置名称。": "Enter a configuration name.",
+    "测试中…（使用已保存配置）": "Testing saved settings…",
+    "：测试中…": ": Testing…",
+    "：请求失败": ": Request failed",
+    "(无结果)": "(No results)",
+    "检测完成：": "Test complete:",
+    "删除配置": "Delete configuration",
+    "删除配置「": "Delete configuration “",
+    "切换失败：": "Could not switch:",
+    "本次关注：": "Topic:",
+    "· 设备范围：": "· Equipment scope:",
+    "· 适用范围以原文及条件为准": "· Refer to the source and conditions for applicability",
+    "· 核对于": "· Reviewed on",
+    "原始来源已变更或失效，此关系不参与检索。": "The original source has changed or is no longer available. This relationship is excluded from retrieval.",
+    "· 第": "· Row",
+    "行": "row",
+    "· 手册原文": "· Manual source text",
+    "（已失效）": "(No longer valid)",
+    "暂无页码定位，可查看下方原文文本。": "Page positioning is unavailable. See the source excerpt below.",
+    "查看原文": "View source",
+    "确认此结果（核对通过）": "Confirm this result (review passed)",
+    "设为待核对": "Mark for review",
+    "拒绝": "Reject",
+    "关联原文": "Link source text",
+    "综合关联搜索 · SHDR RAG": "Integrated search · SHDR RAG",
+    "综合关联搜索": "Integrated search",
+    "同时检索业务表、手册原文、语义与图片；输入图纸号、部件号、设备号或自然语言描述。": "Search business tables, manual text, semantic matches, and images together. Enter a drawing, part, or equipment number, or describe what you need.",
+    "规则匹配 + 语义检索": "Rule matching + Semantic search",
+    "图纸号、部件号、设备号，或用一句话描述要找的内容": "Drawing, part, or equipment number, or a description of what you need",
+    "综合搜索": "Integrated search",
+    "已找到「": "Results for “",
+    "」的综合结果": "”",
+    "未找到「": "No results for “",
+    "在导入的业务表格（图纸号 / 部件号 / G-code / 设备 / APEX）里，搜索词直接匹配到的行": "Rows directly matching your search in imported business tables (drawing number / part number / G-code / equipment / APEX)",
+    "业务表": "Business tables",
+    "沿 图纸号↔部件↔设备↔APEX↔停机记录 的关系链扩展出的相关行（含上面的直接命中）": "Related rows found through drawing ↔ part ↔ equipment ↔ APEX ↔ downtime relationships, including direct matches above",
+    "含关联": "Including related records",
+    "在手册 / PDF 正文里逐行查找你输入的原文（纯字面匹配，不懂同义词）": "Find your exact words in manual / PDF text (literal matching; synonyms are not included)",
+    "手册原文": "Manual source text",
+    "按意思找（向量+重排）：懂自然语言描述的手册正文命中": "Search by meaning (vectors + reranking): find manual passages from a natural-language description",
+    "语义": "Semantic",
+    "多模态向量独立召回的文档图片（图纸等），按相关度最多展示 8 张": "Document images, such as drawings, retrieved independently using multimodal vectors. Up to 8 are shown by relevance.",
+    "图片": "Images",
+    "使用了部分匹配": "Partial matching was used",
+    "关联路径": "Relationship path",
+    "（仅显示前 100 条）": "(First 100 shown)",
+    "第": "No.",
+    "部件号": "Part number",
+    "部件": "Part",
+    "设备": "Equipment",
+    "查看原始行全部字段": "View all fields in the original row",
+    "手册原文命中": "Manual text matches",
+    "：点击在原 PDF 中定位": ": Locate in the original PDF",
+    "语义命中": "Semantic matches",
+    "条 · 按意思找": "results · Search by meaning",
+    "重排序模型给出的匹配度": "Relevance score from the reranking model",
+    "📍 证据定位": "📍 Locate evidence",
+    "查看切片上下文": "View passage context",
+    "图片命中": "Image matches",
+    "张 · 最多 8 张": "images · Up to 8 shown",
+    "· 点击查看原图": "· Select to view original image",
+    "图片命中：": "Matching image:",
+    "图文向量相似度（与文本栏的重排序匹配度口径不同）": "Image-text vector similarity (not directly comparable to text reranking scores)",
+    "在原 PDF 中定位此图": "Locate this image in the original PDF",
+    "📍 定位": "📍 Locate",
+    "没有匹配记录。请检查关键词，或确认业务表已识别出图纸号、部件号、G-code、设备号、APEX 等关联列。": "No matching records. Check your keywords or confirm that drawing number, part number, G-code, equipment number, and APEX columns were recognized in the business tables.",
+    "需要上传或更新资料？": "Need to upload or update source material?",
+    "手册和所有 CSV/XLSX 业务数据现已统一到资料上传中心。": "Manuals and all CSV/XLSX business data are now managed in the document upload center.",
+    "前往资料上传中心": "Go to document upload center",
+    "请联系管理员上传": "Ask an administrator to upload",
+    "当前数据集": "Current datasets",
+    "个": "items",
+    "识别：": "Recognized:",
+    "无标准关联列": "No standard relationship columns",
+    "尚未导入结构化数据。": "No structured data imported yet.",
+    "EnGenie，工程知识助手": "EnGenie, your engineering knowledge assistant",
+    "查找工程资料、对比参数与要求，或分析追踪表数据。浏览工作台时，随时从右下角继续对话。": "Find engineering references, compare parameters and requirements, or analyze tracker data. Continue your conversation from the bottom-right corner while browsing.",
+    "继续对话": "Continue chat",
+    "浏览与搜索资料": "Browse and search documents",
+    "知识内容与原文依据": "Knowledge and source evidence",
+    "已确认的知识内容": "Confirmed knowledge",
+    "每条内容都附有原文依据，可点击查看出处。": "Each entry includes source evidence. Select it to view the reference.",
+    "编号对应多个实体，请同时提供设备编号或缩小知识库范围。未自动选择实体。": "This identifier matches multiple entities. Provide an equipment number or narrow the knowledge base scope. No entity was selected automatically.",
+    "结果达到上限，请缩小查询范围；当前列表不是完整清单。": "The result limit was reached. Narrow your search; this list is not complete.",
+    "关联依据 · 已核对路径": "Relationship evidence · Reviewed path",
+    "暂无符合条件的关系。可点击「自动构建」从现有文档提取，或上传新资料自动生成候选。": "No relationships match. Use automatic extraction on existing documents, or upload new material to generate candidates.",
+    "自动抽取进度": "Automatic extraction progress",
+    "批 · 新增": "batches · Added",
+    "条候选": "candidates",
+    "· 正文已检查": "· Source passages checked",
+    "段": "passages",
+    "条未通过原文检查": "entries failed source verification",
+    "本范围没有可绘制的有效数值。": "There are no valid numeric values to plot in this range.",
+    "记录已删除或无权访问，请选择其他采集对象。": "This record was deleted or is no longer accessible. Select another collected item.",
+    "每行汇总一个采集周期，比较样本统计与取值变化。": "Each row summarizes one collection period for comparing sample statistics and value changes.",
+    "文本和状态按出现频次分析，展示最常见的 8 个取值。": "Text and status values are grouped by frequency. The 8 most common values are shown.",
+    "按周期汇总；悬停或聚焦数据点查看数值与样本数。": "Summarized by period. Hover over or focus a point to see its value and sample count.",
+    "当前仅一次采集，后续采集会增加趋势点。": "Only one collection is available. Future collections will add trend points.",
+    "采集周期": "Collection period",
+    "有值 / 总样本": "Non-empty / Total samples",
+    "取值变化次数": "Value changes",
+    "有效 / 总样本": "Valid / Total samples",
+    "较上一有值周期": "Change from previous non-empty period",
+    "同一数据源与稳定 ID 的采集记录合并分析；时间以采集批次为准，旧记录回退到保存的采集时间。": "Records from the same source with the same stable ID are analyzed together. Time is based on the collection batch, falling back to the saved collection time for older records.",
+    "变化次数按相邻有值采样的原始取值比较；空值不算变化。": "Changes compare consecutive non-empty sample values. Empty values do not count as changes.",
+    "时刻按 00:00–23:59 线性统计，不代表跨午夜时长；时长请选对应的派生参数。": "Clock times use a linear 00:00–23:59 scale, not durations across midnight. Select a derived duration parameter to analyze elapsed time.",
+    "当前任务使用覆盖更新，覆盖前未保存的历史无法还原；保留的历史快照仍参与分析。": "This task replaces current records. History not saved before replacement cannot be reconstructed; retained snapshots are still included in the analysis.",
+    "请调整时间范围": "Adjust the time range",
+    "开始时间不能晚于结束时间。": "The start time must not be later than the end time.",
+    "正在计算分析…": "Calculating analysis…",
+    "分析未完成": "Analysis incomplete",
+    "指定采集对象": "Select a collected item",
+    "还没有可分析的业务参数。请先完成采集，或在任务中保留所需参数。": "No business parameters are available for analysis. Complete a collection first, or include the required parameters in the task.",
+    "还没有已完成的采集数据。": "No completed collection data yet.",
+    "暂无分析数据": "No analysis data",
+    "所选采集对象": "Selected collected item",
+    "更新中": "Updating",
+    "已完成": "Completed",
+    "手动": "Manual",
+    "定时": "Scheduled",
+    "脚本推送": "Script push",
+    "本地导入": "Local import",
+    "会话已失效，请重新登录。": "Your session expired. Sign in again.",
+    "操作失败。": "Operation failed.",
+    "请求超时，请稍后重试。": "The request timed out. Try again later.",
+    "暂无自动任务。点击「用 EnGenie 创建自动任务」，提供网页或 API 地址即可开始。": "No automated tasks yet. Select “Create an automated task with EnGenie” and provide a webpage or API URL to get started.",
+    "定时采集 ·": "Scheduled collection ·",
+    "已启用": "Enabled",
+    "已暂停": "Paused",
+    "覆盖相同 ID": "Replace matching IDs",
+    "追加保留历史": "Append and retain history",
+    "下次运行：": "Next run:",
+    "与 EnGenie 调整任务": "Adjust task with EnGenie",
+    "立即更新": "Update now",
+    "生成／轮换推送令牌": "Generate / Rotate push token",
+    "暂停后续更新": "Pause future updates",
+    "启用更新": "Enable updates",
+    "运行记录（最近10次）": "Run history (last 10)",
+    "开始时间": "Start time",
+    "触发": "Trigger",
+    "新增／更新／删除／未变化": "Added / Updated / Deleted / Unchanged",
+    "错误": "Error",
+    "条记录格式变化，已保留原文，请查看追踪表的采集提示。": "records changed format. Their original content was retained; see collection notices in the tracker.",
+    "调度服务运行正常，已启用的数据源将按计划更新。": "The scheduler is running. Enabled sources will update on schedule.",
+    "调度服务最近未响应，请联系管理员检查。现有数据仍可查看，也可手动更新。": "The scheduler has not responded recently. Ask an administrator to check it. Existing data remains available, and you can update manually.",
+    "当前仅显示最近100个数据源，请按资料集合筛选。": "Only the latest 100 sources are shown. Filter by collection to narrow the list.",
+    "网页来源地址": "Source webpage URL",
+    "此来源使用 EnGenie 已试采的网页操作步骤。要调整采集内容，请与 EnGenie 对话并查看新样例。": "This source uses webpage steps already tested by EnGenie. To change the collected data, chat with EnGenie and review a new sample.",
+    "编辑数据源": "Edit data source",
+    "已停止接收页面数据；后台任务状态可恢复。": "Stopped receiving page updates. The background task's status can be restored.",
+    "服务超过 45 秒没有响应；正在恢复后台回答状态。": "The service has not responded for over 45 seconds. Restoring the background response status.",
+    "页面连接等待时间过长，正在恢复后台回答状态。": "The page connection has waited too long. Restoring the background response status.",
+    "请求失败（HTTP": "Request failed (HTTP",
+    "），本次回答未完成。": "). This answer is incomplete.",
+    "未收到问答数据流，请确认登录状态后重试。": "No answer stream was received. Check that you are signed in and try again.",
+    "服务未返回数据流，本次回答未完成。": "The service did not return a data stream. This answer is incomplete.",
+    "连接在回答完成前中断；已显示的内容可能不完整，请重试。": "The connection closed before the answer finished. The displayed content may be incomplete; try again.",
+    "问答数据不完整，请重新提问。": "The answer data is incomplete. Ask your question again.",
+    "服务返回错误，本次回答未完成。": "The service returned an error. This answer is incomplete.",
+    "排队中": "Queued",
+    "正在生成": "Generating",
+    "已完成 · 待人工确认": "Completed · Awaiting manual review",
+    "抽取失败": "Extraction failed",
+    "轮模型请求 · 已等待": "model calls · Waited",
+    "秒": "seconds",
+    "本次抽取未完成，已保存的候选保留。": "This extraction did not complete. Saved candidates have been retained.",
+    "已读取": "Read",
+    "段 · 模型调用": "passages · Model calls",
+    "次 · 补查": "calls · Follow-up searches",
+    "次": "calls",
+    "按关注主题召回，再按需补读邻文；本次读取范围不代表全文覆盖。": "Retrieves passages by topic and reads nearby content as needed. The reading scope does not imply full-document coverage.",
+    "服务端已回报": "Server reported",
+    "轮用量：输入": "calls of usage: input",
+    "、输出": ", output",
+    "服务端未回报 token 用量；已记录实际调用次数和累计输入、输出字符数。": "The server did not report token usage. Actual call counts and total input/output characters were recorded.",
+    "累计输入": "Total input",
+    "字符 · 输出": "characters · Output",
+    "字符。": "characters.",
+    "此任务未记录读取范围。": "No reading scope was recorded for this task.",
+    "已检查": "Checked",
+    "段 · 完成": "passages · Completed",
+    "批": "batches",
+    "已检查正文片段": "Checked source passages",
+    "等待检查": "Awaiting review",
+    "正在抽取 / 查漏": "Extracting / Checking for omissions",
+    "已抽取并查漏": "Extracted and checked for omissions",
+    "未完成": "Incomplete",
+    "批 ·": "batches ·",
+    "达到本次预算": "Run budget reached",
+    "抽取未完成": "Extraction incomplete",
+    "· 已保存": "· Saved",
+    "主题抽取已结束 · 待人工确认": "Topic extraction finished · Awaiting manual review",
+    "未全部完成 · 已保存": "Partially completed · Saved",
+    "全篇扫描与查漏完成 · 待人工确认": "Full-document scan and omission check complete · Awaiting manual review",
+    "正文片段": "Source passages",
+    "正在按需读取原文…": "Reading source text as needed…",
+    "—— 第": "—— Model output, round",
+    "轮模型输出 ——\\n": "——\\n",
+    "这是模型返回的原始文本，尚未人工确认。": "This is raw model output and has not been reviewed.",
+    "浏览器不支持实时连接，请查看下方任务进度。": "Your browser does not support live connections. Check the task progress below.",
+    "正在连接…": "Connecting…",
+    "· 关注：": "· Topic:",
+    "旧版全书抽取": "Legacy full-document extraction",
+    "此任务没有保存实时输出；升级前的任务仅保留抽取结果。": "Live output was not saved for this task. Tasks created before the upgrade retain extraction results only.",
+    "模型未返回公开文本输出。请查看左侧工具活动与任务状态。": "The model returned no text output. Check tool activity and task status on the left.",
+    "无法读取此任务，请检查登录状态及权限。": "Could not read this task. Check your sign-in status and permissions.",
+    "日志连接中断，正在重连；后台任务独立运行。": "The log connection was interrupted. Reconnecting; the background task continues independently.",
+    "正在加载本次读取范围…": "Loading the reading scope for this run…",
+    "正在等待模型输出…": "Waiting for model output…",
+    "生成任务后，可在这里查看模型输出和读取、校验活动。": "After starting a task, model output and reading/validation activity will appear here.",
+    "暂无抽取任务": "No extraction tasks yet",
+    "理解问题": "Understand the question",
+    "检索资料": "Retrieve source material",
+    "生成回答": "Generate answer",
+    "核对答案": "Verify answer",
+    "查看知识库": "Browse knowledge bases",
+    "查看知识库关联": "View knowledge base connections",
+    "查询已确认事实": "Query confirmed facts",
+    "检索知识库": "Search knowledge bases",
+    "读取原文片段": "Read source passages",
+    "选择引用依据": "Select citation evidence",
+    "查找图片": "Find images",
+    "查找文档内容": "Find document content",
+    "读取相邻片段": "Read nearby passages",
+    "查询追踪数据": "Query tracker data",
+    "生成分析": "Generate analysis",
+    "等待分析结果": "Wait for analysis results",
+    "准备表格导出": "Prepare table export",
+    "正在准备回答": "Preparing an answer",
+    "正在处理": "Processing",
+    "答案核对未通过": "Answer verification failed",
+    "正在生成回答": "Generating an answer",
+    "执行工具": "Run tool",
+    "正在执行…": "Running…",
+    "执行完成": "Tool completed",
+    "执行完成，请留意结果": "Tool completed; review the result",
+    "执行未完成": "Tool did not complete",
+    "正在整理结果": "Organizing results",
+    "回答完成": "Answer complete",
+    "已停止回答": "Response stopped",
+    "本轮已结束，工具未返回完成结果": "This turn ended without a completed tool result",
+    "本轮已中断，工具未返回完成结果": "This turn was interrupted without a completed tool result",
+    "工具活动 ·": "Tool activity ·",
+    "次调用": "calls",
+    "会话状态读取失败": "Could not read chat status",
+    "拖动圆点连线，也可依次点击两个圆点": "Drag a dot to connect, or select two dots in sequence",
+    "编辑关联备注": "Edit connection note",
+    "删除这条关联": "Delete this connection",
+    "拖动圆点连接其他知识库。": "Drag a dot to connect another knowledge base.",
+    "打开知识库": "Open knowledge base",
+    "连接…": "Connect…",
+    "检查项目": "Inspection item",
+    "标准": "Standard",
+    "条款": "Clause",
+    "参数": "Parameter",
+    "缺陷": "Defect",
+    "材料": "Material",
+    "图纸": "Drawing",
+    "人员": "Personnel",
+    "要求": "Requirement",
+    "概念": "Concept",
+    "关系已移除或当前范围无权访问。": "This relationship was removed or is not accessible in the current scope.",
+    "加载失败，请重试。": "Could not load. Try again.",
+    "个实体 ·": "entities ·",
+    "条关系": "relationships",
+    "（当前筛选共有": "(Current filter has",
+    "条）": "relationships)",
+    "正在加载关系与原文…": "Loading relationships and source evidence…",
+    "展开相邻关系": "Expand neighboring relationships",
+    "当前显示": "Currently showing",
+    "条关联。点击下方关系查看原文并确认。": "relationships. Select one below to review its source and confirm it.",
+    "暂无可显示的关系。选择资料并输入一个关注方面，生成待确认结果。": "No relationships to display. Select source material and enter a topic to generate candidates for review.",
+    "图形组件未加载，可使用下方文字列表查看与确认。": "The graph component could not load. Use the text list below to review and confirm results.",
+    "正在读取相邻关系…": "Loading neighboring relationships…",
+    "当前视图关系较多，请按批次或关键词缩小范围。": "There are many relationships in this view. Narrow it by batch or keyword.",
+    "该实体的关联超过显示上限，请缩小范围。": "This entity has more relationships than can be displayed. Narrow the scope.",
+    "已展开当前范围内的相邻关系。": "Neighboring relationships in the current scope are expanded.",
+    "当前页显示 100 条关系，可点击「下一页关系」继续查看；显示分页不限制生成总量。": "Showing 100 relationships on this page. Select “Next relationships” to continue. Pagination does not limit the number generated.",
+    "拖动画布、滚轮缩放。点击实体展开关联，点击连线查看原文并逐条确认。": "Drag to pan; scroll to zoom. Select an entity to expand its relationships, or a connection to review its source and confirm it.",
+    "点击实体或连线查看关系及来源。": "Select an entity or connection to view relationships and sources.",
+    "EnGenie 正在回答，点击打开": "EnGenie is answering. Select to open.",
+    "EnGenie 有新回答，点击打开": "EnGenie has a new answer. Select to open.",
+    "正在回答…": "Answering…",
+    "有一条新回答": "New answer available",
+    "恢复紧凑聊天面板": "Restore compact chat panel",
+    "EnGenie 工程助手对话": "EnGenie engineering assistant chat",
+    "对话暂时无法打开，请检查登录状态。": "Chat is temporarily unavailable. Check that you are signed in.",
+    "对话加载失败，请重新打开。": "Could not load the chat. Open it again.",
+    "原文面板加载失败": "Could not load the source panel",
+    "EnGenie 已完成回答": "EnGenie has finished answering",
+    "打开网页": "Open webpage",
+    "观察页面结构": "Inspect page structure",
+    "操作网页": "Interact with webpage",
+    "检查网络数据": "Inspect network data",
+    "读取接口响应": "Read API response",
+    "提取页面字段": "Extract page fields",
+    "重放脚本并试采": "Replay steps and test collection",
+    "测试接口数据": "Test API data",
+    "搜索文档": "Search documentation",
+    "阅读文档": "Read documentation",
+    "检查采集环境": "Check collection environment",
+    "验证数据格式": "Validate data format",
+    "展示真实样例": "Show real samples",
+    "分": "minutes",
+    "模型第": "Model round",
+    "轮": "round",
+    "准备与通知": "Preparation and notifications",
+    "清洗 DOM": "Clean DOM",
+    "正在执行": "Running",
+    "等待你的审核": "Awaiting your review",
+    "需要补充信息": "More information needed",
+    "已停止": "Stopped",
+    "已有新版": "Newer version available",
+    "历史任务未记录": "Not recorded for this older task",
+    "服务未上报": "Not reported by the service",
+    "等待模型响应…": "Waiting for the model…",
+    "执行中": "In progress",
+    "已验证的试采画面": "Verified collection preview",
+    "DOM + 截图待发送": "DOM + Screenshot ready to send",
+    "网页截图 · 本轮已结束": "Webpage screenshot · This turn has ended",
+    "模型已接收 DOM + 截图": "The model received the DOM + Screenshot",
+    "任务已结束": "Task ended",
+    "字": "characters",
+    "向 EnGenie 提问…": "Ask EnGenie…",
+    "向 EnGenie 提问": "Ask EnGenie",
+    "读取会话失败（HTTP": "Could not load chat (HTTP",
+    "停止失败（HTTP": "Could not stop (HTTP",
+    "内容不存在或访问权限已变化。": "This content no longer exists or your permissions have changed.",
+    "读取层级内容超时，请重新选择节点或刷新结果；后台抽取不受影响。": "Loading the hierarchy timed out. Reselect a node or refresh the results; background extraction continues.",
+    "展开下级，选择具体内容查看取值、条件和原文。": "Expand the hierarchy and select an entry to view its value, conditions, and source.",
+    "正在读取内容与原文…": "Loading content and source evidence…",
+    "个对象 · 当前对象": "objects · Current object",
+    "条内容": "entries",
+    "当前显示达到上限，请通过状态、关键词或本次结果缩小范围。": "The display limit was reached. Narrow the results by status, keyword, or this extraction.",
+    "· 跨提示累计的对象知识": "· Object knowledge accumulated across prompts",
+    "尚无层级内容。选择资料并输入关注方面，AI 会按对象、属性和子参数生成候选。": "No hierarchical knowledge yet. Select source material and enter a topic. AI will generate object, property, and subparameter candidates.",
+    "每条候选确认后才用于问答。": "Each candidate is used in answers only after confirmation.",
+    "展开属性和分类项，点击具体内容查看取值、适用条件与原文。": "Expand properties and categories, then select an entry to view values, applicable conditions, and source text.",
+    "审核未保存。": "Review was not saved.",
+    "审核请求超时，请刷新结果核对保存状态。": "The review request timed out. Refresh the results to check whether it was saved.",
+    "请求头名称，例如 Authorization": "Header name, for example Authorization",
+    "请求头值，例如 ApiKey abc123": "Header value, for example ApiKey abc123",
+    "请求头值": "Header value",
+    "移除": "Remove",
+    "正在加载…": "Loading…",
+    "读取进度超时，稍后自动重试；后台抽取不受影响。": "Loading progress timed out. Retrying shortly; background extraction continues.",
+    "请先选择一条关系。": "Select a relationship first.",
+    "保存失败，请检查登录状态或权限。": "Could not save. Check your sign-in status and permissions.",
+    "保存失败。": "Could not save.",
+    "提交结果暂未确认，正在重新读取任务状态。": "Submission is not yet confirmed. Checking the task status again.",
+    "正在加载资料…": "Loading source material…",
+    "资料加载失败。": "Could not load source material.",
+    "关系 #": "Relationship #",
+    "关联不存在或没有管理权限，请重新选择。": "This connection no longer exists or you do not have permission to manage it. Select another.",
+    "读取知识库关联失败，请重试。": "Could not load knowledge base connections. Try again.",
+    "未添加备注 · 点击补充": "No note yet · Select to add one",
+    "还没有知识库，创建后即可建立关联。": "No knowledge bases yet. Create them before adding connections.",
+    "没有匹配的知识库或关系说明。": "No matching knowledge bases or relationship notes.",
+    "正在读取关联…": "Loading connections…",
+    "保存备注": "Save note",
+    "至少需要两个知识库才能建立关联。": "At least two knowledge bases are required to create a connection.",
+    "删除知识库关联": "Delete knowledge base connection",
+    "删除后，EnGenie 将不再通过这条关系联想到另一知识库。知识库内容保留。": "EnGenie will no longer use this connection to find the other knowledge base. The knowledge base content is retained.",
+    "删除关联": "Delete connection",
+    "删除这条知识库关联？": "Delete this knowledge base connection?",
+    "关联已删除": "Connection deleted",
+    "知识库关联已保存": "Knowledge base connection saved",
+    "画布加载失败，请刷新页面重试。": "Could not load the canvas. Refresh the page and try again.",
+    "采集日期": "Collection date",
+    "请求失败，请重试。": "Request failed. Try again.",
+    "按自定义时间计划": "Custom schedule",
+    "每分钟": "Every minute",
+    "每": "Every",
+    "分钟": "minutes",
+    "正在采集与验证真实数据…": "Collecting and validating real data…",
+    "样例已就绪，等待你确认": "Sample ready; awaiting your confirmation",
+    "需要你补充信息": "More information is needed from you",
+    "已启用自动更新": "Automatic updates enabled",
+    "正在启用…": "Enabling…",
+    "此预览已有新版": "A newer preview is available",
+    "上下文已清空，请重新打开脚本编辑": "Context cleared. Reopen the script editor.",
+    "进行中": "In progress",
+    "已结束": "Finished",
+    "✓ 数据已入库到知识库追踪表，后续按计划自动更新。": "✓ Data was saved to the knowledge base tracker. Future updates will run on schedule.",
+    "已确认，正在首次入库…": "Confirmed. Importing the first batch…",
+    "已启用，但首次入库失败：": "Enabled, but the first import failed:",
+    "可在数据源页面重试。": "Retry from the data source page.",
+    "已启用自动更新。": "Automatic updates enabled.",
+    "继续与 EnGenie 调整任务": "Continue adjusting the task with EnGenie",
+    "查看数据源": "View data source",
+    "打开追踪表": "Open tracker",
+    "此任务的对话与 AI 上下文会保留。以后可从「自动更新」页面继续修改；新方案经你确认后才替换当前脚本。": "This task's conversation and AI context are saved. Continue editing from the automatic updates page later. A new plan replaces the current script only after you confirm it.",
+    "AI 已按需求选择，可直接调整。每次采集自动记录时间和来源 ID；切换方式保留已有历史。": "AI selected a mode based on your request; you can change it. Every collection records the time and source ID. Switching modes retains existing history.",
+    "选择要保留的字段": "Choose fields to keep",
+    "默认全部保留，可多选。采集日期按任务时区自动生成，始终保留；名称、来源 ID 等系统信息仍会保留。": "All fields are selected by default. Collection date is generated in the task's time zone and always retained, along with system fields such as name and source ID.",
+    "· 必留": "· Required",
+    "采集字段与更新计划": "Collected fields and update schedule",
+    "采集字段：": "Collected fields:",
+    "记录识别字段：": "Record identity fields:",
+    "更新计划：": "Update schedule:",
+    "确认修改并更新原脚本": "Confirm changes and update the script",
+    "确认数据并开始自动更新": "Confirm data and start automatic updates",
+    "下载采集脚本": "Download collection script",
+    "确认后更新原脚本，按所选方式写入追踪表；已有历史保留。": "Confirm to update the script and write to the tracker using the selected mode. Existing history is retained.",
+    "确认后在「业务数据」建立采集库与追踪表，并按所选方式定时写入。": "Confirm to create a collection library and tracker under Business data, then write on schedule using the selected mode.",
+    "按原需求重试": "Retry the original request",
+    "已恢复保存的上下文": "Saved context restored",
+    "已接续上下文与浏览器": "Context and browser session resumed",
+    "我需要补充以下信息，请直接在下方输入框回答：": "I need the following information. Reply in the input box below:",
+    "任务已停止。可以继续对话重试。": "Task stopped. Continue the conversation to try again.",
+    "正在读取页面并分析取数方式…": "Reading the page and analyzing how to collect data…",
+    "浏览器采集画面": "Browser collection preview",
+    "正在清空…": "Clearing…",
+    "正在停止…": "Stopping…",
+    "正在确认…": "Confirming…",
+    "正在发送…": "Sending…",
+    "停止任务": "Stop task",
+    "任务执行中，点击右侧停止按钮可中止": "Task is running. Use the stop button on the right to cancel.",
+    "回答上面 EnGenie 的问题，Enter 发送…": "Answer EnGenie's question above, then press Enter…",
+    "想调整哪里？直接说，例如：标题改用设备名；加一个持续时长字段…": "What would you like to change? For example: Use the equipment name as the title, or add a duration field…",
+    "告诉 EnGenie 想怎样调整这个任务…": "Tell EnGenie how to adjust this task…",
+    "告诉 EnGenie 数据在哪、要采集什么、多久更新一次…": "Tell EnGenie where the data is, what to collect, and how often to update…",
+    "你的回答会连同原始需求一起交给 EnGenie，继续完善任务。": "Your answer will be sent to EnGenie with the original request to continue refining the task.",
+    "确认无误后点击样例卡片中的「确认数据并开始自动更新」。": "When the sample looks correct, select “Confirm data and start automatic updates” on its card.",
+    "可继续修改当前脚本；新版本验证并经你确认后更新原数据源，不重复创建知识库。": "Continue editing the current script. A validated and confirmed version updates the existing data source without creating another knowledge base.",
+    "进度连接中断，正在重连；不会重新启动任务。": "The progress connection was interrupted. Reconnecting without restarting the task.",
+    "当前任务尚未结束，请稍候或先停止。": "The current task has not ended. Wait or stop it first.",
+    "告诉 EnGenie 想调整哪些字段、采集方式或更新时间…": "Tell EnGenie which fields, collection steps, or update schedule to change…",
+    "重新确认": "Confirm again",
+    "临时记录清理失败，请稍后重试。": "Could not clear temporary records. Try again later.",
+    "EnGenie · 自动任务": "EnGenie · Automated tasks",
+    "正在清空历史对话和工具上下文…": "Clearing chat history and tool context…",
+    "正在恢复任务对话与采集脚本…": "Restoring the task conversation and collection script…",
+    "⏳ 待处理": "⏳ Pending",
+    "处理中…": "Processing…",
+    "确认失败": "Could not confirm",
+    "请求失败": "Request failed",
+    "网络错误：": "Network error:",
+    "已排队…": "Queued…",
+    "证据加载失败：": "Could not load evidence:",
+    "该片段暂无定位数据（旧版入库文档，重新入库后可用）": "Position data is unavailable for this passage. Re-index this older document to enable it.",
+    "‹ 上一页": "‹ Previous page",
+    "下一页 ›": "Next page ›",
+    "整篇文档": "Full document",
+    "选择出处片段": "Select a source passage",
+    "片段": "Passage",
+    "页码未知": "Page unknown",
+    "红圈为解析区域定位，非精确单元格": "Red outlines show parsed regions, not exact table cells",
+    "原表第": "Source table row",
+    "命中片段原文": "Matching source passage",
+    "（片段原文不可用）": "(Source passage unavailable)",
+    "页": "pages",
+    "原 PDF 第": "Original PDF page",
+    "表格块": "Table region",
+    "图片块": "Image region",
+    "文本块": "Text region",
+    "适宽": "Fit width",
+    "原文 PDF 不可用（非 PDF 文档或原文件已删除）。下方为该片段的嵌入文本与定位页码，可点「整篇文档」查看全文。": "The original PDF is unavailable (this is not a PDF document, or the file was deleted). The indexed passage and page reference appear below. Select “Full document” to read the complete text.",
+    "原文 PDF 不可用（非 PDF 文档或原文件已删除）。": "The original PDF is unavailable (this is not a PDF document, or the file was deleted).",
+    "下方为该片段的嵌入文本与定位页码，可点「整篇文档」查看全文。": "The indexed passage and page reference appear below. Select “Full document” to read the complete text.",
+    "页面加载失败，请重试。": "Could not load the page. Try again.",
+    "PDF 页面加载失败，请重试。": "Could not load the PDF page. Try again.",
+    "小时": "hours",
+    "周期分析": "Period analysis",
+    "取值分布": "Value distribution",
+    "分析": "Analysis",
+    "趋势": "Trend",
+    "时刻": "Clock time",
+    "数值": "Numeric values",
+    "✓ 服务正常 · 索引待处理": "✓ Service available · Index needs attention",
+    "△ 待确认": "△ Needs confirmation",
+    "请求中断": "Request interrupted",
+    "模型完成": "Model complete",
+    "未通过": "Not passed",
+    "请留意": "Needs attention",
+    "未上报": "Not reported",
+    "可添加关联备注": "Add a connection note",
+    "最多显示 100 条": "Showing up to 100 records",
+    "不适用": "Not applicable",
+    "最新在前": "Newest first",
+    "」的每一页生成视觉向量（渲染 + 嵌入，页数多时需数分钟）。\n适合图纸/扫描件；普通文本手册不建议开启。": "” as visual vectors (rendering + embedding may take several minutes for large documents).\nRecommended for drawings and scans, not ordinary text manuals.",
+    "」的全部整页视觉向量（文本片段与插图不受影响）。": "” full-page visual vectors (text passages and illustrations are not affected).",
+    "」？\n将同时删除其向量索引，且不可恢复。": "”?\nIts vector index will also be deleted. This cannot be undone.",
+    "用户资料": "User profiles",
+    "结构化数据记录": "Structured data records",
+    "结构化数据集": "Structured datasets",
+    "启用": "Enabled",
+    "视觉": "Vision",
+    "规划+核实": "Planning + Verification"
+  },
+  "patterns": [
+    {
+      "source": "共 {count} 条",
+      "target": "{count} records"
+    },
+    {
+      "source": "共 {count} 条记录",
+      "target": "{count} records"
+    },
+    {
+      "source": "共 {count} 份文档",
+      "target": "{count} documents"
+    },
+    {
+      "source": "{count} 个片段",
+      "target": "{count} passages"
+    },
+    {
+      "source": "· {count} 个片段",
+      "target": "· {count} passages"
+    },
+    {
+      "source": "{name} · 文档查看",
+      "target": "{name} · Document viewer"
+    },
+    {
+      "source": "{name} · 知识库管理",
+      "target": "{name} · Knowledge base management"
+    },
+    {
+      "source": "{name} · 追踪表",
+      "target": "{name} · Tracker"
+    },
+    {
+      "source": "确定删除「{name}」？",
+      "target": "Delete “{name}”?"
+    },
+    {
+      "source": "确定删除「{name}」？此操作不可撤销。",
+      "target": "Delete “{name}”? This cannot be undone."
+    },
+    {
+      "source": "确定删除文档「{name}」？ 将同时删除其向量索引，且不可恢复。",
+      "target": "Delete document “{name}”? Its vector index will also be permanently deleted."
+    },
+    {
+      "source": "删除「{name}」？此操作不可撤销。",
+      "target": "Delete “{name}”? This cannot be undone."
+    },
+    {
+      "source": "删除配置「{name}」？",
+      "target": "Delete configuration “{name}”?"
+    },
+    {
+      "source": "删除「{name}」的全部整页视觉向量（文本片段与插图不受影响）。",
+      "target": "Delete all full-page visual vectors for “{name}”? Text passages and illustrations will not be affected."
+    },
+    {
+      "source": "为「{name}」的每一页生成视觉向量（渲染 + 嵌入，页数多时需数分钟）。 适合图纸/扫描件；普通文本手册不建议开启。",
+      "target": "Create visual vectors for every page of “{name}”? Rendering and embedding may take several minutes. Recommended for drawings and scans, not ordinary text manuals."
+    },
+    {
+      "source": "上传中 {current}/{total}…",
+      "target": "Uploading {current}/{total}…"
+    },
+    {
+      "source": "上传完成：{count} 个已提交后台处理",
+      "target": "Upload complete: {count} files submitted for background processing"
+    },
+    {
+      "source": "上传完成：{count} 个已提交后台处理，{failed} 个失败",
+      "target": "Upload complete: {count} files submitted for background processing; {failed} failed"
+    },
+    {
+      "source": "已选 {count} 个文件",
+      "target": "{count} files selected"
+    },
+    {
+      "source": "开始上传（{count} 个文件）",
+      "target": "Upload {count} files"
+    },
+    {
+      "source": "跳过 {count} 个（不支持的类型或重复）",
+      "target": "Skipped {count} unsupported or duplicate files"
+    },
+    {
+      "source": "请求失败（HTTP {status}）",
+      "target": "Request failed (HTTP {status})"
+    },
+    {
+      "source": "请求失败（HTTP {status}），本次回答未完成。",
+      "target": "Request failed (HTTP {status}). This answer is incomplete."
+    },
+    {
+      "source": "读取会话失败（HTTP {status}）",
+      "target": "Could not load chat (HTTP {status})"
+    },
+    {
+      "source": "停止失败（HTTP {status}）",
+      "target": "Could not stop (HTTP {status})"
+    },
+    {
+      "source": "读取失败（{status}）",
+      "target": "Could not load ({status})"
+    },
+    {
+      "source": "第 {page} 页",
+      "target": "Page {page}"
+    },
+    {
+      "source": "第{page}页",
+      "target": "Page {page}"
+    },
+    {
+      "source": "{current} / {total} 页",
+      "target": "Page {current} / {total}"
+    },
+    {
+      "source": "原 PDF 第 {page} 页",
+      "target": "Original PDF page {page}"
+    },
+    {
+      "source": "原表第 {row} 行",
+      "target": "Source table row {row}"
+    },
+    {
+      "source": "片段 {number} · 页码未知",
+      "target": "Passage {number} · Page unknown"
+    },
+    {
+      "source": "片段 {number} · {page}",
+      "target": "Passage {number} · {page}"
+    },
+    {
+      "source": "查看本次检索命中的切片（{count} 个锚点）",
+      "target": "View the passages matched in this search ({count} anchors)"
+    },
+    {
+      "source": "查看证据定位：{name}",
+      "target": "Locate evidence: {name}"
+    },
+    {
+      "source": "命中图片：{name}",
+      "target": "Matching image: {name}"
+    },
+    {
+      "source": "图片命中：{name}",
+      "target": "Matching image: {name}"
+    },
+    {
+      "source": "本次关注：{topic}",
+      "target": "Topic: {topic}"
+    },
+    {
+      "source": "· 关注：{topic}",
+      "target": "· Topic: {topic}"
+    },
+    {
+      "source": "正在恢复回答状态：{message}",
+      "target": "Restoring response status: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "选择知识库：{name}，{volume}",
+      "target": "Select knowledge base: {name}, {volume}",
+      "translate": [
+        "volume"
+      ]
+    },
+    {
+      "source": "连接「{name}」到另一知识库",
+      "target": "Connect “{name}” to another knowledge base"
+    },
+    {
+      "source": "编辑关联：{names}",
+      "target": "Edit connection: {names}"
+    },
+    {
+      "source": "{names} 的关联操作",
+      "target": "Connection actions for {names}"
+    },
+    {
+      "source": "编辑「{names}」的关联备注",
+      "target": "Edit the connection note for “{names}”"
+    },
+    {
+      "source": "删除「{names}」的关联",
+      "target": "Delete the connection for “{names}”"
+    },
+    {
+      "source": "删除「{first}」与「{second}」的关联",
+      "target": "Delete the connection between “{first}” and “{second}”"
+    },
+    {
+      "source": "关联群 {number} · {count}",
+      "target": "Connected group {number} · {count}"
+    },
+    {
+      "source": "未关联 · {count}",
+      "target": "Unconnected · {count}"
+    },
+    {
+      "source": "已选择「{name}」，拖动或点击另一个知识库的圆点完成连接。",
+      "target": "“{name}” is selected. Drag to or select another knowledge base’s dot to connect them."
+    },
+    {
+      "source": "{libraries} 个知识库 · {connections} 条关联 · {groups} 个关联群",
+      "target": "{libraries} knowledge bases · {connections} connections · {groups} groups"
+    },
+    {
+      "source": "{count} 条关联",
+      "target": "{count} connections"
+    },
+    {
+      "source": "找到 {count} 个相关知识库，已在画布中高亮。",
+      "target": "Found {count} related knowledge bases, highlighted on the canvas."
+    },
+    {
+      "source": "首响应 {seconds}秒 · 生成中",
+      "target": "First response in {seconds}s · Generating"
+    },
+    {
+      "source": "请求中断 · {seconds}秒",
+      "target": "Request interrupted · {seconds}s"
+    },
+    {
+      "source": "模型完成 · {seconds}秒",
+      "target": "Model complete · {seconds}s"
+    },
+    {
+      "source": "未通过 · {seconds}秒",
+      "target": "Not passed · {seconds}s"
+    },
+    {
+      "source": "请留意 · {seconds}秒",
+      "target": "Needs attention · {seconds}s"
+    },
+    {
+      "source": "完成 · {seconds}秒",
+      "target": "Complete · {seconds}s"
+    },
+    {
+      "source": "工具活动 · {count} 次调用",
+      "target": "Tool activity · {count} calls"
+    },
+    {
+      "source": "模型 {current}/{limit}",
+      "target": "Model calls {current}/{limit}"
+    },
+    {
+      "source": "工具 {count}",
+      "target": "Tools {count}"
+    },
+    {
+      "source": "缓存 {percent}",
+      "target": "Cache {percent}",
+      "translate": [
+        "percent"
+      ]
+    },
+    {
+      "source": "已保存 {authentication}，凭据不回显。可以直接复用，或切换认证方式后填写新值。",
+      "target": "Saved {authentication}. Credentials are not displayed. Reuse them, or select a different method and enter new values.",
+      "translate": [
+        "authentication"
+      ]
+    },
+    {
+      "source": "{count} 条记录已保留原文，请在追踪表查看采集提示。",
+      "target": "Original content was retained for {count} records. See collection notices in the tracker."
+    },
+    {
+      "source": "{url} · {schedule} · 试采 {count} 条",
+      "target": "{url} · {schedule} · {count} sample records",
+      "translate": [
+        "schedule"
+      ]
+    },
+    {
+      "source": "{field} {present}/{total} · {count}条不适用",
+      "target": "{field} {present}/{total} · {count} not applicable"
+    },
+    {
+      "source": "每 {count} 分钟",
+      "target": "Every {count} minutes"
+    },
+    {
+      "source": "每天 {time}",
+      "target": "Daily at {time}"
+    },
+    {
+      "source": "{count} 次",
+      "target": "{count} occurrences"
+    },
+    {
+      "source": "采集时区：{zone} · 起止时间均包含边界",
+      "target": "Collection time zone: {zone} · Start and end times are inclusive"
+    },
+    {
+      "source": "{name} · {count} 个采集样本",
+      "target": "{name} · {count} collected samples"
+    },
+    {
+      "source": "{name} · 周期分析",
+      "target": "{name} · Period analysis"
+    },
+    {
+      "source": "{name} · 取值分布",
+      "target": "{name} · Value distribution"
+    },
+    {
+      "source": "共 {count} 个有采样的周期 · 最新在前",
+      "target": "{count} periods with samples · Newest first"
+    },
+    {
+      "source": "采样总数覆盖全部筛选样本；趋势图和分析表展示最近 {count} 个周期，可缩小时间范围或调大时间粒度。",
+      "target": "Sample totals cover all filtered records. Charts and tables show the latest {count} periods. Narrow the time range or increase the interval to see other periods."
+    },
+    {
+      "source": "空值、非时刻原文不计入指标，共 {count} 条。周期变化使用上一有有效值的周期；没有样本的周期不补零。",
+      "target": "Empty values and non-time text are excluded ({count} records). Period changes compare with the previous valid period. Periods without samples are not filled with zeros."
+    },
+    {
+      "source": "空值、非数值原文不计入指标，共 {count} 条。周期变化使用上一有有效值的周期；没有样本的周期不补零。",
+      "target": "Empty values and non-numeric text are excluded ({count} records). Period changes compare with the previous valid period. Periods without samples are not filled with zeros."
+    },
+    {
+      "source": "{parameter}按采集时间的均值趋势",
+      "target": "{parameter}: average by collection time"
+    },
+    {
+      "source": "{parameter} · 均值分析",
+      "target": "{parameter} · average analysis"
+    },
+    {
+      "source": "{parameter} · 均值趋势",
+      "target": "{parameter} · average trend"
+    },
+    {
+      "source": "{period} · 均值 {value} · {count} 个有效样本",
+      "target": "{period} · average {value} · {count} valid samples"
+    },
+    {
+      "source": "{parameter}按采集时间的期末有效值趋势",
+      "target": "{parameter}: last valid value by collection time"
+    },
+    {
+      "source": "{parameter} · 期末有效值分析",
+      "target": "{parameter} · last valid value analysis"
+    },
+    {
+      "source": "{parameter} · 期末有效值趋势",
+      "target": "{parameter} · last valid value trend"
+    },
+    {
+      "source": "{period} · 期末有效值 {value} · {count} 个有效样本",
+      "target": "{period} · last valid value {value} · {count} valid samples"
+    },
+    {
+      "source": "{parameter}按采集时间的合计趋势",
+      "target": "{parameter}: total by collection time"
+    },
+    {
+      "source": "{parameter} · 合计分析",
+      "target": "{parameter} · total analysis"
+    },
+    {
+      "source": "{parameter} · 合计趋势",
+      "target": "{parameter} · total trend"
+    },
+    {
+      "source": "{period} · 合计 {value} · {count} 个有效样本",
+      "target": "{period} · total {value} · {count} valid samples"
+    },
+    {
+      "source": "{parameter}按采集时间的最低值趋势",
+      "target": "{parameter}: minimum by collection time"
+    },
+    {
+      "source": "{parameter} · 最低值分析",
+      "target": "{parameter} · minimum analysis"
+    },
+    {
+      "source": "{parameter} · 最低值趋势",
+      "target": "{parameter} · minimum trend"
+    },
+    {
+      "source": "{period} · 最低值 {value} · {count} 个有效样本",
+      "target": "{period} · minimum {value} · {count} valid samples"
+    },
+    {
+      "source": "{parameter}按采集时间的最高值趋势",
+      "target": "{parameter}: maximum by collection time"
+    },
+    {
+      "source": "{parameter} · 最高值分析",
+      "target": "{parameter} · maximum analysis"
+    },
+    {
+      "source": "{parameter} · 最高值趋势",
+      "target": "{parameter} · maximum trend"
+    },
+    {
+      "source": "{period} · 最高值 {value} · {count} 个有效样本",
+      "target": "{period} · maximum {value} · {count} valid samples"
+    },
+    {
+      "source": "提取失败：{message}",
+      "target": "Extraction failed: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "请求失败：{message}",
+      "target": "Request failed: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "保存失败：{message}",
+      "target": "Could not save: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "删除失败：{message}",
+      "target": "Could not delete: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "操作失败：{message}",
+      "target": "Operation failed: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "搜索失败：{message}",
+      "target": "Search failed: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "网络错误：{message}",
+      "target": "Network error: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "证据加载失败：{message}",
+      "target": "Could not load evidence: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "切换失败：{message}",
+      "target": "Could not switch: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "PDF 导出失败：{message}",
+      "target": "PDF export failed: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "已启用，但首次入库失败：{message}",
+      "target": "Enabled, but the first import failed: {message}",
+      "translate": [
+        "message"
+      ]
+    },
+    {
+      "source": "{count} 个对象 · 当前对象 {entries} 条内容",
+      "target": "{count} objects · {entries} entries in the current object"
+    },
+    {
+      "source": "{scope} · 跨提示累计的对象知识",
+      "target": "{scope} · Object knowledge accumulated across prompts"
+    },
+    {
+      "source": "第 {turn} 轮模型请求 · 已等待 {seconds} 秒",
+      "target": "Model request {turn} · Waiting for {seconds}s"
+    },
+    {
+      "source": "已读取 {chunks} 段 · 模型调用 {calls}/{limit} 次 · 补查 {tools}/{tool_limit} 次",
+      "target": "Read {chunks} passages · Model calls {calls}/{limit} · Follow-up searches {tools}/{tool_limit}"
+    },
+    {
+      "source": "已检查 {chunks}/{total} 段 · 完成 {batches}/{batch_total} 批",
+      "target": "Checked {chunks}/{total} passages · Completed {batches}/{batch_total} batches"
+    },
+    {
+      "source": "服务端已回报 {reported}/{calls} 轮用量：输入 {input}、输出 {output} token。",
+      "target": "Server reported usage for {reported}/{calls} calls: {input} input and {output} output tokens."
+    },
+    {
+      "source": "累计输入 {input} 字符 · 输出 {output} 字符。",
+      "target": "Total input: {input} characters · Output: {output} characters."
+    },
+    {
+      "source": "{name} · 关注：{topic}",
+      "target": "{name} · Topic: {topic}"
+    },
+    {
+      "source": "{page} · 查看原文圈注",
+      "target": "{page} · View source annotations"
+    },
+    {
+      "source": "{entities} 个实体 · {relations} 条关系",
+      "target": "{entities} entities · {relations} relationships"
+    },
+    {
+      "source": "{entities} 个实体 · {relations} 条关系（当前筛选共有 {total} 条）",
+      "target": "{entities} entities · {relations} relationships ({total} in the current filter)"
+    },
+    {
+      "source": "当前显示 {count} 条关联。点击下方关系查看原文并确认。",
+      "target": "Showing {count} relationships. Select one below to review its source and confirm it."
+    },
+    {
+      "source": "共 {count} 个有采样的周期 · 展示最近 {limit} 个 · 最新在前",
+      "target": "{count} periods with samples · Showing the latest {limit} · Newest first"
+    },
+    {
+      "source": "采集日期 · 必留",
+      "target": "Collection date · Required"
+    },
+    {
+      "source": "采集字段：{fields}",
+      "target": "Collected fields: {fields}"
+    },
+    {
+      "source": "记录识别字段：{fields}",
+      "target": "Record identity fields: {fields}"
+    },
+    {
+      "source": "更新计划：{schedule}",
+      "target": "Update schedule: {schedule}",
+      "translate": [
+        "schedule"
+      ]
+    },
+    {
+      "source": "模型第 {turn} 轮",
+      "target": "Model round {turn}"
+    },
+    {
+      "source": "{count} 字",
+      "target": "{count} characters"
+    },
+    {
+      "source": "{count}分钟",
+      "target": "{count} min"
+    },
+    {
+      "source": "{count}秒",
+      "target": "{count}s"
+    },
+    {
+      "source": "{minutes}分{seconds}秒",
+      "target": "{minutes}m {seconds}s"
+    },
+    {
+      "source": "{minutes}分 {seconds}秒",
+      "target": "{minutes}m {seconds}s"
+    },
+    {
+      "source": "{hours}小时 {minutes}分",
+      "target": "{hours}h {minutes}m"
+    },
+    {
+      "source": "{hours}小时 {minutes}分 {seconds}秒",
+      "target": "{hours}h {minutes}m {seconds}s"
+    },
+    {
+      "source": "下载 {filename}",
+      "target": "Download {filename}"
+    },
+    {
+      "source": "{error}，正在重试…",
+      "target": "{error}; retrying…",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "（来自{name}）· 点击看原图",
+      "target": "(from {name}) · Select to view the original image"
+    },
+    {
+      "source": "✓ 核心结论已核实 · 附带信息未核实：{detail}",
+      "target": "✓ Main conclusion verified · Additional information not verified: {detail}"
+    },
+    {
+      "source": "⚠ {reason} 已保留部分正文，不能作为完整结论。 请重试原问题。",
+      "target": "⚠ {reason} Partial text was retained and is not a complete conclusion. Try the original question again.",
+      "translate": [
+        "reason"
+      ]
+    },
+    {
+      "source": "⚠ {reason} 尚未生成答案正文。 请重试原问题。",
+      "target": "⚠ {reason} No answer text was generated. Try the original question again.",
+      "translate": [
+        "reason"
+      ]
+    },
+    {
+      "source": "已启用，但首次入库失败：{error} 可在数据源页面重试。",
+      "target": "Enabled, but the first import failed: {error}. Retry from the data source page.",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "进度连接中断，正在重连；不会重新启动任务。{error}",
+      "target": "The progress connection was interrupted. Reconnecting without restarting the task. {error}",
+      "translate": [
+        "error"
+      ]
+    },
+    {
+      "source": "知识库：{name}",
+      "target": "Knowledge base: {name}"
+    },
+    {
+      "source": "部门：{name}",
+      "target": "Department: {name}"
+    },
+    {
+      "source": "自动采集 · {name}",
+      "target": "Automatic collection · {name}"
+    },
+    {
+      "source": "定时采集 · {name}",
+      "target": "Scheduled collection · {name}"
+    },
+    {
+      "source": "下次运行：{time}",
+      "target": "Next run: {time}"
+    },
+    {
+      "source": "{count} 条记录格式变化，已保留原文，请查看追踪表的采集提示。",
+      "target": "{count} records changed format. Their original content was retained; see collection notices in the tracker."
+    },
+    {
+      "source": "达到本次预算 · 已保存 {count} 条候选",
+      "target": "Run budget reached · {count} candidates saved"
+    },
+    {
+      "source": "抽取未完成 · 已保存 {count} 条候选",
+      "target": "Extraction incomplete · {count} candidates saved"
+    },
+    {
+      "source": "未全部完成 · 已保存 {count} 条候选",
+      "target": "Partially completed · {count} candidates saved"
+    },
+    {
+      "source": "第 {batch} 批 · 等待检查 · {sections}",
+      "target": "Batch {batch} · Awaiting review · {sections}"
+    },
+    {
+      "source": "第 {batch} 批 · 正在抽取 / 查漏 · {sections}",
+      "target": "Batch {batch} · Extracting / Checking for omissions · {sections}"
+    },
+    {
+      "source": "第 {batch} 批 · 已抽取并查漏 · {sections}",
+      "target": "Batch {batch} · Extracted and checked for omissions · {sections}"
+    },
+    {
+      "source": "第 {batch} 批 · 未完成 · {sections}",
+      "target": "Batch {batch} · Incomplete · {sections}"
+    },
+    {
+      "source": "{relationship} · 待确认",
+      "target": "{relationship} · Pending review"
+    },
+    {
+      "source": "{relationship} · 已确认",
+      "target": "{relationship} · Confirmed"
+    },
+    {
+      "source": "{relationship} · 已拒绝",
+      "target": "{relationship} · Rejected"
+    },
+    {
+      "source": "{relationship} · 来源失效",
+      "target": "{relationship} · Source no longer valid"
+    },
+    {
+      "source": "{model} · {dimensions}维",
+      "target": "{model} · {dimensions} dimensions"
+    },
+    {
+      "source": "{model} · {dimensions} 维",
+      "target": "{model} · {dimensions} dimensions"
+    },
+    {
+      "source": "{collected} 个采集库 · {imported} 个导入表",
+      "target": "{collected} collection libraries · {imported} imported tables"
+    },
+    {
+      "source": "{count} 个",
+      "target": "{count} items"
+    },
+    {
+      "source": "{count} 题",
+      "target": "{count} questions"
+    },
+    {
+      "source": "{url} · 温度 {temperature} · 视觉 · 规划+核实",
+      "target": "{url} · Temperature {temperature} · Vision · Planning + Verification"
+    },
+    {
+      "source": "{url} · 温度 {temperature} · 视觉",
+      "target": "{url} · Temperature {temperature} · Vision"
+    },
+    {
+      "source": "{url} · 温度 {temperature} · 规划+核实",
+      "target": "{url} · Temperature {temperature} · Planning + Verification"
+    },
+    {
+      "source": "{url} · 温度 {temperature}",
+      "target": "{url} · Temperature {temperature}"
+    },
+    {
+      "source": "配置：{name}",
+      "target": "Configuration: {name}"
+    },
+    {
+      "source": "分块 {chunk} · 重叠 {overlap} · Top {top}",
+      "target": "Chunk size {chunk} · Overlap {overlap} · Top {top}"
+    },
+    {
+      "source": "{backend} · 自动识别 4.0 / 4.1",
+      "target": "{backend} · Automatically detects 4.0 / 4.1"
+    },
+    {
+      "source": "{url} · 启用",
+      "target": "{url} · Enabled"
+    },
+    {
+      "source": "{url} · 停用",
+      "target": "{url} · Disabled"
+    },
+    {
+      "source": "{url} · 已关闭",
+      "target": "{url} · Disabled"
+    },
+    {
+      "source": "期望：{filename} / {keyword}",
+      "target": "Expected: {filename} / {keyword}"
+    },
+    {
+      "source": "期望：{value}",
+      "target": "Expected: {value}"
+    }
+  ]
+}

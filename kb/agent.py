@@ -211,9 +211,12 @@ async def _get_checkpointer():
 
 def _get_llm(llm_cfg: dict) -> ChatOpenAI:
     import httpx
+    from django.utils.translation import get_language
+    from fos_rag.interface_model import InterfaceChatOpenAI
     from .config import validate_answer_endpoint, answer_extra_body
     validate_answer_endpoint(llm_cfg)
-    return ChatOpenAI(
+    return InterfaceChatOpenAI(
+        interface_language=llm_cfg.get("response_language") or get_language() or "zh-hans",
         model=llm_cfg["model"],
         # OpenAI's client requires a non-empty credential even when a local
         # OpenAI-compatible server (for example LM Studio) disables auth.

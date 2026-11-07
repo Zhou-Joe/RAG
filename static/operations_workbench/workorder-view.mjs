@@ -1,10 +1,17 @@
 const {RAW_TIME_PAIRS, fieldLabel, formatDateTime, formatField, formatHours, statusInfo} =
   await import('./presentation.mjs' + new URL(import.meta.url).search);
+const t = text => globalThis.FOSI18n?.t(text) || text;
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
   if (text != null) node.textContent = text;
   if (className) node.className = className;
+  return node;
+}
+
+function recordText(tag, text, className) {
+  const node = el(tag, text, className);
+  node.setAttribute('translate', 'no');
   return node;
 }
 
@@ -112,7 +119,7 @@ function descriptions(record) {
     for (const [key, label] of [['description_', '说明'], ['long_description_', '详细说明'], ['jp_description_', '作业计划']]) {
       const value = record[key + lang];
       if (!present(value)) continue;
-      column.append(el('h5', label), el('p', String(value)));
+      column.append(el('h5', label), recordText('p', String(value)));
     }
     if (column.children.length === 1) column.append(el('p', '—', 'ops-wo-empty'));
     columns.append(column);
@@ -135,7 +142,14 @@ function timeline(record) {
     wrap.append(list);
   }
   const missing = TIMELINE.filter(([key]) => !present(record[key])).map(([, label]) => label);
-  if (missing.length) wrap.append(el('p', '未设置：' + missing.join('、'), 'ops-wo-empty'));
+  if (missing.length) {
+    const note = el('p', '未设置：', 'ops-wo-empty');
+    missing.forEach((label, index) => {
+      if (index) note.append(document.createTextNode(' · '));
+      note.append(el('span', label));
+    });
+    wrap.append(note);
+  }
   return wrap;
 }
 
@@ -182,8 +196,8 @@ function taskCard(task) {
   card.dataset.task = task.number;
   const summary = el('summary', null, 'ops-task-head');
   const main = el('div', null, 'ops-task-main');
-  main.append(el('span', 'Task ' + (task.number || '—'), 'ops-task-no'),
-    el('strong', task.titleZh || task.titleEn || '（无标题）', 'ops-task-title'));
+  main.append(el('span', t('Task ' + (task.number || '—')), 'ops-task-no'),
+    (task.titleZh || task.titleEn ? recordText : el)('strong', task.titleZh || task.titleEn || '（无标题）', 'ops-task-title'));
   const side = el('div', null, 'ops-task-side');
   if (task.status) side.append(statusBadge(task.status));
   if (present(task.duration) && Number(task.duration) > 0) side.append(el('span', formatHours(task.duration), 'ops-task-duration'));
@@ -196,12 +210,12 @@ function taskCard(task) {
     const body = el('div', null, 'ops-task-body');
     const zh = el('div', null, 'ops-task-text');
     zh.lang = 'zh-CN';
-    zh.append(el('p', task.longZh || task.titleZh || '没有中文说明。'));
+    zh.append((task.longZh || task.titleZh ? recordText : el)('p', task.longZh || task.titleZh || '没有中文说明。'));
     const en = el('div', null, 'ops-task-text is-en');
     en.lang = 'en';
     en.hidden = true;
-    if (task.titleEn) en.append(el('h5', task.titleEn));
-    if (task.longEn) en.append(el('p', task.longEn));
+    if (task.titleEn) en.append(recordText('h5', task.titleEn));
+    if (task.longEn) en.append(recordText('p', task.longEn));
     body.append(zh);
     if (task.titleEn || task.longEn) {
       const toggle = el('button', '显示英文', 'ops-row-open');
@@ -230,7 +244,9 @@ function taskTable(tasks) {
     const line = body.insertRow();
     line.dataset.task = task.number;
     line.insertCell().textContent = task.number || '—';
-    line.insertCell().textContent = task.titleZh || task.titleEn || '—';
+    const title = line.insertCell();
+    title.textContent = task.titleZh || task.titleEn || '—';
+    title.setAttribute('translate', 'no');
     line.insertCell().append(task.status ? statusBadge(task.status) : document.createTextNode('—'));
     line.insertCell().textContent = present(task.duration) ? formatHours(task.duration) : '—';
     line.insertCell().textContent = task.child || '—';
@@ -318,7 +334,7 @@ export function statusTimeline(rows) {
     item.append(head);
     const meta = [row.changeby && '变更人 ' + row.changeby].filter(Boolean).join(' · ');
     if (meta) item.append(el('p', meta, 'ops-history-meta'));
-    if (present(row.memo)) item.append(el('p', String(row.memo), 'ops-history-memo'));
+    if (present(row.memo)) item.append(recordText('p', String(row.memo), 'ops-history-memo'));
     list.append(item);
   });
   return list;

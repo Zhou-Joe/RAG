@@ -52,6 +52,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "fos_rag.local_middleware.LocalResourcePolicy",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "fos_rag.interface_language.InterfaceLocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -105,6 +106,8 @@ LOGIN_URL = "/accounts/login/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
 LANGUAGE_CODE = "zh-hans"
+LANGUAGES = [("zh-hans", "简体中文"), ("en", "English")]
+LANGUAGE_COOKIE_NAME = "fos_language"
 TIME_ZONE = "Asia/Shanghai"
 USE_I18N = True
 USE_TZ = True

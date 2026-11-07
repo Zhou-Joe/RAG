@@ -72,7 +72,11 @@
         const data=await read(params(),request.signal);if(disposed || ticket!==sequence)return;
         selected=data.selected;
         count.textContent=data.objects.length+' 个对象 · 当前对象 '+data.count+' 条内容';
-        notice.textContent=data.truncated?'当前显示达到上限，请通过状态、关键词或本次结果缩小范围。':data.scope+' · 跨提示累计的对象知识';
+        if(data.truncated)notice.textContent='当前显示达到上限，请通过状态、关键词或本次结果缩小范围。';
+        else {
+          const scope=el('span',data.scope);scope.setAttribute('translate','no');
+          notice.replaceChildren(scope,document.createTextNode(' · 跨提示累计的对象知识'));
+        }
         objects.replaceChildren();
         data.objects.forEach(item=>{
           const button=el('button',item.label+' · '+item.count,'knowledge-object'+(item.id===selected?' selected':''));button.type='button';

@@ -15,6 +15,7 @@ class AnalysisError(Exception):
 
 
 def read_model_config():
+    from .interface_language import response_language_instruction
     # Avoid SiteConfig.get() and kb.config.llm_settings(): the former can write
     # and the latter reconfigures the retrieval process's global allowlist.
     from kb.models import SiteConfig
@@ -26,6 +27,7 @@ def read_model_config():
         "base_url": normalize_openai_base_url(row.get("llm_base_url") or settings.LLM_BASE_URL),
         "api_key": row.get("llm_api_key") or settings.LLM_API_KEY or "local-no-key",
         "model": row.get("llm_model") or settings.LLM_MODEL,
+        "language_instruction": response_language_instruction(),
         "temperature": row.get("llm_temperature") if row.get("llm_temperature") is not None else settings.LLM_TEMPERATURE,
         "remote_enabled": bool(row.get("llm_remote_enabled") or row.get("all_remote_apis_enabled")),
         # 与 kb/agent.py 的回答使用同一个输出预算；上限仅防止异常环境变量把子进程无限挂住。

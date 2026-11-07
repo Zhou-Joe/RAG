@@ -4,8 +4,10 @@ from django.urls import include, path
 from django.views.generic import TemplateView
 
 from kb import views
+from .interface_language import catalogue
 
 urlpatterns = [
+    path("i18n/catalog.js", catalogue, name="interface_catalogue"),
     path("admin/", admin.site.urls),
     path("accounts/", include("accounts.urls")),
     path("kb/", include("kb.urls")),
