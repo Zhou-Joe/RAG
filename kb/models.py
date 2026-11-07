@@ -876,3 +876,35 @@ class ConnectorEvent(models.Model):
 
     class Meta:
         ordering = ['id']
+
+
+class FeedReportPlan(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    feed = models.OneToOneField(KnowledgeFeed, on_delete=models.CASCADE, related_name='report_plan')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    spec = models.JSONField(default=dict, blank=True)
+    destination = models.TextField(blank=True)
+    schedule_mode = models.CharField(max_length=20, default='manual', choices=[('cron','独立定时'),('manual','按需发送'),('after_collection','采集后发送（兼容）')])
+    cron = models.CharField(max_length=100, blank=True)
+    timezone = models.CharField(max_length=64, default='Asia/Shanghai')
+    next_run_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    enabled = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class FeedReportDelivery(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    plan = models.ForeignKey(FeedReportPlan, on_delete=models.CASCADE, related_name='deliveries')
+    run = models.ForeignKey(FeedRun, null=True, blank=True, on_delete=models.SET_NULL)
+    request_key = models.CharField(max_length=180)
+    scheduled_for = models.DateTimeField(null=True, blank=True, db_index=True)
+    status = models.CharField(max_length=20, default='pending')
+    error = models.CharField(max_length=400, blank=True)
+    filename = models.CharField(max_length=100, blank=True)
+    content = models.BinaryField(default=bytes)
+    token_digest = models.CharField(max_length=64, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['plan', 'request_key'], name='unique_feed_report_delivery')]

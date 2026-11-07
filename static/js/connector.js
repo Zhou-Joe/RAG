@@ -53,9 +53,11 @@
     else if (cron === '* * * * *') label = '每分钟';
     else if (/^\*\/\d+ \* \* \* \*$/.test(cron)) label = '每' + parts[0].slice(2) + '分钟';
     else if (/^\d+ \d+ \* \* \*$/.test(cron)) label = '每天 ' + parts[1].padStart(2, '0') + ':' + parts[0].padStart(2, '0');
+    else if (/^\d+ \d+ \* \* (?:[0-7]|sun|mon|tue|wed|thu|fri|sat)$/i.test(cron)){const days={'0':'日','7':'日','1':'一','2':'二','3':'三','4':'四','5':'五','6':'六',sun:'日',mon:'一',tue:'二',wed:'三',thu:'四',fri:'五',sat:'六'};label='每周'+days[parts[4].toLowerCase()]+' '+parts[1].padStart(2,'0')+':'+parts[0].padStart(2,'0');}
+    else if (/^\d+ \d+ \d+ \* \*$/.test(cron))label='每月'+parts[2]+'日 '+parts[1].padStart(2,'0')+':'+parts[0].padStart(2,'0');
     return label + '（' + zone + '）';
   }
-  const STATUS = { running: '正在采集与验证真实数据…', ready: '样例已就绪，等待你确认', needs_info: '需要你补充信息', enabled: '已启用自动更新', enabling: '正在启用…', failed: '未完成', cancelled: '已停止', revised: '此预览已有新版', context_cleared:'上下文已清空，请重新打开脚本编辑' };
+  const STATUS = { answered:'已回复',running: '正在思考…', ready: '样例已就绪，等待你确认', needs_info: '需要你补充信息', enabled: '已启用自动更新', enabling: '正在启用…', failed: '未完成', cancelled: '已停止', revised: '此预览已有新版', context_cleared:'上下文已清空，请重新打开脚本编辑' };
 
   function toolTrail(job) {
     const open = new Map();
@@ -86,6 +88,27 @@
 
   function previewCard(job) {
     const card = el('div', 'cx-preview');card.dataset.nodeKey='preview';
+    if(job.spec?.kind==='report'){
+      card.classList.add('cx-report');card.append(el('h3',null,job.spec.title),el('p','cx-meta',job.status==='enabled'?(job.report_delivery&&!job.report_delivery.enabled?'报告发送已暂停，等待确认发送设置。':job.spec.schedule?.mode==='manual'?'报告设置已保存，可按需发送。':job.spec.schedule?.mode==='after_collection'||!job.spec.schedule?'报告已启用，采集成功后发送（原有设置）。':'报告已启用，按独立发送计划运行。'):`报告预览 · ${job.preview.items} 条 · ${job.preview.source_feed||''}`));
+      const table=el('table'),head=el('tr');for(const label of job.preview.headers||[])head.append(el('th',null,label));table.append(head);
+      for(const row of job.preview.preview||[]){const tr=el('tr');for(const label of job.preview.headers||[])tr.append(el('td',null,String(row[label]??'')));table.append(tr);}const scroll=el('div');scroll.style.overflowX='auto';scroll.append(table);card.append(scroll);
+      const delivery=job.report_delivery||job.preview.delivery;
+      if(delivery&&!delivery.configured){card.append(el('p','cx-note','发送设置尚未齐全：'+(delivery.kind==='teams'?'请在聊天中提供Teams频道工作流链接。':'请在聊天中补充对应类型的工作流和收件信息。')));}
+      if(job.status==='enabled'&&delivery&&!delivery.enabled){card.append(el('p','cx-note','报告发送计划当前未启用，请补充发送设置并确认。'));}
+      if(job.preview.preview_as_of){const zone=job.preview.preview_timezone||job.spec.schedule?.timezone||'Asia/Shanghai';const dateText=value=>new Intl.DateTimeFormat('zh-CN',{timeZone:zone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));card.append(el('p','cx-meta','预览数据截至：'+dateText(job.preview.preview_as_of)+'（'+zone+'）'));if(job.preview.next_send_at)card.append(el('p','cx-meta','下次发送：'+dateText(job.preview.next_send_at)));}
+      for(const [name,audit] of Object.entries(job.preview.transformation_audit||{})){const details=el('details');details.append(el('summary',null,'后处理 · '+name+'：'+audit.converted+'条有效，'+audit.missing+'条缺失/未解析（原值保留）'));for(const sample of audit.examples||[])details.append(el('p','cx-note',JSON.stringify(sample.input)+' → '+(sample.output===null?'缺失':String(sample.output))));card.append(details);}
+      if(job.preview.warning)card.append(el('p','cx-note',job.preview.warning));
+      const reportSchedule=job.spec.schedule||{mode:'after_collection'};
+      card.append(el('p','cx-meta','发送计划：'+(reportSchedule.mode==='cron'?schedule(reportSchedule):reportSchedule.mode==='manual'?'仅按需发送':'每次采集成功后发送（原有设置）')));
+      const scope=job.spec.range||{mode:'latest'},ranges={all:'全部已保存历史',latest:'最新一次',today:'当天',yesterday:'昨天',last_week:'上一个完整自然周',last_month:'上一个完整自然月'};
+      card.append(el('p','cx-meta','数据范围：'+(ranges[scope.mode]||(scope.mode==='days'?'最近'+scope.days+'天'+(scope.include_today===false?'（不含当天）':''):scope.start+' 至 '+scope.end))+' · '+(job.spec.aggregates?.length?'汇总计算':'原始明细/所选字段')));
+      const actions=el('div','cx-actions'),download=el('a','btn outline','下载 Excel 预览');download.href=job.report_download_url;download.setAttribute('download','');actions.append(download);
+      if(job.status==='enabled'&&delivery&&!delivery.configured){const configure=el('button','btn primary','补充发送设置');configure.type='button';configure.dataset.cxContinue='report';actions.append(configure);}
+      if(job.status==='ready'&&!job.spec.schedule){const continueReport=el('button','btn primary','补充报告发送计划');continueReport.type='button';continueReport.dataset.cxContinue='report';actions.append(continueReport);}
+      if(job.status==='ready'&&job.spec.schedule){const enable=el('button','btn primary',job.spec.schedule?.mode==='manual'?'确认报告设置':'确认并启用报告计划');enable.type='button';enable.dataset.cxEnable=job.id;actions.append(enable);}
+      const test=el('button','btn outline','发送测试报告');test.type='button';test.dataset.reportTest=job.report_test_url;test.disabled=job.preview.items===0;actions.append(test);card.append(actions,el('p','cx-note','发送设置可直接在聊天框提供；缺少信息时 EnGenie 会提问。发送测试仅发送一次，不会启用定时报告。工作流接收请求后仍需查看邮件/Teams或工作流运行记录。'));
+      return card;
+    }
     if (job.status === 'enabled' || job.first_run) {
       const run = job.first_run;
       card.append(el('p', 'cx-meta', run?.status === 'completed' ? '✓ 数据已入库到知识库追踪表，后续按计划自动更新。'
@@ -152,16 +175,32 @@
     const bot = el('div', 'cx-msg-bot'); bot.dataset.status = job.status;
     const head = el('div', 'cx-turn-head');head.dataset.nodeKey='head';
     const avatar=el('span','cx-avatar');avatar.setAttribute('aria-hidden','true');avatar.append(document.getElementById('connectorAvatarTemplate').content.cloneNode(true));if(job.status==='running')avatar.classList.add('is-live');
-    head.append(avatar, el('span', 'cx-turn-name', 'EnGenie'), el('span', 'cx-turn-status', STATUS[job.status] || job.status));
+    head.append(avatar, el('span', 'cx-turn-name', 'EnGenie'), el('span', 'cx-turn-status', job.preview?.answer?'已回复':STATUS[job.status] || job.status));
     bot.append(head);
     const metrics=job.metrics||{};
     if(metrics.context_resumed){const note=el('div','cx-meta',metrics.context_source==='saved'?'已恢复保存的上下文':'已接续上下文与浏览器');note.dataset.nodeKey='context';bot.append(note);}
     if(metrics.calls){const stats=el('div','cx-metrics');stats.dataset.nodeKey='metrics';stats.append(el('span',null,`模型 ${metrics.calls}/${job.limits?.model_calls||50}`),el('span',null,`工具 ${metrics.tools||0}`),el('span',null,`缓存 ${metrics.cache_reported&&metrics.input_tokens?Math.round(metrics.cached_tokens/metrics.input_tokens*100)+'%':'未上报'}`));bot.append(stats);}
     const trail = toolTrail(job); if (trail) bot.append(trail);
-    if (job.questions?.length) {
-      const box = el('div', 'cx-questions');box.dataset.nodeKey='questions'; box.append(el('p', 'cx-questions-title', '我需要补充以下信息，请直接在下方输入框回答：'));
-      const list = el('ol'); for (const q of job.questions || []) list.append(el('li', null, q));
-      box.append(list); bot.append(box);
+    if(job.preview?.answer){const answer=el('div','cx-answer');answer.dataset.nodeKey='answer';answer.innerHTML=md(job.preview.answer);bot.append(answer);}
+    else if (job.questions?.length) {
+      const box = el('div', 'cx-questions');box.dataset.nodeKey='questions';
+      const hasForm=job.status==='needs_info'&&job.preview?.question_fields?.length;
+      box.append(el('p', 'cx-questions-title', hasForm?'还需要补充以下信息：':'我需要补充以下信息，请直接在下方输入框回答：'));
+      if(!hasForm){const list=el('ol');for(const q of job.questions||[])list.append(el('li',null,q));box.append(list);}
+      if(hasForm){
+        const form=el('form','cx-question-form');form.dataset.builderQuestionForm=job.id;
+        for(const field of job.preview.question_fields){
+          const row=el('div','cx-question-field'),label=el('label',null,field.label),input=el(field.type==='select'?'select':field.type==='textarea'?'textarea':'input');
+          input.id='cx-question-'+job.id+'-'+field.key;label.htmlFor=input.id;
+          input.name=field.key;input.dataset.questionLabel=field.label;input.required=field.required!==false;
+          if(input.tagName==='INPUT'){input.type=field.type||'text';if(field.type==='number')input.step='any';}
+          if(!['select','number','date'].includes(field.type))input.maxLength=4000;
+          if(field.type==='select'){const empty=el('option',null,'请选择');empty.value='';input.append(empty);for(const value of field.options||[]){const option=el('option',null,value);option.value=value;input.append(option);}}
+          row.append(label,input);form.append(row);
+        }
+        const submit=el('button','btn primary','提交回答');submit.type='submit';form.append(submit,el('p','cx-note','也可以直接在下方聊天框回答。'));box.append(form);
+      }
+      bot.append(box);
     } else if (job.status === 'failed' || job.status === 'cancelled') {
       const error=el('div', 'cx-error', job.error || '任务已停止。可以继续对话重试。');error.dataset.nodeKey='error';bot.append(error);
     } else if (job.status==='enabled' || job.preview?.valid || job.first_run) {
@@ -208,7 +247,7 @@
     const nearBottom=messages.scrollHeight-messages.scrollTop-messages.clientHeight<90,scroll=messages.scrollTop;
     for(const detail of messages.querySelectorAll('details[data-detail-key]'))detailStates.set(detail.dataset.detailKey,detail.open);
     if (!thread.length) { messages.replaceChildren(welcome); welcome.querySelectorAll('.cx-prompt').forEach(b => { b.hidden = false; }); return; }
-    const nodes=thread.map((job,index)=>{const signature=JSON.stringify([job.status,job.event_cursor,job.first_run,job.error,job.metrics,[...selectedFields(job)]]);const previous=[...messages.children].find(node=>node.dataset.jobId===job.id);if(previous?.dataset.signature===signature)return previous;const node=turn(job,index);node.dataset.signature=signature;return node;});
+    const nodes=thread.map((job,index)=>{const signature=JSON.stringify([job.status,job.event_cursor,job.first_run,job.error,job.metrics,job.report_delivery,[...selectedFields(job)]]);const previous=[...messages.children].find(node=>node.dataset.jobId===job.id);if(previous?.dataset.signature===signature)return previous;const node=turn(job,index);node.dataset.signature=signature;return node;});
     const old=[...messages.children];
     nodes.forEach((node,index)=>{const previous=old.find(item=>item.dataset.jobId===node.dataset.jobId);if(previous&&previous!==node)patchNode(previous,node);const current=previous||node;if(messages.children[index]!==current)messages.insertBefore(current,messages.children[index]||null);});
     for(const node of old)if(!thread.some(job=>job.id===node.dataset.jobId))node.remove();
@@ -225,10 +264,11 @@
     prompt.maxLength=job?4000:10000;
     prompt.placeholder = running ? '任务执行中，点击右侧停止按钮可中止'
       : job?.status === 'needs_info' ? '回答上面 EnGenie 的问题，Enter 发送…'
+      : job?.status === 'answered' ? '继续提问，或告诉 EnGenie 想怎样调整任务…'
       : job?.status === 'ready' ? '想调整哪里？直接说，例如：标题改用设备名；加一个持续时长字段…'
       : job?.status === 'enabled' ? '告诉 EnGenie 想怎样调整这个任务…'
       : '告诉 EnGenie 数据在哪、要采集什么、多久更新一次…';
-    hint.textContent = job?.status === 'needs_info' ? '你的回答会连同原始需求一起交给 EnGenie，继续完善任务。'
+    hint.textContent = job?.status==='answered'?'可以直接提问；只有要求创建或修改任务时才生成新方案。':job?.spec?.kind==='report' ? '报告预览已就绪。确认数据范围、处理规则和独立发送计划，也可先发送一次测试。' : job?.status === 'needs_info' ? '你的回答会连同原始需求一起交给 EnGenie，继续完善任务。'
       : job?.status === 'ready' ? '确认无误后点击样例卡片中的「确认数据并开始自动更新」。'
       : job?.status === 'enabled' ? '可继续修改当前脚本；新版本验证并经你确认后更新原数据源，不重复创建知识库。'
       : '先查看样例，再确认启用 · Enter 发送，Shift+Enter 换行';
@@ -255,34 +295,35 @@
     event.preventDefault();
     if(thread.at(-1)?.status==='running'){await stopJob();return;}
     const text = prompt.value.trim(); if (!text || send.disabled) return;
-    const submittedGeneration=generation;
+    const submittedGeneration=generation;let failure='';
     submitting=true;syncComposer(thread.at(-1));
     try {
       const last = thread.at(-1);
-      if (last && !['ready', 'needs_info', 'failed', 'cancelled','enabled'].includes(last.status)) throw new Error('当前任务尚未结束，请稍候或先停止。');
+      if (last && !['answered','ready', 'needs_info', 'failed', 'cancelled','enabled'].includes(last.status)) throw new Error('当前任务尚未结束，请稍候或先停止。');
       const data = last ? { feedback: text } : { prompt: text };
+      if(last&&composer.questionAnswers?.job===last.id)data.question_answers=composer.questionAnswers.answers;
       const response = await request(last ? last.refine_url : page.dataset.createUrl, data);
       if(submittedGeneration!==generation)return;
       if(last&&last.status!=='enabled')last.status='revised';
-      prompt.value = ''; prompt.style.height = 'auto';
+      delete composer.questionAnswers;prompt.value = ''; prompt.style.height = 'auto';
       thread.push(mergeJob(response.job)); generation++; clearTimeout(timer); render(); syncComposer(response.job);
       poll(response.job, generation);
-    } catch (error) { hint.textContent = error.message; } finally { submitting=false;syncComposer(thread.at(-1)); }
+    } catch (error) { failure=error.message; } finally { submitting=false;syncComposer(thread.at(-1));if(failure)hint.textContent=failure; }
   });
   prompt.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode!==229) { event.preventDefault(); composer.requestSubmit(); } });
-  prompt.addEventListener('input', () => { prompt.style.height = 'auto'; prompt.style.height = Math.min(prompt.scrollHeight, 160) + 'px'; });
+  prompt.addEventListener('input', () => { delete composer.questionAnswers;prompt.style.height = 'auto'; prompt.style.height = Math.min(prompt.scrollHeight, 160) + 'px'; });
   messages.addEventListener('click', async event => {
     const again=event.target.closest('[data-cx-continue]');
-    if(again){prompt.focus();prompt.placeholder='告诉 EnGenie 想调整哪些字段、采集方式或更新时间…';return;}
+    if(again){prompt.focus();prompt.placeholder=again.dataset.cxContinue==='report'?'告诉 EnGenie 报告的数据范围、处理方式和发送时间…':'告诉 EnGenie 想调整哪些字段、采集方式或更新时间…';return;}
     const enable = event.target.closest('[data-cx-enable]'); if (!enable) return;
     const job = thread.at(-1); if (!job||enable.dataset.cxEnable!==job.id) return;
     if(confirming)return;
-    const confirmedGeneration=generation;confirming=true;clearTimeout(timer);enable.disabled=true;enable.textContent='正在确认…';syncComposer(job);
+    const confirmedGeneration=generation;let failure='';confirming=true;clearTimeout(timer);enable.disabled=true;enable.textContent='正在确认…';syncComposer(job);
     try {
       await request(job.enable_url, {write_mode:writeModes.get(job.id)||job.spec.write_mode||'append',selected_fields:[...selectedFields(job)]});
       if(confirmedGeneration===generation)await poll(job,confirmedGeneration);
-    } catch (error) { hint.textContent = error.message; enable.disabled = false;enable.textContent='重新确认'; }
-    finally{confirming=false;syncComposer(thread.at(-1));}
+    } catch (error) { failure=error.message;enable.disabled=false;enable.textContent='重新确认'; }
+    finally{confirming=false;syncComposer(thread.at(-1));if(failure)hint.textContent=failure;}
   });
   messages.addEventListener('click', event => {
     const card = event.target.closest('.cx-prompt'); if (!card) return;

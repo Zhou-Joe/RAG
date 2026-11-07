@@ -55,6 +55,8 @@ def child_environment():
 
 
 def call_model(config, messages):
+    from .ai_clock import with_runtime_clock
+    messages=with_runtime_clock(messages)
     environment = child_environment()
     try:
         result = subprocess.run(

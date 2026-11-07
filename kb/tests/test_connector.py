@@ -196,7 +196,7 @@ class AgentTests(TestCase):
 
     def test_bad_json_and_tool_loop_have_finite_end(self):
         self.assertEqual(MAX_CALLS,50)
-        result,_=self.run_model([AIMessageChunk(content='no json')]*MAX_CALLS)
+        result,_=self.run_model([AIMessageChunk(content='{"connector":')]*MAX_CALLS)
         self.assertEqual(result.status,'failed');self.assertLessEqual(result.metrics['calls'],8)
         self.job.status='running';self.job.save(update_fields=['status'])
         result,_=self.run_model([call('inspect_connector_environment',identity='c'+str(i)) for i in range(MAX_CALLS)])

@@ -4,9 +4,16 @@ from django.urls import path
 
 from . import graph_views, hierarchy_views, feed_views, connector_views, tracker_analysis_views, kb_link_views, views
 
+from . import report_views
+
 app_name = "kb"
 
 urlpatterns = [
+    path('feeds/<uuid:feed_id>/report/settings/',report_views.configuration,name='report_configuration'),
+    path('feeds/<uuid:feed_id>/report/configure/',report_views.configure,name='report_configure'),
+    path('feeds/reports/<uuid:job_id>/test/',report_views.test_send,name='report_test'),
+    path('feeds/reports/<uuid:job_id>/preview.xlsx',report_views.preview_download,name='report_preview_download'),
+    path('reports/download/<str:token>/',report_views.public_download,name='report_public_download'),
     path('feeds/builder/',connector_views.index,name='connector_builder'),
     path('feeds/builder/create/',connector_views.create,name='connector_create'),
     path('feeds/builder/resume/',connector_views.resume,name='connector_resume'),

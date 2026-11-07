@@ -11,12 +11,12 @@ from decimal import Decimal,ROUND_HALF_UP,InvalidOperation
 ARITY={
     'add':(2,20),'subtract':(2,2),'multiply':(2,20),'divide':(2,2),'round':(1,1),'abs':(1,1),
     'count':(1,1),'sum':(1,1),'average':(1,1),'min':(1,1),'max':(1,1),'unique':(1,1),
-    'split':(1,1),'match':(1,1),'number':(1,1),'join':(1,1),'concat':(1,20),
+    'split':(1,1),'match':(1,1),'number':(1,1),'parse_number':(1,1),'join':(1,1),'concat':(1,20),
     'eq':(2,2),'ne':(2,2),'gt':(2,2),'gte':(2,2),'lt':(2,2),'lte':(2,2),'contains':(2,2),
     'and':(2,20),'or':(2,20),'not':(1,1),'if':(3,3),'coalesce':(1,20),
     'map':(2,2),'filter':(2,2),'group_by':(1,1),'duration':(2,2),'date_part':(1,1),
 }
-OPTIONS={'count':{'pattern','group','distinct','separator'},'split':{'separator'},'match':{'pattern','group'},
+OPTIONS={'parse_number':{'pattern','group','decimal_separator','thousands_separator','scale','on_error'},'count':{'pattern','group','distinct','separator'},'split':{'separator'},'match':{'pattern','group'},
     'round':{'digits'},'group_by':{'path','aggregate'},'join':{'separator'},'duration':{'format','unit'},'date_part':{'part'}}
 
 
@@ -66,6 +66,14 @@ def validate_computed(computed):
             if node.get('format','iso8601') not in ('hhmm','iso8601','unix_seconds','unix_millis') or node.get('unit','minutes') not in ('seconds','minutes','hours','days'):raise ValueError('duration时间格式或单位无效。')
         for key in ('pattern','separator'):
             if key in node and not (op=='join' and key=='separator'):_pattern(node[key])
+        if op=='parse_number':
+            if node.get('decimal_separator','.') not in ('.',','):raise ValueError('小数分隔符仅支持点或逗号。')
+            thousands=node.get('thousands_separator',',')
+            if not isinstance(thousands,str) or len(thousands)>3 or thousands==node.get('decimal_separator','.'):raise ValueError('千位分隔符需与小数分隔符不同。')
+            if node.get('on_error','raise') not in ('raise','null'):raise ValueError('转换失败策略仅支持raise或null。')
+            scale=node.get('scale',1)
+            if type(scale) not in (int,float) or not math.isfinite(scale) or abs(scale)>1e12:raise ValueError('换算比例无效。')
+            if 'group' in node and 'pattern' not in node:raise ValueError('group需要同时提供pattern。')
         if op=='match' and 'pattern' not in node:raise ValueError('match需要pattern。')
         if 'group' in node and (type(node['group']) is not int or not 0<=node['group']<=8):raise ValueError('计算正则group须为0至8。')
         if 'group' in node and node['group']>_pattern(node.get('pattern','(.)')).groups:raise ValueError('group超过计算正则的捕获组数量。')
@@ -98,6 +106,29 @@ def _result(value):
     return _number(int(value) if value==value.to_integral_value() else float(value))
 
 
+def _parse_number(value,node):
+    """Explicit, replayable conversion; raw track-sheet cells are never modified."""
+    try:
+        if isinstance(value,str):
+            text=value.strip()
+            if 'pattern' in node:
+                matches=list(_pattern(node['pattern']).finditer(text))
+                if len(matches)!=1:raise ValueError('正则应只匹配一个目标数字；请明确要提取的值。')
+                text=matches[0].group(node.get('group',0))
+            thousands=node.get('thousands_separator',',');decimal=node.get('decimal_separator','.')
+            if thousands and thousands in text:
+                integer=text.split(decimal,1)[0]
+                if not re.fullmatch(r'[+-]?\d{1,3}(?:'+re.escape(thousands)+r'\d{3})+',integer):raise ValueError('分隔符含义不明确，请指定正确的小数或千位分隔符。')
+                text=text.replace(thousands,'')
+            if decimal!='.':text=text.replace(decimal,'.')
+            value=text
+        number=_decimal(value)*Decimal(str(node.get('scale',1)))
+        return _result(number)
+    except (ValueError,TypeError,OverflowError,InvalidOperation):
+        if node.get('on_error','raise')=='null':return None
+        raise ValueError('无法按当前规则解析数值：'+str(value)[:100]+'；请用真实样例调整parse_number的正则、分隔符或单位换算。') from None
+
+
 def evaluate_computed(record,computed,context=None):
     validate_computed(computed);steps=[0]
     def evaluate(node,current):
@@ -128,6 +159,7 @@ def evaluate_computed(record,computed,context=None):
             return None if unknown or op=='coalesce' else op=='and'
         first=evaluate(args[0],current)
         if first is None:return None
+        if op=='parse_number':return _parse_number(first,node)
         if op in ('map','filter','group_by'):
             if not isinstance(first,list) or len(first)>1000:raise ValueError(op+'输入须为最多1000项的数组。')
             if op=='map':return [evaluate(args[1],row) for row in first]
@@ -184,7 +216,11 @@ def evaluate_computed(record,computed,context=None):
             else:result=numbers[0]
             return _result(result)
         if op=='not':return not first
-        if op=='contains':return values[1] in first
+        if op=='contains':
+            if isinstance(first,str):return str(values[1]) in first
+            if isinstance(first,(list,tuple)):return values[1] in first
+            if isinstance(first,dict):return isinstance(values[1],(str,int,float,bool)) and values[1] in first
+            return False
         if op in ('eq','ne','gt','gte','lt','lte'):
             left,right=values
             if op in ('gt','gte','lt','lte'):left,right=_number(left),_number(right)

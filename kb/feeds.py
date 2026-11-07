@@ -217,6 +217,14 @@ def execute(run_id):
         run.finished_at=timezone.now();run.payload={};run.counts={}
         run.save(update_fields=['status','error','finished_at','payload','counts'])
         KnowledgeFeed.objects.filter(pk=run.feed_id,lease_token=run.lease_token).update(lease_token='',lease_until=None)
+    if run.status=='completed':
+        try:
+            from .feed_reports import after_run
+            after_run(run)
+        except Exception:
+            # Reporting failures must not undo a committed collection or replay it.
+            import logging
+            logging.getLogger(__name__).exception('Report delivery failed for completed feed run %s',run.pk)
     return run
 
 

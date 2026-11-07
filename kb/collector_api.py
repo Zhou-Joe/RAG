@@ -98,7 +98,7 @@ def resolve_auth(user, url, *, authentication=_UNSET, credential=_UNSET, header_
 # ---------------------------------------------------------------- 生成任务
 
 def create_draft(*, user, requirement, api_url="", authentication=_UNSET, credential=_UNSET,
-                 header_env=_UNSET, allow_private=True, sample=None, kb=None, created_via="web"):
+                 header_env=_UNSET, allow_private=True, sample=None, kb=None, created_via="web", conversation=False):
     """创建采集脚本生成任务并在后台启动，立即返回草稿（不等生成结果）。
 
     认证三种给法：结构化的 `authentication={'type':'bearer','token':…}`（API/CLI/对话，
@@ -107,8 +107,9 @@ def create_draft(*, user, requirement, api_url="", authentication=_UNSET, creden
     require_manager(user)
     recover_stale()
     requirement = (requirement or "").strip()
-    if not 10 <= len(requirement) <= 10000:
-        raise ValueError("请用10至10000字符说明数据来源、采集内容与更新频率。")
+    minimum=1 if conversation else 10
+    if not minimum <= len(requirement) <= 10000:
+        raise ValueError("请输入1至10000字符的问题或任务需求。" if conversation else "请用10至10000字符说明数据来源、采集内容与更新频率。")
     if ConnectorDraft.objects.filter(user=user, status="running").exists():
         raise ValueError("已有生成任务正在运行，请等待完成。")
     if api_url:
@@ -134,18 +135,24 @@ def create_draft(*, user, requirement, api_url="", authentication=_UNSET, creden
 
 
 def refine_draft(*, user, job, requirement, api_url=_UNSET, credential=_UNSET, header_env=_UNSET,
-                 allow_private=None) -> ConnectorDraft:
+                 allow_private=None, question_answers=None) -> ConnectorDraft:
     """在同一对话里按自然语言反馈生成新候选；沿用已保存凭据，仍等待用户批准。"""
     authorize(job)
     if job.user_id != user.pk:
         raise ValueError("原任务不属于当前账号。")
-    if job.status not in ("ready", "needs_info", "failed", "cancelled", "enabled"):
+    if job.status not in ("answered", "ready", "needs_info", "failed", "cancelled", "enabled"):
         raise ValueError("请等待当前预览完成后再调整；已启用的数据源请在数据源页面管理。")
     if ConnectorDraft.objects.filter(user=user, status="running").exists():
         raise ValueError("已有预览正在生成，请等待或停止后重试。")
     feedback = (requirement or "").strip() or "请使用最新的网页与 API 采集工具，按原始需求重新读取真实数据并生成预览。"
+    if question_answers is not None:
+        from .feed_reports import capture_question_answers
+        feedback=capture_question_answers(user,job,feedback,question_answers)
     if not 1 <= len(feedback) <= 4000:
         raise ValueError("请用1至4000字符回答问题或说明修改要求。")
+    if any(host in feedback for host in ('.environment.api.powerplatform.com','.logic.azure.com','.logic.azure.cn')):
+        from .feed_reports import source_feed, capture_feedback
+        feedback = capture_feedback(user, source_feed(job), feedback)
     with transaction.atomic():
         url = _chain_url(job) if api_url is _UNSET else (api_url or "")
         if url:
@@ -164,7 +171,7 @@ def refine_draft(*, user, job, requirement, api_url=_UNSET, credential=_UNSET, h
                 raise ValueError("原数据源已被删除，请创建新任务。")
             if not ConnectorDraft.objects.filter(pk=job.pk, status="enabled").update(updated_at=timezone.now()):
                 raise ValueError("该对话上下文已清空，请重新打开数据源继续修改。")
-        elif not ConnectorDraft.objects.filter(pk=job.pk, status__in=["ready", "needs_info", "failed", "cancelled"],
+        elif not ConnectorDraft.objects.filter(pk=job.pk, status__in=["answered", "ready", "needs_info", "failed", "cancelled"],
                                               feed__isnull=True).update(status="revised", updated_at=timezone.now()):
             raise ValueError("该预览已被更新或启用，请查看最新任务。")
         child = ConnectorDraft.objects.create(
@@ -281,7 +288,7 @@ def status(job) -> dict:
         "id": str(job.pk), "status": job.status, "created_via": job.created_via,
         "api_url": job.api_url, "allow_private": job.allow_private,
         "has_credential": bool(job.credential_id or job.header_env),
-        "questions": job.questions, "error": job.error,
+        "questions": job.questions, "answer": job.preview.get("answer", ""), "error": job.error,
         "preview": {"valid": bool(job.preview.get("valid")), "items": job.preview.get("items", 0),
                     "warnings": len(job.preview.get("warnings", []))} if job.preview else {},
         "spec": job.spec, "feed_id": str(job.feed_id) if job.feed_id else None,

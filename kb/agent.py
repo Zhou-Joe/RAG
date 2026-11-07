@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from django.conf import settings
-from langchain_openai import ChatOpenAI
+from .clocked_chat import ClockedChatOpenAI as ChatOpenAI
 
 from .config import llm_settings, retrieval_settings
 from .tracker_tool_schema import TrackerFilter, TrackerGroup, TrackerMetric, TrackerOrder

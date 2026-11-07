@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST,require_GET
 
 from . import access, collector_api
+from .feed_reports import delivery_context
 from .connector_agent import MAX_CALLS, MAX_TOOLS, MAX_SECONDS, authorize, recover_stale
 from .connector_tools import check_spec, redact
 from .feed_credentials import api_origin, bindings, discard_if_unused, parse_auth, request_headers, secret_values, store, summary
@@ -52,6 +53,7 @@ def _json(job,*,after=None,before=None):
     latest=activity.order_by('-id').values_list('id',flat=True).first() or 0
     last=rows[-1].pk if rows else after or 0
     return {'id':str(job.pk),'status':job.status,'prompt':job.prompt,'spec':job.spec,'preview':job.preview,
+        'report_delivery':delivery_context(job),
         'events':events,'event_cursor':last,'latest_event_id':latest,'has_more_events':last<latest,
         'older_event_cursor':rows[0].pk if rows else None,
         'has_older_events':bool(rows and activity.filter(id__lt=rows[0].pk).exists()),
@@ -62,6 +64,7 @@ def _json(job,*,after=None,before=None):
         'api_url':job.api_url,'allow_private':job.allow_private,'authentication':summary(job),
         'limits':{'model_calls':MAX_CALLS,'tool_calls':MAX_TOOLS,'seconds':MAX_SECONDS},
         'status_url':reverse('kb:connector_status',args=[job.pk]),'thread_url':reverse('kb:connector_thread',args=[job.pk]),
+        'report_download_url':reverse('kb:report_preview_download',args=[job.pk]),'report_test_url':reverse('kb:report_test',args=[job.pk]),
         'download_url':reverse('kb:connector_download',args=[job.pk]),
         'enable_url':reverse('kb:connector_enable',args=[job.pk]),
         'credential_url':reverse('kb:connector_credentials',args=[job.pk]),
@@ -112,6 +115,8 @@ def resume(request):
         with transaction.atomic():
             feed=get_object_or_404(KnowledgeFeed.objects.select_related('kb','credential'),pk=feed_id,kb__in=libraries)
             if not feed.adapter_spec:raise ValueError('该数据源没有 AI 采集脚本。')
+            from .feed_reports import remember_request_site
+            remember_request_site(request.user,feed,request)
             job=ConnectorDraft.objects.filter(feed=feed,user=request.user).order_by('-created_at').first()
             if job is None:
                 job=_script_edit_root(request.user,feed)
@@ -194,7 +199,7 @@ def create(request):
         credential,headers=_credentials(request,data,url)
         job = collector_api.create_draft(user=request.user,requirement=data.get('prompt',''),api_url=url,
             credential=credential,header_env=headers,allow_private=data.get('allow_private',True),
-            sample=data.get('sample'),kb=kb,created_via='web')
+            sample=data.get('sample'),kb=kb,created_via='web',conversation=True)
         return JsonResponse({'ok':True,'job':_json(job)},status=202)
     except RequestDataTooBig: return JsonResponse({'ok':False,'error':'请求内容过大。'},status=413)
     except (ValueError,TypeError,AttributeError) as exc: return JsonResponse({'ok':False,'error':str(exc)},status=400)
@@ -264,6 +269,10 @@ def enable(request,job_id):
     try:
         job=_job(request,job_id)
         data=json.loads(request.body or b'{}')
+        if job.spec.get('kind')=='report':
+            from .feed_reports import approve
+            feed=approve(job,request.user)
+            return JsonResponse({'ok':True,'feed_id':str(feed.pk)})
         feed=collector_api.approve(user=request.user,job=job,write_mode=data.get('write_mode'),
             department=data.get('department'),selected_fields=data.get('selected_fields'))
         return JsonResponse({'ok':True,'feed_id':str(feed.pk),'url':reverse('kb:feeds')+'?kb='+feed.kb.slug})
@@ -340,8 +349,12 @@ def refine(request,job_id):
             extra['api_url']=url
             if 'authentication' in data:
                 extra['credential'],extra['header_env']=_credentials(request,{**data,'credential_job':str(previous.pk)},url)
-        job=collector_api.refine_draft(user=request.user,job=previous,requirement=data.get('feedback',''),
-            allow_private=data.get('allow_private',True),**extra)
+        from .feed_reports import source_feed,remember_request_site
+        feed=source_feed(previous,required=False)
+        if feed:remember_request_site(request.user,feed,request)
+        feedback=data.get('feedback','')
+        job=collector_api.refine_draft(user=request.user,job=previous,requirement=feedback,
+            allow_private=data.get('allow_private',True),question_answers=data.get('question_answers'),**extra)
         return JsonResponse({'ok':True,'job':_json(job)},status=202)
     except (ValueError,TypeError,AttributeError) as exc:return JsonResponse({'ok':False,'error':str(exc)},status=400)
 

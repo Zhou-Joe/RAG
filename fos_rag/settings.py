@@ -34,6 +34,12 @@ def _env(key: str, default: str = "") -> str:
 SECRET_KEY = _env("DJANGO_SECRET_KEY", "fos-rag-dev-insecure-change-me")
 DEBUG = _env("DJANGO_DEBUG", "True").lower() in ("1", "true", "yes")
 ALLOWED_HOSTS = [h for h in _env("DJANGO_ALLOWED_HOSTS", "*").split(",") if h]
+# Report links default to the app's external request address. Set once for tunnels/local access.
+FEED_REPORT_PUBLIC_BASE = _env("FEED_REPORT_PUBLIC_BASE").rstrip("/")
+# Opt in only behind a proxy that strips and sets these headers itself.
+DJANGO_TRUST_PROXY_HEADERS = _env("DJANGO_TRUST_PROXY_HEADERS", "False").lower() in ("1", "true", "yes")
+USE_X_FORWARDED_HOST = DJANGO_TRUST_PROXY_HEADERS
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if DJANGO_TRUST_PROXY_HEADERS else None
 
 INSTALLED_APPS = [
     "daphne",
