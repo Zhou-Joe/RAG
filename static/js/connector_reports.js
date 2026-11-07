@@ -6,9 +6,9 @@
  messages.addEventListener('submit',event=>{
   const form=event.target.closest('[data-builder-question-form]');if(!form)return;
   event.preventDefault();if(prompt.disabled||send.disabled)return;
-  const answers=[...form.querySelectorAll('[data-question-label]')].map(input=>({key:input.name,label:input.dataset.questionLabel,value:input.value.trim()})).filter(answer=>answer.value);
+  const answers=[...form.querySelectorAll('[data-question-label]')].map(input=>({key:input.name,label:input.dataset.questionLabel,value:input.value.trim()}));
   if(!answers.length)return;
-  const text=[prompt.value.trim(),answers.map(answer=>answer.label+'：'+answer.value).join('\n')].filter(Boolean).join('\n\n');
+  const text=[prompt.value.trim(),answers.filter(answer=>answer.value).map(answer=>answer.label+'：'+answer.value).join('\n')||(window.FOSI18n?.t('可选信息暂不补充，请继续。')||'可选信息暂不补充，请继续。')].filter(Boolean).join('\n\n');
   if(text.length>prompt.maxLength){hint.textContent='回答内容过长，请缩短后再提交（最多'+prompt.maxLength+'字）。';return;}
   prompt.value=text;
   prompt.dispatchEvent(new Event('input'));composer.questionAnswers={job:form.dataset.builderQuestionForm,answers:answers.map(({key,value})=>({key,value}))};composer.requestSubmit();

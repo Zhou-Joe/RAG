@@ -42,7 +42,8 @@
     "发送设置可直接在聊天框提供；缺少信息时 EnGenie 会提问。发送测试仅发送一次，不会启用定时报告。工作流接收请求后仍需查看邮件/Teams或工作流运行记录。": "Provide delivery settings in the chat; EnGenie will ask for missing details. A test sends once and does not enable scheduled delivery. Check email, Teams or the workflow run history after the request is accepted.",
     "预览使用当前已有数据；发送时会重新计算选定日期范围。": "The preview uses currently saved data; the selected date range is recalculated at delivery time.",
     "目标日期范围目前暂无数据；可确认规则，发送时将重新读取已保存的数据。": "The selected date range has no data yet. You can confirm the rules; saved data will be read again at delivery time.",
-    "告诉 EnGenie 报告的数据范围、处理方式和发送时间…": "Tell EnGenie the report data range, processing rules and delivery time…"
+    "告诉 EnGenie 报告的数据范围、处理方式和发送时间…": "Tell EnGenie the report data range, processing rules and delivery time…",
+    "可选信息暂不补充，请继续。": "Skip the optional details for now and continue."
   },
   "patterns": [
     {
