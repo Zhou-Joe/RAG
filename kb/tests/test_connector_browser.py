@@ -51,6 +51,12 @@ class BrowserPlanTests(SimpleTestCase):
         data['records'][0]['state']='Open'
         with self.assertRaisesMessage(ValueError,'start'):build_batch(spec,data)
 
+    def test_browser_record_limit_accepts_500_and_rejects_501(self):
+        candidate=web_spec()['browser'];candidate['max_records']=500
+        self.assertEqual(validate_plan(candidate)['max_records'],500)
+        candidate['max_records']=501
+        with self.assertRaises(ValueError):validate_plan(candidate)
+
     def test_browser_spec_supports_css_fields_details_and_portable_package(self):
         import io,zipfile
         spec=web_spec();self.assertEqual(validate_spec(spec)['source_type'],'browser')
@@ -68,6 +74,34 @@ class BrowserPlanTests(SimpleTestCase):
     def test_private_requests_require_opt_in_and_matching_origin(self):
         for allowed,origins in [(False,[('http','127.0.0.1',9)]),(True,[('https','example.com',443)])]:
             with self.assertRaises(ValueError):fetch_resource('http://127.0.0.1:9/','GET',{},None,allow_private=allowed,private_origins=origins)
+
+
+class BrowserTimeoutTests(SimpleTestCase):
+    def test_collection_passes_twenty_minute_limit_to_async_cancellation(self):
+        browser=BrowserSession.__new__(BrowserSession)
+        browser._open=AsyncMock();browser._collect=AsyncMock(return_value={'records':[]})
+        async def wait(coroutine,*,timeout):
+            self.assertEqual(timeout,20*60)
+            return await coroutine
+        with patch('kb.browser_runtime.asyncio.wait_for',side_effect=wait):
+            result=asyncio.run(browser._dispatch('collect',{'spec':{}}))
+        self.assertEqual(result,{'records':[]});self.assertFalse(browser.document_only)
+
+    def test_outer_watchdog_allows_collection_past_old_seven_minute_limit(self):
+        import concurrent.futures
+        browser=BrowserSession.__new__(BrowserSession);browser.loop=object();browser.checkpoint=Mock();browser._dispatch=Mock(return_value=object())
+        future=Mock();future.result.side_effect=[concurrent.futures.TimeoutError(),{'records':[]}]
+        with patch('kb.browser_runtime.asyncio.run_coroutine_threadsafe',return_value=future),patch('kb.browser_runtime.time.monotonic',side_effect=[0,15*60]):
+            self.assertEqual(browser.call('collect',spec={}),{'records':[]})
+        future.cancel.assert_not_called();browser.checkpoint.assert_called_once()
+
+    def test_outer_watchdog_still_cancels_after_twenty_minutes_and_margin(self):
+        import concurrent.futures
+        browser=BrowserSession.__new__(BrowserSession);browser.loop=object();browser.checkpoint=None;browser._dispatch=Mock(return_value=object())
+        future=Mock();future.result.side_effect=concurrent.futures.TimeoutError()
+        with patch('kb.browser_runtime.asyncio.run_coroutine_threadsafe',return_value=future),patch('kb.browser_runtime.time.monotonic',side_effect=[0,20*60+11]):
+            with self.assertRaisesMessage(ValueError,'浏览器操作超时'):browser.call('collect',spec={})
+        future.cancel.assert_called_once()
 
 
 class BrowserRuntimeTests(SimpleTestCase):
@@ -89,6 +123,12 @@ class BrowserRuntimeTests(SimpleTestCase):
                     self.send('''<h1>Hours detail</h1><div id="data"></div><script>setTimeout(()=>{document.querySelector('#data').innerHTML='<div class="line">Location: Wonderland</div><div class="line">Today hours: 09:00 to 21:00</div>';},3500);</script>''');return
                 if self.path=='/semantic':
                     self.send('''<style>.card{cursor:pointer}</style><header><nav>Unrelated navigation</nav></header><main id="content"><h1>Attraction hours</h1><div class="card" onclick="location.href='/detail/ride-1'" ng-test="noise"><span class="title">Ride 1</span></div><div class="card"><span class="title">Ride 2</span></div><table id="hours"><tr><th>Start</th><th>End</th></tr><tr><td>09:00</td><td>21:00</td></tr></table><script>window.secret='not-in-dom';</script></main>''');return
+                if self.path.startswith('/many-data-'):
+                    count=int(self.path.rsplit('-',1)[1]);self.send(json.dumps({'data':[{'id':str(i),'name':'Item '+str(i)} for i in range(count)]}),kind='application/json');return
+                if self.path.startswith('/many-network-'):
+                    count=int(self.path.rsplit('-',1)[1]);self.send('<main id="ready"></main><script>fetch("/many-data-'+str(count)+'")</script>');return
+                if self.path.startswith('/many-dom-'):
+                    count=int(self.path.rsplit('-',1)[1]);self.send('<main>'+''.join('<div class="card" data-id="'+str(i)+'"><span class="title">Item '+str(i)+'</span></div>' for i in range(count))+'</main>');return
                 if self.path.startswith('/data'):
                     page='2' if 'page=2' in self.path else '1'
                     self.send(json.dumps({'data':[{'id':'ride-'+page,'name':'Ride '+page,'detail_url':'/detail/ride-'+page,'show_times':'11:00|13:00|16:00'}]}),kind='application/json');return
@@ -253,6 +293,31 @@ class BrowserRuntimeTests(SimpleTestCase):
         spec['browser']={'output':{'kind':'network','url_contains':'/data?page=1','path':'data','fields':{'times':{'path':'show_times','regex':r'\d{1,2}:\d{2}','all':True}}}}
         data=browser.call('collect',spec=spec)
         self.assertEqual(data['records'][0]['times'],['11:00','13:00','16:00']);self.assertEqual(build_batch(spec,data)['items'][0]['fields']['Count'],3)
+
+
+    def test_dom_collection_accepts_500_records_and_preserves_last_row(self):
+        candidate=web_spec(self.base+'/many-dom-500');candidate['body_fields']=[{'label':'Name','path':'name'}]
+        candidate['browser']={'output':{'kind':'dom','rows':'.card','fields':{'id':{'attribute':'data-id'},'name':{'selector':'.title'}}}}
+        result=self.browser().call('collect',spec=candidate)
+        self.assertEqual(len(result['records']),500);self.assertEqual(result['records'][-1]['id'],'499')
+        self.assertEqual(len(build_batch(candidate,result)['items']),500)
+
+    def test_dom_collection_rejects_501_records_instead_of_truncating(self):
+        candidate=web_spec(self.base+'/many-dom-501')
+        candidate['browser']={'output':{'kind':'dom','rows':'.card','fields':{'id':{'attribute':'data-id'},'name':{'selector':'.title'}}}}
+        with self.assertRaisesMessage(ValueError,'500条'):self.browser().call('collect',spec=candidate)
+
+    def test_browser_network_collection_accepts_500_and_rejects_501(self):
+        for count in (500,501):
+            with self.subTest(count=count):
+                candidate=web_spec(self.base+'/many-network-'+str(count))
+                candidate['browser']={'output':{'kind':'network','url_contains':'/many-data-','path':'data'}}
+                browser=self.browser()
+                if count==500:
+                    result=browser.call('collect',spec=candidate)
+                    self.assertEqual(len(result['records']),500);self.assertEqual(result['records'][-1]['id'],'499')
+                else:
+                    with self.assertRaisesMessage(ValueError,'500条'):browser.call('collect',spec=candidate)
 
 
 class BrowserAgentTests(TestCase):

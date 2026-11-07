@@ -1146,7 +1146,24 @@
     "结构化数据集": "Structured datasets",
     "启用": "Enabled",
     "视觉": "Vision",
-    "规划+核实": "Planning + Verification"
+    "规划+核实": "Planning + Verification",
+    "M365 报告发送": "M365 report delivery",
+    "仅任务创建者可编辑。链接加密保存，EnGenie 自动使用；报告内容和发送时间继续在对话中设置。": "Only the task creator can edit these links. They are encrypted and used automatically by EnGenie. Set report content and delivery times in chat.",
+    "邮件工作流 URL": "Email workflow URL",
+    "Teams 工作流 URL": "Teams workflow URL",
+    "粘贴邮件工作流的 HTTPS 触发地址": "Paste the email workflow HTTPS trigger URL",
+    "粘贴 Teams 工作流的 HTTPS 触发地址": "Paste the Teams workflow HTTPS trigger URL",
+    "已保存，留空保留；填写新链接可替换。": "Saved. Leave blank to keep it, or enter a new link to replace it.",
+    "尚未配置；需要此发送方式时填写。": "Not configured. Add a link to use this delivery method.",
+    "留空保留已保存的链接；两种链接分别保存，不能混用。更换当前发送地址后，需要重新确认报告计划。": "Leave blank to keep saved links. Email and Teams links are stored separately. Confirm the report schedule again after replacing its delivery URL.",
+    "仅创建者可编辑": "Only the creator can edit",
+    "仅此自动任务的创建者可编辑配置。": "Only this task’s creator can edit its settings.",
+    "打开编辑配置": "Open settings",
+    "发送设置尚未齐全，请在对话中补充收件人或发送方式。": "Delivery settings are incomplete. Add the recipient or delivery method in chat.",
+    "请先由任务创建者在「自主数据引擎 → 编辑配置」填写Teams工作流 URL 并保存，再返回此对话继续。无需在聊天中粘贴链接。": "Ask the task creator to save the Teams workflow URL under Automated data engine → Edit settings, then return to this chat. No need to paste the link in chat.",
+    "请先由任务创建者在「自主数据引擎 → 编辑配置」填写邮件工作流 URL 并保存，再返回此对话继续。无需在聊天中粘贴链接。": "Ask the task creator to save the email workflow URL under Automated data engine → Edit settings, then return to this chat. No need to paste the link in chat.",
+    "请先由任务创建者在「自主数据引擎 → 编辑配置」填写对应发送方式的工作流 URL 并保存，再返回此对话继续。无需在聊天中粘贴链接。": "Ask the task creator to save the selected delivery method’s workflow URL under Automated data engine → Edit settings, then return to this chat. No need to paste the link in chat.",
+    "留空保留已保存的链接；两种链接分别保存，不能混用。保存链接不会改变采集或报告的计划及启用状态。": "Leave blank to keep saved links. Email and Teams links are stored separately. Saving links preserves collection and report schedules and their enabled status."
   },
   "patterns": [
     {

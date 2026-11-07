@@ -74,7 +74,7 @@ class ProtocolTests(SimpleTestCase):
         with self.assertRaises(ValueError):load_batch(b'{}'*(1_000_001))
         with self.assertRaises(ValueError):load_batch(b'{"schema":"fos-rag-feed/v1","items":[],"cursor":NaN}')
         with self.assertRaises(ValueError):validate_batch(batch(content='x'*100001))
-        with self.assertRaises(ValueError):validate_batch({'schema':SCHEMA,'items':[],'deleted':[str(i) for i in range(101)]})
+        with self.assertRaises(ValueError):validate_batch({'schema':SCHEMA,'items':[],'deleted':[str(i) for i in range(501)]})
 
     def test_bad_urls_empty_reports_and_naive_timestamps_fail(self):
         for field,value in [('source_url','javascript:alert(1)'),('source_url','https://user:secret@example.com/x'),('updated_at','2027-01-01T08:00:00'),('content','   ')]:
@@ -222,6 +222,31 @@ class FeedExecutionTests(TestCase):
         newest=deepcopy(newer);newest['items'][0]['updated_at']='2027-01-04T08:00:00Z'
         self.assertEqual(self.run_batch(newest).counts['unchanged'],1)
         self.assertNotIn('Old incorrect',self.folder.tracker.rows.get().values['内容'])
+
+    def test_collection_can_complete_after_old_ten_minute_deadline(self):
+        from itertools import chain,repeat
+        run,_=claim(self.feed.pk,trigger='push',payload=batch())
+        with patch('kb.feeds.time.monotonic',side_effect=chain([0],repeat(20*60))):
+            result=execute(run.pk)
+        self.assertEqual(result.status,'completed',result.error)
+        self.assertEqual(self.folder.tracker.rows.count(),1)
+
+    def test_sixty_minute_deadline_stops_publish_and_keeps_cursor(self):
+        from itertools import chain,repeat
+        run,_=claim(self.feed.pk,trigger='push',payload=batch(cursor='must-not-commit'))
+        with patch('kb.feeds.time.monotonic',side_effect=chain([0],repeat(60*60))):
+            result=execute(run.pk)
+        self.assertEqual(result.status,'failed');self.assertIn('60分钟',result.error)
+        self.assertFalse(TrackerRow.objects.filter(feed=self.feed).exists())
+        self.feed.refresh_from_db();self.assertEqual(self.feed.cursor,'');self.assertFalse(self.feed.lease_token)
+
+    def test_long_run_lease_prevents_reclaim_after_old_fifteen_minute_expiry(self):
+        now=timezone.now()
+        with patch('kb.feeds.timezone.now',return_value=now):run,_=claim(self.feed.pk,trigger='push',payload=batch())
+        self.feed.refresh_from_db();self.assertEqual(self.feed.lease_until,now+timedelta(minutes=65))
+        with patch('kb.feeds.timezone.now',return_value=now+timedelta(minutes=30)):
+            with self.assertRaises(FeedBusy):claim(self.feed.pk,trigger='push',payload=batch('overlap'))
+        run.refresh_from_db();self.assertEqual(run.status,'running')
 
     def test_source_lease_and_idempotency_prevent_overlapping_publications(self):
         payload=batch();run,fresh=claim(self.feed.pk,trigger='push',payload=payload,request_key='same')

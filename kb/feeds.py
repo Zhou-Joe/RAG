@@ -21,8 +21,9 @@ from .feed_protocol import canonical,validate_batch
 from .models import Document,FeedRecord,FeedRun,KnowledgeBase,KnowledgeFeed,KbTracker,TrackerRow
 from .publication import digest
 
-MAX_RUN_SECONDS=600
-LEASE_SECONDS=900
+MAX_RUN_SECONDS=60*60
+# Keep the fencing lease longer than the complete execution budget.
+LEASE_SECONDS=MAX_RUN_SECONDS+5*60
 
 
 class FeedBusy(ValueError):pass
@@ -71,7 +72,7 @@ def claim(feed_id,*,trigger='manual',payload=None,request_key='',force=False):
 
 
 def _check(run,started):
-    if time.monotonic()-started>=MAX_RUN_SECONDS:raise ValueError('更新达到10分钟上限，整批未发布；原有版本与游标保留。')
+    if time.monotonic()-started>=MAX_RUN_SECONDS:raise ValueError('更新达到60分钟上限，整批未发布；原有版本与游标保留。')
     feed=KnowledgeFeed.objects.select_related('kb','created_by').get(pk=run.feed_id)
     authorize(feed)
     if feed.lease_token!=run.lease_token or not feed.lease_until or feed.lease_until<=timezone.now():raise ValueError('本次执行锁已失效，禁止继续发布。')

@@ -10,7 +10,7 @@
     "batch_id": {"type": "string", "pattern": "^[A-Za-z0-9._:-]{1,160}$"},
     "cursor": {"type": "string", "maxLength": 2048},
     "items": {
-      "type": "array", "maxItems": 100,
+      "type": "array", "maxItems": 500,
       "items": {
         "type": "object", "additionalProperties": false,
         "required": ["id", "title", "content"],
@@ -26,6 +26,6 @@
         }
       }
     },
-    "deleted": {"type": "array", "maxItems": 100, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}}
+    "deleted": {"type": "array", "maxItems": 500, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 200}}
   }
 }

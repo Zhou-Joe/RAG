@@ -111,3 +111,14 @@ def set_kb_department(kb: KnowledgeBase, department: str) -> None:
     kb.save(update_fields=["department", "updated_at"])
     if kb.is_folder:
         KnowledgeBase.objects.filter(parent=kb).update(department=department)
+
+
+def can_edit_feed(user, feed) -> bool:
+    """Only the original builder with current KB management rights may edit a feed."""
+    return bool(user and user.is_active and user.pk == feed.created_by_id
+                and is_manager(user) and can_manage_kb(user, feed.kb))
+
+
+def require_feed_builder(user, feed) -> None:
+    if not can_edit_feed(user, feed):
+        raise ValueError('仅此自动任务的创建者可编辑配置。')

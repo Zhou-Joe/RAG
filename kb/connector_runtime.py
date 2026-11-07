@@ -15,6 +15,7 @@ from urllib.parse import urlsplit,urlencode,urlunsplit,parse_qsl
 from urllib.request import Request,build_opener,HTTPRedirectHandler
 
 SCHEMA='fos-rag-feed/v1'
+MAX_ITEMS=500
 MISSING=object()
 _SCALE={'seconds':1,'minutes':60,'hours':3600,'days':86400}
 
@@ -164,7 +165,7 @@ def build_batch(spec,data):
     records=lookup(data,spec.get('records_path',''))
     if spec.get('single_record',False):records=[records]
     if not isinstance(records,list):raise ValueError('records_path 没有定位到数组；单对象接口请使用 single_record=true。')
-    if len(records)>100:raise ValueError('API 返回超过100条，请在 query 中设置分页大小。')
+    if len(records)>MAX_ITEMS:raise ValueError('API 返回超过500条，请在 query 中设置分页大小。')
     items=[];tolerant=spec.get('on_error','raw')=='raw'
     context={'timezone':spec.get('timezone','Asia/Shanghai'),'collected_at':datetime.now(ZoneInfo(spec.get('timezone','Asia/Shanghai'))),'records':records}
     if spec.get('source_type')=='browser' and isinstance(data,dict) and data.get('__fos_collected_at'):
@@ -247,7 +248,7 @@ def build_batch(spec,data):
         items.append(item)
     deleted=lookup(data,spec['deleted_path']) if spec.get('deleted_path') else []
     if not isinstance(deleted,list) or any(not isinstance(key,(str,int)) or isinstance(key,bool) for key in deleted):raise ValueError('deleted_path 只能指向显式删除 ID 的数组。')
-    if len(items)+len(deleted)>100:raise ValueError('单批写入与删除总数不能超过100。')
+    if len(items)+len(deleted)>MAX_ITEMS:raise ValueError('单批写入与删除总数不能超过500。')
     payload={'schema':SCHEMA,'items':items,'deleted':[str(key) for key in deleted]}
     if spec.get('next_cursor_path'):
         cursor=lookup(data,spec['next_cursor_path'],None)

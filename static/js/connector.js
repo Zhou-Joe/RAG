@@ -93,7 +93,7 @@
       const table=el('table'),head=el('tr');table.dataset.i18nIgnore='';card.querySelector('h3').dataset.i18nIgnore='';for(const label of job.preview.headers||[])head.append(el('th',null,label));table.append(head);
       for(const row of job.preview.preview||[]){const tr=el('tr');for(const label of job.preview.headers||[])tr.append(el('td',null,String(row[label]??'')));table.append(tr);}const scroll=el('div');scroll.style.overflowX='auto';scroll.append(table);card.append(scroll);
       const delivery=job.report_delivery||job.preview.delivery;
-      if(delivery&&!delivery.configured){card.append(el('p','cx-note','发送设置尚未齐全：'+(delivery.kind==='teams'?'请在聊天中提供Teams频道工作流链接。':'请在聊天中补充对应类型的工作流和收件信息。')));}
+      if(delivery&&!delivery.configured){card.append(el('p','cx-note',delivery.missing?.includes('workflow_url')?delivery.workflow_setup_hint:'发送设置尚未齐全，请在对话中补充收件人或发送方式。'));}
       if(job.status==='enabled'&&delivery&&!delivery.enabled){card.append(el('p','cx-note','报告发送计划当前未启用，请补充发送设置并确认。'));}
       if(job.preview.preview_as_of){const zone=job.preview.preview_timezone||job.spec.schedule?.timezone||'Asia/Shanghai';const dateText=value=>new Intl.DateTimeFormat(window.FOSI18n?.locale||'zh-CN',{timeZone:zone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));card.append(el('p','cx-meta','预览数据截至：'+dateText(job.preview.preview_as_of)+'（'+zone+'）'));if(job.preview.next_send_at)card.append(el('p','cx-meta','下次发送：'+dateText(job.preview.next_send_at)));}
       for(const [name,audit] of Object.entries(job.preview.transformation_audit||{})){const details=el('details');details.append(el('summary',null,'后处理 · '+name+'：'+audit.converted+'条有效，'+audit.missing+'条缺失/未解析（原值保留）'));for(const sample of audit.examples||[])details.append(el('p','cx-note',JSON.stringify(sample.input)+' → '+(sample.output===null?'缺失':String(sample.output))));card.append(details);}
@@ -106,7 +106,7 @@
       if(job.status==='enabled'&&delivery&&!delivery.configured){const configure=el('button','btn primary','补充发送设置');configure.type='button';configure.dataset.cxContinue='report';actions.append(configure);}
       if(job.status==='ready'&&!job.spec.schedule){const continueReport=el('button','btn primary','补充报告发送计划');continueReport.type='button';continueReport.dataset.cxContinue='report';actions.append(continueReport);}
       if(job.status==='ready'&&job.spec.schedule){const enable=el('button','btn primary',job.spec.schedule?.mode==='manual'?'确认报告设置':'确认并启用报告计划');enable.type='button';enable.dataset.cxEnable=job.id;actions.append(enable);}
-      const test=el('button','btn outline','发送测试报告');test.type='button';test.dataset.reportTest=job.report_test_url;test.disabled=job.preview.items===0;actions.append(test);card.append(actions,el('p','cx-note','发送设置可直接在聊天框提供；缺少信息时 EnGenie 会提问。发送测试仅发送一次，不会启用定时报告。工作流接收请求后仍需查看邮件/Teams或工作流运行记录。'));
+      const test=el('button','btn outline','发送测试报告');test.type='button';test.dataset.reportTest=job.report_test_url;test.disabled=!job.preview.valid||job.preview.items===0||!['ready','enabled','revised'].includes(job.status);actions.append(test);card.append(actions,el('p','cx-note','工作流链接在编辑配置中保存，报告内容和发送时间可在对话中调整。发送测试仅发送一次，不会启用定时报告。工作流接收请求后仍需查看邮件/Teams或工作流运行记录。'));
       return card;
     }
     if (job.status === 'enabled' || job.first_run) {
@@ -182,6 +182,11 @@
     if(metrics.calls){const stats=el('div','cx-metrics');stats.dataset.nodeKey='metrics';stats.append(el('span',null,`模型 ${metrics.calls}/${job.limits?.model_calls||50}`),el('span',null,`工具 ${metrics.tools||0}`),el('span',null,`缓存 ${metrics.cache_reported&&metrics.input_tokens?Math.round(metrics.cached_tokens/metrics.input_tokens*100)+'%':'未上报'}`));bot.append(stats);}
     const trail = toolTrail(job); if (trail) bot.append(trail);
     if(job.preview?.answer){const answer=el('div','cx-answer');answer.dataset.nodeKey='answer';answer.innerHTML=md(job.preview.answer);bot.append(answer);}
+    else if(job.preview?.setup_required){
+      const box=el('div','cx-questions');box.dataset.nodeKey='workflow-settings';box.append(el('p',null,job.preview.setup_hint));
+      const url=job.report_delivery?.settings_url||job.preview.settings_url;if(url){const link=el('a','btn primary','打开编辑配置');link.href=url;link.target='_blank';link.rel='noopener';box.append(link);}
+      bot.append(box);
+    }
     else if (job.questions?.length) {
       const box = el('div', 'cx-questions');box.dataset.nodeKey='questions';
       const hasForm=job.status==='needs_info'&&job.preview?.question_fields?.length;

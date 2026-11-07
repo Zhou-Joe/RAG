@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET,require_POST
 from .models import ConnectorDraft,FeedReportDelivery,KnowledgeFeed
+from . import access
 from . import feed_reports as reports
 
 @login_required
@@ -33,11 +34,11 @@ def configuration(request,feed_id):
 def test_send(request,job_id):
     try:
         job=get_object_or_404(ConnectorDraft,pk=job_id,user=request.user)
-        if job.status not in ('ready','enabled') or job.spec.get('kind')!='report':raise ValueError('请先生成并查看报告预览。')
-        feed=reports.source_feed(job);reports.remember_request_site(request.user,feed,request);data=json.loads(request.body or '{}')
+        if job.status not in ('ready','enabled','revised') or job.spec.get('kind')!='report' or not job.preview.get('valid'):raise ValueError('请先生成并查看报告预览。')
+        feed=reports.source_feed(job);access.require_feed_builder(request.user,feed);reports.remember_request_site(request.user,feed,request);data=json.loads(request.body or '{}')
         key=data.get('request_key')
         if not isinstance(key,str) or not 8<=len(key)<=100:raise ValueError('请使用有效的发送请求编号。')
-        delivery=reports.send(feed.report_plan,spec=job.spec,request_key='test:'+key)
+        delivery=reports.send(feed.report_plan,spec=job.spec,selection=reports.delivery_selection(job),request_key='test:'+str(job.pk)+':'+key)
         return JsonResponse({'ok':delivery.status=='accepted','status':delivery.status,'error':delivery.error,
             'message':'工作流已接收请求，请检查邮件/Teams及工作流运行记录。'},status=200 if delivery.status=='accepted' else 400)
     except (ValueError,TypeError,AttributeError,KnowledgeFeed.report_plan.RelatedObjectDoesNotExist) as exc:

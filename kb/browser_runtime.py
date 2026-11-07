@@ -23,8 +23,10 @@ from zoneinfo import ZoneInfo
 try:from .browser_dom import OBSERVE_SCRIPT
 except ImportError:from browser_dom import OBSERVE_SCRIPT
 
+MAX_RECORDS=500
 MAX_REQUESTS=600
 MAX_BYTES=60_000_000
+COLLECT_TIMEOUT_SECONDS=20*60
 
 
 def origin(url: str) -> tuple:
@@ -47,8 +49,8 @@ def validate_plan(plan: dict,*,allow_refs=False) -> dict:
             elif isinstance(value,list):
                 for item in value:stable(item)
         stable(plan)
-    maximum=plan.get('max_records',100)
-    if not isinstance(maximum,int) or isinstance(maximum,bool) or not 1<=maximum<=100:raise ValueError('每批网页采集最多100条记录。')
+    maximum=plan.get('max_records',MAX_RECORDS)
+    if not isinstance(maximum,int) or isinstance(maximum,bool) or not 1<=maximum<=MAX_RECORDS:raise ValueError('每批网页采集最多500条记录。')
     actions=plan.get('actions',[])
     def steps(values):
         if not isinstance(values,list) or len(values)>30:raise ValueError('网页动作最多30步。')
@@ -74,7 +76,7 @@ def validate_plan(plan: dict,*,allow_refs=False) -> dict:
         if 'max_records' in plan and plan['max_records']!=output['max_records']:raise ValueError('browser.max_records与browser.output.max_records冲突。')
         plan['max_records']=output.pop('max_records')
         maximum=plan['max_records']
-        if type(maximum) is not int or not 1<=maximum<=100:raise ValueError('browser.max_records须为1至100。')
+        if type(maximum) is not int or not 1<=maximum<=MAX_RECORDS:raise ValueError('browser.max_records须为1至500。')
     unsupported=output.keys()-{'kind','rows','fields','detail','next_selector','max_pages','url_contains','path'}
     if unsupported:raise ValueError('browser.output含不支持的字段：'+', '.join(sorted(unsupported))+'。max_records应放在browser内，与output平级。')
     if output.get('kind','dom')=='network':
@@ -186,7 +188,7 @@ class BrowserSession:
             except concurrent.futures.TimeoutError:
                 try:
                     if self.checkpoint:self.checkpoint()
-                    if time.monotonic()-start>(430 if operation=='collect' else 65):raise ValueError('浏览器操作超时。')
+                    if time.monotonic()-start>(COLLECT_TIMEOUT_SECONDS+10 if operation=='collect' else 65):raise ValueError('浏览器操作超时。')
                 except Exception:
                     future.cancel();raise
 
@@ -380,7 +382,7 @@ class BrowserSession:
             if previous!=self.context.pages[0]:await previous.close()
         await self._settle()
 
-    async def _read_fields(self,rows,fields,limit=100):
+    async def _read_fields(self,rows,fields,limit=MAX_RECORDS):
         # 固定取数程序只接受选择器和字段参数，不运行模型提供的 JavaScript。
         fields={name:{**field,**({'selector':self._selector(field['selector'])} if field.get('selector') else {})} for name,field in fields.items()}
         records=await rows.evaluate_all('''(nodes,options)=>nodes.slice(0,options.limit).map(root=>{
@@ -402,7 +404,7 @@ class BrowserSession:
                 if 'default' in field and record.get(name) in (None,'',[]):record[name]=field['default']
         return records
 
-    async def _fields(self,rows,fields,limit=100,allow_missing=False):
+    async def _fields(self,rows,fields,limit=MAX_RECORDS,allow_missing=False):
         """等待真正需要的字段而非只等待页面外壳；失败附带定位与原文诊断。"""
         def missing(records):
             return [(index,name) for index,record in enumerate(records) for name,field in fields.items()
@@ -428,7 +430,7 @@ class BrowserSession:
         for index,step in enumerate(plan.get('actions',[])):
             if index==0 and step['action']=='goto' and step['url']==spec['url']:continue
             await self._action(step)
-        output=plan['output'];maximum=min(plan.get('max_records',100),limit or 100)
+        output=plan['output'];maximum=min(plan.get('max_records',MAX_RECORDS),limit or MAX_RECORDS)
         if output.get('kind','dom')=='network':
             for _ in range(50):
                 matching=[row for row in self.network if output['url_contains'] in row['url']]
@@ -439,7 +441,7 @@ class BrowserSession:
             except ImportError:from connector_runtime import lookup
             data=lookup(self.responses[matching[-1]['id']],output.get('path',''))
             if not isinstance(data,list):raise ValueError('网络响应 path 必须指向记录数组。')
-            if len(data)>100 and limit is None:raise ValueError('网络响应超过100条，请在页面选择范围或使用分页。')
+            if len(data)>MAX_RECORDS and limit is None:raise ValueError('网络响应超过500条，请在页面选择范围或使用分页。')
             records=[dict(record) if isinstance(record,dict) else {'value':record} for record in data[:maximum]]
             for record in records:
                 for name,field in output.get('fields',{}).items():
@@ -462,7 +464,7 @@ class BrowserSession:
         for page_number in range(0 if output.get('kind')=='network' else output.get('max_pages',1)):
             rows=self.page.locator(self._selector(output['rows']));await rows.first.wait_for(state='attached')
             count=await rows.count()
-            if len(records)+count>100 and limit is None:raise ValueError('网页记录超过100条，请选择范围或配置分页。')
+            if len(records)+count>MAX_RECORDS and limit is None:raise ValueError('网页记录超过500条，请选择范围或配置分页。')
             remaining=maximum-len(records)
             values=await self._fields(rows,output['fields'],remaining)
             records.extend(values);positions.extend([(self.page.url,index,page_number) for index in range(len(values))])
@@ -538,6 +540,6 @@ class BrowserSession:
             if data is None:raise ValueError('网络响应已过期或不是 JSON。')
             return {'data':data}
         if operation=='collect':
-            try:return await asyncio.wait_for(self._collect(arguments['spec'],arguments.get('limit')),timeout=420)
+            try:return await asyncio.wait_for(self._collect(arguments['spec'],arguments.get('limit')),timeout=COLLECT_TIMEOUT_SECONDS)
             finally:self.document_only=False;self.collection_stamp=None
         raise ValueError('不支持的浏览器操作。')

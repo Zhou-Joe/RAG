@@ -5,6 +5,7 @@
  const editor=document.getElementById('feedEditor'),filter=document.getElementById('feedFilter'),error=document.getElementById('feedFormError');
  const auth=new FeedAuthForm(form.querySelector('[data-auth-widget]'));
  const labels={running:'更新中',completed:'已完成',failed:'失败',manual:'手动',cron:'定时',push:'脚本推送',import:'本地导入'};
+ let initialEdit=new URLSearchParams(location.search).get('edit');
  let feeds=[],timer,controller,disposed=false,sequence=0,fingerprint='';
  const node=(tag,text,cls)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el;};
  const date=(value,zone)=>value?new Date(value).toLocaleString(window.FOSI18n?.locale || 'zh-CN',zone?{timeZone:zone}:undefined):'—';
@@ -29,9 +30,10 @@
    card.append(node('p',(feed.mode==='pull'?'定时采集 · '+feed.cron+' · '+feed.timezone:'外部脚本推送')+' · '+(feed.enabled?'已启用':'已暂停')+' · '+(feed.write_mode==='upsert'?'覆盖相同 ID':'追加保留历史')+' · '+feed.items+' 条记录','feed-meta'));
    if(feed.mode==='pull')card.append(node('p','下次运行：'+date(feed.next_run_at,feed.timezone),'feed-meta'));
    const actions=node('div',undefined,'feed-actions');
-   if(feed.ai_edit_url){const ai=node('a','与 EnGenie 调整任务','btn sm primary');ai.href=feed.ai_edit_url;actions.append(ai);}
-   if(feed.mode==='pull')actions.append(button('立即更新','run',feed.id));else actions.append(button('生成／轮换推送令牌','rotate_token',feed.id));
-   actions.append(button('编辑配置','edit',feed.id),button(feed.enabled?'暂停后续更新':'启用更新',feed.enabled?'pause':'resume',feed.id));
+   if(feed.ai_edit_url&&feed.can_edit){const ai=node('a','与 EnGenie 调整任务','btn sm primary');ai.href=feed.ai_edit_url;actions.append(ai);}
+   if(feed.mode==='pull')actions.append(button('立即更新','run',feed.id));else if(feed.can_edit)actions.append(button('生成／轮换推送令牌','rotate_token',feed.id));
+   if(feed.can_edit){actions.append(button('编辑配置','edit',feed.id),button(feed.enabled?'暂停后续更新':'启用更新',feed.enabled?'pause':'resume',feed.id));}
+   else actions.append(node('span','仅创建者可编辑','feed-meta'));
    const tracker=node('a','查看追踪表','btn sm outline');tracker.href='/kb/manage/'+encodeURIComponent(feed.kb)+'/tracker/';actions.append(tracker);card.append(actions);
    const latest=feed.runs[0];if(latest?.error)card.append(node('p',latest.error,'feed-error'));
    const details=node('details');details.open=opened.has(feed.id);details.append(node('summary','运行记录（最近10次）'));
@@ -45,7 +47,7 @@
   clearTimeout(timer);if(disposed||document.hidden)return;const ticket=++sequence;
   try{
    const data=await request(page.dataset.stateUrl+(filter.value?'?kb='+encodeURIComponent(filter.value):''));if(disposed||ticket!==sequence)return;
-   feeds=data.feeds;const next=JSON.stringify(feeds);if(next!==fingerprint){fingerprint=next;render();}
+   feeds=data.feeds;if(initialEdit){const feed=feeds.find(item=>item.id===initialEdit);initialEdit=null;if(feed?.can_edit)edit(feed);else if(feed)message.textContent='仅此自动任务的创建者可编辑配置。';}const next=JSON.stringify(feeds);if(next!==fingerprint){fingerprint=next;render();}
    document.getElementById('feedScheduler').textContent=data.scheduler_recent?'调度服务运行正常，已启用的数据源将按计划更新。':'调度服务最近未响应，请联系管理员检查。现有数据仍可查看，也可手动更新。';
    if(data.truncated)message.textContent='当前仅显示最近100个数据源，请按资料集合筛选。';
   }catch(exc){if(!disposed&&ticket===sequence)message.textContent=exc.message;}
@@ -60,6 +62,7 @@
  function edit(feed){
   form.reset();error.textContent='';form.elements.id.value=feed?.id||'';
   auth.load(feed?.authentication);
+  for(const kind of ['email','teams']){const saved=feed?.workflow_settings?.saved_workflow_types?.includes(kind);document.getElementById(kind==='email'?'feedEmailWorkflowStatus':'feedTeamsWorkflowStatus').textContent=saved?'已保存，留空保留；填写新链接可替换。':'尚未配置；需要此发送方式时填写。';}
   document.getElementById('feedUrlLabel').textContent=feed?.source_type==='browser'?'网页来源地址':'标准数据 API 地址';
   document.getElementById('feedSourceHint').textContent=feed?.source_type==='browser'?'此来源使用 EnGenie 已试采的网页操作步骤。要调整采集内容，请与 EnGenie 对话并查看新样例。':'API 返回 fos-rag-feed/v1 JSON。网页或其他接口格式可通过 EnGenie 创建自动采集任务。';
   document.getElementById('feedEditorTitle').textContent=feed?'编辑数据源':'新建自动更新知识库';
@@ -74,10 +77,10 @@
  form.addEventListener('submit',async event=>{
   event.preventDefault();const save=document.getElementById('feedSave');save.disabled=true;error.textContent='';
   try{
-   const data=Object.fromEntries(new FormData(form));delete data.csrfmiddlewaretoken;data.action=data.id?'update':'create';data.allow_private=!!form.elements.allow_private?.checked;
+   const data=Object.fromEntries(new FormData(form));delete data.csrfmiddlewaretoken;data.action=data.id?'update':'create';delete data.allow_private;
    data.authentication=auth.read();const result=await post(data);message.textContent=result.message;auth.load(result.feed.authentication);
    if(![...filter.options].some(option=>option.value===result.feed.kb)){const option=node('option',result.feed.kb_name);option.value=result.feed.kb;filter.append(option);form.elements.kb.append(option.cloneNode(true));}
-   filter.value=result.feed.kb;
+   if(data.action==='create')filter.value=result.feed.kb;
    editor.close();await refresh();
   }catch(exc){error.textContent=exc.message;}finally{save.disabled=false;}
  });
@@ -91,6 +94,7 @@
    await refresh();
   }catch(exc){message.textContent=exc.message;}finally{target.disabled=false;}
  });
+ editor.addEventListener('close',()=>{form.reset();auth.load(null);});
  document.getElementById('feedToken').addEventListener('close',()=>{document.getElementById('feedTokenValue').value='';});
  document.addEventListener('visibilitychange',()=>{clearTimeout(timer);if(!document.hidden)refresh();});
  window.addEventListener('pagehide',()=>{disposed=true;clearTimeout(timer);controller?.abort();});

@@ -147,7 +147,7 @@ class ReportWorkflowTests(TestCase):
         with patch('kb.agent._get_llm',return_value=model),patch('kb.config.llm_settings',return_value={}):
             result=run(self.job.pk)
         self.assertEqual(result.status,'needs_info',result.error)
-        self.assertIn('Teams频道工作流的HTTP触发链接',result.questions)
+        self.assertTrue(result.preview['setup_required']);self.assertIn('编辑配置',result.questions[0]);self.assertNotIn('question_fields',result.preview)
         self.plan.refresh_from_db();config=reports.destination(self.plan)
         self.assertEqual(config['kind'],'teams');self.assertEqual(config['url'],'')
         self.assertEqual(config['workflows']['email'],URL)
@@ -570,9 +570,10 @@ class ReportWorkflowTests(TestCase):
         first=FakeModel([call('preview_scheduled_report',{'report':self.spec})])
         with patch('kb.agent._get_llm',return_value=first),patch('kb.config.llm_settings',return_value={}):waiting=run(self.job.pk)
         self.assertEqual(waiting.status,'needs_info');self.assertEqual(waiting.spec['kind'],'report')
-        self.assertEqual(waiting.questions,['Teams频道工作流的HTTP触发链接'])
+        self.assertTrue(waiting.preview['setup_required']);self.assertIn('编辑配置',waiting.questions[0])
+        reports.save_workflow_settings(self.user,self.feed,{'teams_workflow_url':teams})
         with patch('kb.collector_api.start_async'):
-            child=refine_draft(user=self.user,job=waiting,requirement='Teams频道工作流链接：'+teams)
+            child=refine_draft(user=self.user,job=waiting,requirement='已在编辑配置保存，继续')
         self.assertNotIn('sig=',child.feedback)
         model=FakeModel([call('preview_scheduled_report',{'report':self.spec})])
         with patch('kb.agent._get_llm',return_value=model),patch('kb.config.llm_settings',return_value={}):ready=run(child.pk)
@@ -800,3 +801,60 @@ class ReportWorkflowTests(TestCase):
         with patch('kb.agent._get_llm',return_value=model),patch('kb.config.llm_settings',return_value={}):result=run(self.job.pk)
         self.assertEqual(result.status,'ready',result.error);self.assertEqual(result.questions,[])
 
+
+    def report_job(self,kind,recipient='fixture@example.com',status='ready'):
+        teams=URL.replace('/fixture/','/teams-fixture/')
+        reports.configure(self.user,self.feed,{'kind':kind,'url':teams if kind=='teams' else URL,'recipient':recipient,'public_base':'https://reports.example.com'})
+        self.job.spec,self.job.preview=reports.preview(self.job,self.spec)
+        self.job.status=status;self.job.save()
+        return self.job
+
+    def test_http_test_send_uses_report_target_after_another_target_was_selected(self):
+        job=self.report_job('teams',status='revised')
+        reports.configure(self.user,self.feed,{'kind':'email','recipient':'new@example.com'})
+        url=reverse('kb:report_test',args=[job.pk])
+        with patch('kb.feed_reports.post_workflow',return_value=202) as post:
+            response=self.client.post(url,json.dumps({'request_key':'same-click-key'}),content_type='application/json')
+            repeat=self.client.post(url,json.dumps({'request_key':'same-click-key'}),content_type='application/json')
+        self.assertEqual(response.status_code,200,response.content);self.assertEqual(repeat.status_code,200)
+        self.assertEqual(post.call_count,1)
+        config,body=post.call_args.args
+        self.assertEqual(config['kind'],'teams');self.assertIn('/teams-fixture/',config['url'])
+        self.assertEqual(body['attachments'][0]['content']['type'],'AdaptiveCard');self.assertNotIn('t',body)
+        self.assertEqual(reports.delivery_context(job)['kind'],'teams')
+        self.plan.refresh_from_db();self.assertEqual(reports.destination(self.plan)['kind'],'email')
+
+    def test_email_test_keeps_original_recipient_when_later_draft_changes_it(self):
+        job=self.report_job('email',recipient='original@example.com')
+        reports.configure(self.user,self.feed,{'kind':'email','recipient':'later@example.com'})
+        with patch('kb.feed_reports.post_workflow',return_value=202) as post:
+            response=self.client.post(reverse('kb:report_test',args=[job.pk]),json.dumps({'request_key':'recipient-key'}),content_type='application/json')
+        self.assertEqual(response.status_code,200,response.content)
+        self.assertEqual(post.call_args.args[1]['t'],'original@example.com')
+
+    def test_frozen_report_selection_resolves_replacement_url_from_encrypted_config(self):
+        job=self.report_job('teams')
+        replacement=URL.replace('/fixture/','/replacement-teams/')
+        reports.save_workflow_settings(self.user,self.feed,{'teams_workflow_url':replacement})
+        self.assertNotIn('sig=',json.dumps(job.spec)+json.dumps(job.preview))
+        with patch('kb.feed_reports.post_workflow',return_value=202) as post:
+            response=self.client.post(reverse('kb:report_test',args=[job.pk]),json.dumps({'request_key':'replacement-key'}),content_type='application/json')
+        self.assertEqual(response.status_code,200,response.content)
+        self.assertEqual(post.call_args.args[0]['url'],replacement)
+
+    def test_unvalidated_report_cannot_be_test_sent_even_with_ready_status(self):
+        self.job.spec=reports.normalize(self.spec,self.feed);self.job.status='ready';self.job.preview={};self.job.save()
+        with patch('kb.feed_reports.post_workflow') as post:
+            response=self.client.post(reverse('kb:report_test',args=[self.job.pk]),json.dumps({'request_key':'invalid-preview'}),content_type='application/json')
+        self.assertEqual(response.status_code,400);post.assert_not_called()
+
+    def test_approved_report_delivery_survives_normalization_and_later_selection(self):
+        job=self.report_job('teams')
+        reports.approve(job,self.user)
+        self.plan.refresh_from_db();self.assertEqual(self.plan.spec['delivery']['kind'],'teams')
+        reports.configure(self.user,self.feed,{'kind':'email'})
+        self.plan.refresh_from_db()
+        with patch('kb.feed_reports.post_workflow',return_value=202) as post:
+            delivery=reports.send(self.plan,request_key='bound-approved-report')
+        self.assertEqual(delivery.status,'accepted',delivery.error)
+        self.assertEqual(post.call_args.args[0]['kind'],'teams')

@@ -250,6 +250,7 @@ def approve(*, user, job, write_mode=None, department=None, run_now=True, trigge
                 break
             ancestor = ancestor.parent
         if existing:
+            access.require_feed_builder(user,existing)
             if existing.kb_id != kb.pk or not access.can_manage_kb(user, kb):
                 raise ValueError("原数据源所属知识库已变化，请重新建立任务。")
             if existing.lease_token and existing.lease_until and existing.lease_until > timezone.now():

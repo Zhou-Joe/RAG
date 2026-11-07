@@ -273,7 +273,7 @@ Detail pages default to `detail.render: "auto"`: first read the actual source HT
 load JavaScript only if data is absent or actions are needed. `html` forces document-only loading and `browser`
 explicitly loads dynamic content. Bulk collection skips unused per-page snapshots and unrelated third-party tracking
 requests. The response reports request/byte totals and static/dynamic detail counts.
-`browser.max_records` belongs beside `browser.output`. A misplaced `output.max_records` is repaired automatically;
+`browser.max_records` defaults to 500 and accepts 1–500; explicitly configured smaller limits are retained. It belongs beside `browser.output`. A misplaced `output.max_records` is repaired automatically;
 unknown output keys report their exact path. The tool schema includes record/page limits and nested field options.
 The network request and byte limits remain unchanged. HTTP connections are reused only within one isolated browser run,
 with separate TLS pools for each original host/IP. Public assets can be reused when explicitly cacheable; private assets
@@ -317,8 +317,8 @@ without Edge. `FOS_BROWSER_EXECUTABLE` optionally selects an existing browser ex
 Browser traffic is proxied through bounded HTTP requests with pinned DNS/TLS checks. Private-network requests require
 the administrator opt-in and an approved source origin; link-local/metadata addresses remain blocked. Service workers,
 WebSockets and file URLs are not enabled. Images, media and fonts are skipped to focus on data and reduce load; public
-scripts/styles are cached within each isolated run. A run is bounded to 100 records, 10 list pages, 30 setup actions,
-600 actual network requests, 60 MB of resources and 420 seconds of browser execution. The enclosing feed publication
+scripts/styles are cached within each isolated run. A run is bounded to 500 records, 10 list pages, 30 setup actions,
+600 actual network requests, 60 MB of resources and 1,200 seconds (20 minutes) of browser execution. The enclosing feed publication
 budget and lease remain in effect, and a revoked task/lease stops further browser work. Requests to purchase, pay,
 delete, or submit unrelated business changes are outside the collection flow.
 
@@ -393,7 +393,7 @@ The UI's download button packages these files with this guide; no credentials or
 | `cursor` | Optional opaque string, at most 2,048 characters. Committed only after the whole batch publishes. An empty string resets it. |
 | `batch_id` | Optional idempotency key, strongly recommended for pushes. Repeating a running/completed batch returns the existing run; a failed batch may retry with the same ID/content and produces a new attempt in history. Reusing an ID for different content is rejected. |
 
-Limits: UTF-8 JSON, **2 MB per batch**, **100 total item upserts plus deletions**, 100,000 characters per item,
+Limits: UTF-8 JSON, **2 MB per batch**, **500 total item upserts plus deletions**, 100,000 characters per item,
 200 characters per ID/title, and no duplicate/conflicting IDs. There is no implicit snapshot deletion.
 Whitespace-only content and non-finite JSON numbers are rejected. The server is authoritative for limits that JSON Schema cannot express.
 
@@ -514,7 +514,7 @@ document — no per-record sub-library is created and no vector indexing
 runs for feed records. The whole batch publishes in a single database transaction: upserts, explicit deletions and the
 cursor/ETag commit together, so a failed fetch or validation keeps every previous row exactly as it was.
 
-Runs are limited to ten minutes with a fifteen-minute fencing lease; a stopped worker's lease is recovered by the scheduler.
+Runs are limited to 60 minutes with a 65-minute fencing lease; a stopped worker's lease is recovered by the scheduler. Browser collection has a separate 20-minute limit, with a 10-second outer cancellation margin. Individual navigation, element and network timeouts are unchanged. These are ceilings and do not delay completed work; collection scheduling is sequential, so a slow source can occupy the scheduler until it completes or reaches its limit.
 
 The AI preview lets users select multiple output fields before confirming. All mapped fields are selected by default;
 unselected business fields are omitted from future records, while stable IDs and inputs needed for calculations are kept

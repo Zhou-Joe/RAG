@@ -72,7 +72,7 @@ def remember_request_site(user,feed,request):
     from django.core.exceptions import DisallowedHost
     from .feed_credentials import _cipher
     require_feed(user,feed)
-    if getattr(settings,'FEED_REPORT_PUBLIC_BASE',''):return
+    if not access.can_edit_feed(user,feed) or getattr(settings,'FEED_REPORT_PUBLIC_BASE',''):return
     try:
         base=public_base(request.scheme+'://'+request.get_host()+request.META.get('SCRIPT_NAME','').rstrip('/'))
     except (ValueError,DisallowedHost):return
@@ -88,7 +88,7 @@ def remember_request_site(user,feed,request):
 
 def delivery_context(job):
     feed=source_feed(job,required=False)
-    return summary(feed) if feed else {}
+    return summary(feed,delivery_selection(job) if job.spec.get('kind')=='report' else None) if feed else {}
 
 
 def require_feed(user,feed):
@@ -122,18 +122,19 @@ def workflow_bindings(config):
 
 def selected_workflow(config):
     kind=config.get('kind');url=workflow_bindings(config).get(kind)
-    if not url:raise ValueError('请提供'+('Teams频道' if kind=='teams' else '邮件')+'工作流的HTTP触发链接；不能复用其他类型的链接。')
+    if not url:raise ValueError('请先由任务创建者在「自主数据引擎 → 编辑配置」保存'+('Teams频道' if kind=='teams' else '邮件')+'工作流 URL，再返回对话继续。')
     return workflow_url(url)
 
 
+@transaction.atomic
 def configure(user,feed,data):
     from .feed_credentials import _cipher
-    require_feed(user,feed)
-    plan,_=FeedReportPlan.objects.get_or_create(feed=feed,defaults={'created_by':user})
+    require_feed(user,feed);access.require_feed_builder(user,feed)
+    plan,_=FeedReportPlan.objects.select_for_update().get_or_create(feed=feed,defaults={'created_by':user})
     old=destination(plan);kind=data.get('kind',old.get('kind','email'))
     if kind not in ('email','teams'):raise ValueError('请选择邮件或 Teams 卡片。')
     bindings=workflow_bindings(old)
-    supplied=data.get('url') or old.get('pending_url')
+    supplied=data.get('url') or (old.get('pending_url') if kind not in bindings else None)
     if supplied:bindings[kind]=workflow_url(supplied)
     url=bindings.get(kind,'')
     address=site_address({'public_base':data['public_base']} if data.get('public_base') else old)
@@ -149,17 +150,74 @@ def configure(user,feed,data):
     return plan
 
 
-def summary(feed):
+@transaction.atomic
+def save_workflow_settings(user,feed,data):
+    """Update explicit per-feed bindings without touching collection or report rules."""
+    access.require_feed_builder(user,feed)
+    replacements={}
+    for kind in ('email','teams'):
+        value=data.get(kind+'_workflow_url','')
+        if not isinstance(value,str):raise ValueError('工作流 URL 格式无效。')
+        if value.strip():replacements[kind]=workflow_url(value.strip())
+    if not replacements:return False
+    from .feed_credentials import _cipher
+    plan,_=FeedReportPlan.objects.select_for_update().get_or_create(feed=feed,defaults={'created_by':user})
+    config=destination(plan);bindings=workflow_bindings(config)
+    changed={kind for kind,value in replacements.items() if bindings.get(kind)!=value}
+    if not changed and not config.get('pending_url'):return False
+    bindings.update(replacements);config['workflows']=bindings
+    config.pop('pending_url',None)
+    kind=config.get('kind')
+    if kind in changed:config.update(url=bindings[kind],url_kind=kind)
+    plan.destination=_cipher(create=True).encrypt(json.dumps(config).encode()).decode()
+    plan.save(update_fields=['destination','updated_at'])
+    return True
+
+
+def delivery_selection(job):
+    saved=job.spec.get('delivery') or job.preview.get('delivery') or {}
+    if saved.get('kind') not in ('email','teams'):return {}
+    result={'kind':saved['kind']}
+    if saved['kind']=='email' and 'recipient' in saved:result['recipient']=saved['recipient']
+    return result
+
+
+def select_destination(config,selection=None):
+    if not selection:return config
+    kind=selection.get('kind',config.get('kind'))
+    if kind not in ('email','teams'):raise ValueError('请选择邮件或 Teams 卡片。')
+    bindings=workflow_bindings(config)
+    result={**config,'kind':kind,'workflows':bindings,'url':bindings.get(kind,''),'url_kind':kind}
+    if kind=='email' and 'recipient' in selection:
+        recipient=selection['recipient']
+        if not isinstance(recipient,str):raise ValueError('请填写有效的收件人邮箱。')
+        recipient=recipient.strip()
+        if recipient:
+            try:validate_email(recipient)
+            except ValidationError:raise ValueError('请填写有效的收件人邮箱。') from None
+            if any(c in recipient for c in '\r\n'):raise ValueError('收件人地址不能换行。')
+        result['recipient']=recipient
+    return result
+
+
+def workflow_setup_hint(delivery,kind=None):
+    kind=kind or delivery.get('kind')
+    label='Teams' if kind=='teams' else '邮件' if kind=='email' else '对应发送方式的'
+    return '请先由任务创建者在「自主数据引擎 → 编辑配置」填写'+label+'工作流 URL 并保存，再返回此对话继续。无需在聊天中粘贴链接。'
+
+
+def summary(feed,selection=None):
     plan=FeedReportPlan.objects.filter(feed=feed).first()
-    data=destination(plan) if plan else {};address=site_address(data)
+    data=select_destination(destination(plan) if plan else {},selection);address=site_address(data)
     last=plan.deliveries.exclude(status='preview').order_by('-created_at').first() if plan else None
     bindings=workflow_bindings(data);selected=bindings.get(data.get('kind'),'')
     missing=[]
-    if not selected and not (not data.get('kind') and data.get('pending_url')):missing.append('workflow_url')
+    if not selected and (data.get('kind') or not bindings) and not (not data.get('kind') and data.get('pending_url')):missing.append('workflow_url')
     if not data.get('kind'):missing.append('kind')
     if not address['available']:missing.append('public_base')
     if data.get('kind')=='email' and not data.get('recipient'):missing.append('recipient')
     return {'configured':not missing,'enabled':bool(plan and plan.enabled),'workflow_saved':bool(selected),'workflow_type':data.get('kind') if selected else '',
+        'settings_url':reverse('kb:feeds')+'?kb='+feed.kb.slug+'&edit='+str(feed.pk),'workflow_setup_hint':workflow_setup_hint(data),
         'saved_workflow_types':sorted(bindings),'untyped_workflow_saved':bool(data.get('pending_url')),'missing':missing,'kind':data.get('kind'),
         'recipient':data.get('recipient','') if data.get('kind')=='email' else '','public_base':address['public_base'],'public_base_source':address['source'],
         'site_address_available':address['available'],'site_address_note':address['reason'],
@@ -245,7 +303,11 @@ def normalize(spec,feed,*,legacy=False):
             raise ValueError('汇总需包含有效的字段、运算和唯一名称。')
     if len({a['label'] for a in aggregates})!=len(aggregates) or group and not aggregates:raise ValueError('分组需设置汇总计算，汇总列名不能重复。')
     schedule=report_schedule(spec.get('schedule',{'mode':'after_collection'} if legacy else None),feed)
-    return {'kind':'report','title':title,'columns':clean,'range':scope,'filters':filters,'group_by':group,'aggregates':aggregates,'schedule':schedule}
+    result={'kind':'report','title':title,'columns':clean,'range':scope,'filters':filters,'group_by':group,'aggregates':aggregates,'schedule':schedule}
+    if spec.get('delivery'):
+        delivery=select_destination({},spec['delivery']);result['delivery']={'kind':delivery['kind']}
+        if delivery['kind']=='email' and 'recipient' in delivery:result['delivery']['recipient']=delivery['recipient']
+    return result
 
 
 def date_window(scope,at,zone):
@@ -367,8 +429,12 @@ def preview_time(spec):
 
 def preview(job,spec):
     feed=source_feed(job);spec=normalize(spec,feed);at=preview_time(spec);audit={};headers,rows=table(feed,spec,as_of=at,allow_empty=True,diagnostics=audit)
+    delivery=summary(feed)
+    if delivery.get('kind'):
+        spec['delivery']={'kind':delivery['kind']}
+        if delivery['kind']=='email':spec['delivery']['recipient']=delivery['recipient']
     return spec,{'valid':True,'report':True,'items':len(rows),'headers':headers,'preview':rows[:10],
-        'delivery':summary(feed),'transformation_audit':audit,'source_feed':feed.name,'preview_as_of':at.isoformat(),'preview_timezone':spec['schedule']['timezone'],
+        'delivery':delivery,'transformation_audit':audit,'source_feed':feed.name,'preview_as_of':at.isoformat(),'preview_timezone':spec['schedule']['timezone'],
         'next_send_at':CronSchedule(spec['schedule']['cron'],spec['schedule']['timezone']).next_after(at).isoformat() if spec['schedule']['mode']=='cron' else None,'warning':'目标日期范围目前暂无数据；可确认规则，发送时将重新读取已保存的数据。' if not rows else '预览使用当前已有数据；发送时会重新计算选定日期范围。','schedule':spec['schedule'],'range':spec['range'],'processing':'aggregate' if spec['aggregates'] else 'raw','note':'报告使用已保存的数据，按自己的发送计划运行；不触发或修改采集任务。'}
 
 def approve(job,user):
@@ -378,12 +444,15 @@ def approve(job,user):
         current=ConnectorDraft.objects.select_for_update().get(pk=job.pk,user=user)
         if current.status=='enabled':return source_feed(current)
         if current.status!='ready' or current.spec.get('kind')!='report':raise ValueError('请先生成报告预览。')
-        feed=source_feed(current);plan=FeedReportPlan.objects.select_for_update().get(feed=feed)
-        config=destination(plan);selected_workflow(config);address=site_address(config)
+        feed=source_feed(current);access.require_feed_builder(user,feed);plan=FeedReportPlan.objects.select_for_update().get(feed=feed)
+        selection=delivery_selection(current)
+        config=select_destination(destination(plan),selection);selected_workflow(config);address=site_address(config)
         if not address['available']:raise ValueError(address['reason'])
-        missing=summary(feed)['missing']
+        missing=summary(feed,selection)['missing']
         if missing:raise ValueError('请先补充发送设置：'+'、'.join({'workflow_url':'工作流链接','kind':'邮件或Teams','public_base':'本站公开地址','recipient':'收件邮箱'}[key] for key in missing))
-        plan.spec=normalize(current.spec,feed);schedule=plan.spec['schedule']
+        plan.spec=normalize(current.spec,feed)
+        if selection:plan.spec['delivery']=selection
+        schedule=plan.spec['schedule']
         plan.schedule_mode=schedule['mode'];plan.cron=schedule.get('cron','');plan.timezone=schedule['timezone']
         from .feed_cron import CronSchedule
         plan.next_run_at=CronSchedule(plan.cron,plan.timezone).next_after(timezone.now()) if plan.schedule_mode=='cron' else None
@@ -427,7 +496,7 @@ def post_workflow(config,body):
     if result.returncode or not reply.get('ok'):raise ValueError('工作流未确认接收（'+str(reply.get('status','连接超时或失败'))+'）；为避免重复发送，不会自动重试。')
     return reply['status']
 
-def send(plan,*,run=None,spec=None,request_key=None,delivery=None,as_of=None):
+def send(plan,*,run=None,spec=None,request_key=None,delivery=None,as_of=None,selection=None):
     try:require_feed(plan.created_by,plan.feed)
     except ValueError as exc:
         if delivery is None:raise
@@ -443,7 +512,7 @@ def send(plan,*,run=None,spec=None,request_key=None,delivery=None,as_of=None):
         spec=normalize(spec or plan.spec,plan.feed,legacy=plan.schedule_mode=='after_collection')
         if as_of is None and run is None and not scheduled:as_of=preview_time(spec)
         audit={};headers,rows=table(plan.feed,spec,run=run,as_of=as_of,diagnostics=audit)
-        config=destination(plan);config['url']=selected_workflow(config);address=site_address(config)
+        config=select_destination(destination(plan),selection or spec.get('delivery'));config['url']=selected_workflow(config);address=site_address(config)
         if not address['available']:raise ValueError(address['reason'])
         base=address['public_base']
         delivery.content=workbook(spec['title'],headers,rows,audit);delivery.filename='EnGenie-report.xlsx'
@@ -551,6 +620,7 @@ def redundant_workflow_question(field,delivery):
     return bool(delivery.get('untyped_workflow_saved') or expected in delivery.get('saved_workflow_types',[]) if expected else delivery.get('workflow_saved') or delivery.get('untyped_workflow_saved'))
 
 
+@transaction.atomic
 def capture_feedback(user,feed,text,*,kind_hint=None):
     """Extract capability URLs before storing chat text or sending it to a model."""
     import re
@@ -558,17 +628,19 @@ def capture_feedback(user,feed,text,*,kind_hint=None):
     matches=re.findall(r'https://[^\s<>\]）)]+',text)
     urls=[url for url in matches if any(host in urlsplit(url).netloc for host in ('.environment.api.powerplatform.com','.logic.azure.com','.logic.azure.cn'))]
     if not urls:return text
-    require_feed(user,feed);plan,_=FeedReportPlan.objects.get_or_create(feed=feed,defaults={'created_by':user})
+    require_feed(user,feed);access.require_feed_builder(user,feed);plan,_=FeedReportPlan.objects.select_for_update().get_or_create(feed=feed,defaults={'created_by':user})
     config=destination(plan)
     bindings=workflow_bindings(config);url=workflow_url(urls[-1])
-    email_hint=bool(re.search(r'email|邮件|邮箱',text,re.I));teams_hint=bool(re.search(r'teams|频道|群聊',text,re.I))
+    hint_text=text
+    for supplied_url in urls:hint_text=hint_text.replace(supplied_url,'')
+    email_hint=bool(re.search(r'email|邮件|邮箱',hint_text,re.I));teams_hint=bool(re.search(r'teams|频道|群聊',hint_text,re.I))
     kind=kind_hint if kind_hint in ('email','teams') else ('email' if email_hint else 'teams') if email_hint!=teams_hint else None
     if kind:config['kind']=kind
     if kind in ('email','teams'):
         bindings[kind]=url;config.update(url=url,url_kind=kind);config.pop('pending_url',None)
     else:config.update(pending_url=url)
     config['workflows']=bindings
-    email=re.search(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}',text)
+    email=re.search(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}',hint_text)
     if email:config['recipient']=email.group()
     plan.destination=_cipher(create=True).encrypt(json.dumps(config).encode()).decode();plan.enabled=False;plan.save()
     for url in urls:text=text.replace(url,'[工作流触发地址已加密保存]')

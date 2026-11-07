@@ -10,7 +10,7 @@ from django.utils.dateparse import parse_datetime
 
 SCHEMA='fos-rag-feed/v1'
 MAX_BYTES=2_000_000
-MAX_ITEMS=100
+MAX_ITEMS=500
 MAX_CONTENT=100_000
 
 
@@ -41,7 +41,7 @@ def validate_batch(payload) -> dict:
     if not isinstance(payload,dict) or payload.get('schema')!=SCHEMA:raise ValueError('数据必须使用 schema="fos-rag-feed/v1"。')
     if not payload.keys()<={'schema','batch_id','items','deleted','cursor'}:raise ValueError('数据包含不支持的字段，不能使用隐式 snapshot 删除。')
     items=payload.get('items');deleted=payload.get('deleted',[])
-    if not isinstance(items,list) or not isinstance(deleted,list) or len(items)+len(deleted)>MAX_ITEMS:raise ValueError('每批最多100项写入和删除；items 必须是数组。')
+    if not isinstance(items,list) or not isinstance(deleted,list) or len(items)+len(deleted)>MAX_ITEMS:raise ValueError('每批最多500项写入和删除；items 必须是数组。')
     batch_id=payload.get('batch_id','')
     if not isinstance(batch_id,str) or (batch_id and not re.fullmatch(r'[A-Za-z0-9._:-]{1,160}',batch_id)):raise ValueError('batch_id 请使用1至160位字母、数字、点、冒号、下划线或连字符。')
     if 'cursor' in payload and (not isinstance(payload['cursor'],str) or len(payload['cursor'])>2048):raise ValueError('cursor 必须是最多2048字符的字符串。')

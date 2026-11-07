@@ -41,10 +41,11 @@ def _run_json(run):
             'started_at':run.started_at.isoformat(),'finished_at':run.finished_at.isoformat() if run.finished_at else None}
 
 
-def _feed_json(feed):
+def _feed_json(feed,user):
+    from .feed_reports import summary as report_summary
     runs=[_run_json(run) for run in feed.runs.order_by('-started_at')[:10]]
     return {'id':str(feed.pk),'name':feed.name,'kb':feed.kb.slug,'kb_name':feed.kb.name,'mode':feed.mode,'write_mode':feed.write_mode,
-            'url':feed.url,'header_env':feed.header_env,'allow_private':feed.allow_private,
+            'can_edit':access.can_edit_feed(user,feed),'workflow_settings':{'saved_workflow_types':report_summary(feed)['saved_workflow_types']},'url':feed.url,'header_env':feed.header_env,'allow_private':feed.allow_private,
             'cron':feed.cron,'timezone':feed.timezone,'enabled':feed.enabled,'token_configured':bool(feed.token_digest),
             'next_run_at':feed.next_run_at.isoformat() if feed.next_run_at else None,
             'items':feed.tracker_rows.filter(status='done').count(),
@@ -68,7 +69,7 @@ def state(request):
     feeds=KnowledgeFeed.objects.filter(kb__in=libraries).select_related('kb').order_by('-created_at')
     if request.GET.get('kb'):feeds=feeds.filter(kb__slug=request.GET['kb'])
     rows=list(feeds[:101]);heartbeat=FeedSchedulerState.objects.filter(pk='default').first()
-    response=JsonResponse({'ok':True,'feeds':[_feed_json(feed) for feed in rows[:100]],'truncated':len(rows)>100,
+    response=JsonResponse({'ok':True,'feeds':[_feed_json(feed,request.user) for feed in rows[:100]],'truncated':len(rows)>100,
         'scheduler_seen_at':heartbeat.heartbeat_at.isoformat() if heartbeat else None,
         'scheduler_recent':bool(heartbeat and heartbeat.heartbeat_at>timezone.now()-timedelta(minutes=3))})
     response['Cache-Control']='no-store'
@@ -125,7 +126,9 @@ def action(request):
                             description='API 自动更新知识库',department=department,created_by=request.user)
                     feed=KnowledgeFeed(kb=kb)
                 else:
-                    feed=get_object_or_404(KnowledgeFeed.objects.filter(kb__in=libraries),pk=data.get('id'))
+                    feed=get_object_or_404(KnowledgeFeed.objects.select_for_update().filter(kb__in=libraries),pk=data.get('id'))
+                    if not access.can_edit_feed(request.user,feed):return JsonResponse({'ok':False,'error':'仅此自动任务的创建者可编辑配置。'},status=403)
+                    if 'allow_private' not in data:private=feed.allow_private
                     if feed.lease_token and feed.lease_until and feed.lease_until>timezone.now():raise FeedBusy('任务运行中，请结束后再修改配置。')
                     if feed.url!=url or feed.mode!=mode:feed.cursor='';feed.etag=''
                 write_mode=data.get('write_mode',feed.write_mode)
@@ -147,26 +150,32 @@ def action(request):
                 elif feed.credential_id:
                     if 'header_env' in data and headers!=feed.header_env:raise ValueError('请通过认证表单修改已保存的凭据。')
                     request_headers(feed,url);headers=feed.header_env
+                schedule_changed=feed._state.adding or (feed.mode,feed.cron,feed.timezone)!=(mode,cron,zone)
                 feed.name=name;feed.mode=mode;feed.url=url if mode=='pull' else '';feed.header_env=headers
-                feed.cron=cron;feed.timezone=zone;feed.allow_private=private;feed.created_by=request.user
+                feed.cron=cron;feed.timezone=zone;feed.allow_private=private
+                if feed._state.adding:feed.created_by=request.user
                 if feed.adapter_spec:
                     if mode!='pull':feed.adapter_spec={}
                     else:feed.adapter_spec={**feed.adapter_spec,'name':name,'url':url,'header_env':headers,'cron':cron,'timezone':zone,'write_mode':write_mode}
-                feed.next_run_at=schedule.next_after(timezone.now()) if mode=='pull' else None
+                if mode!='pull':feed.next_run_at=None
+                elif schedule_changed or feed.next_run_at is None:feed.next_run_at=schedule.next_after(timezone.now())
                 if feed._state.adding:feed.save(force_insert=True)
-                else:feed.save(update_fields=['name','mode','write_mode','url','credential','header_env','adapter_spec','cron','timezone','allow_private','created_by','next_run_at','cursor','etag','updated_at'])
+                else:feed.save(update_fields=['name','mode','write_mode','url','credential','header_env','adapter_spec','cron','timezone','allow_private','next_run_at','cursor','etag','updated_at'])
+                from .feed_reports import save_workflow_settings
+                save_workflow_settings(request.user,feed,data)
                 for draft in ConnectorDraft.objects.filter(feed=feed):
                     draft.credential=feed.credential;draft.header_env=headers
                     if draft.spec:draft.spec={**draft.spec,'header_env':headers,'write_mode':write_mode}
                     draft.save(update_fields=['credential','header_env','spec','updated_at'])
                 discard_if_unused(old_credential)
-            return JsonResponse({'ok':True,'feed':_feed_json(feed),'message':'数据源配置已保存。'})
+            return JsonResponse({'ok':True,'feed':_feed_json(feed,request.user),'message':'数据源配置已保存。'})
         feed=get_object_or_404(KnowledgeFeed.objects.filter(kb__in=libraries).select_related('kb','created_by'),pk=data.get('id'))
         if command=='run':
             if feed.mode!='pull':raise ValueError('脚本数据源请使用推送接口或 feed_import 命令。')
             run,fresh=claim(feed.pk,force=True)
             if fresh:start_async(run.pk)
             return JsonResponse({'ok':True,'run':_run_json(run),'message':'更新任务已开始。'},status=202)
+        if command in ('pause','resume','rotate_token') and not access.can_edit_feed(request.user,feed):return JsonResponse({'ok':False,'error':'仅此自动任务的创建者可编辑配置。'},status=403)
         if command in ('pause','resume'):
             feed.enabled=command=='resume'
             if feed.enabled:authorize(feed)
