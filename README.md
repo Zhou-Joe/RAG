@@ -37,6 +37,9 @@ Windows 可在准备好 Python 3.13 和本机配置后运行 [start_all.bat](sta
 
 - **Pyodide 浏览器端 Python 运行时（`static/pyodide/`）。** 不下载也不影响启动：页面默认从 jsDelivr CDN 加载（`PYODIDE_INDEX_URL` 默认值）。内网或离线部署才需要本地副本——在项目根目录执行以下命令下载到 `static/pyodide/`，并在 `.env` 设置 `PYODIDE_INDEX_URL=/static/pyodide/`：
 
+  > `micropip` 是页面初始化就要取的文件（装 openpyxl 用；缺了只会在控制台 `console.warn`，但 `pd.read_excel` 会不可用）。
+  > `openblas` + `scipy` 是按需加载：只有生成的代码真的 `import scipy` 才会拉取（~53MB，之后走浏览器缓存），不进预热列表。
+
   ```sh
   mkdir -p static/pyodide && cd static/pyodide
   base=https://cdn.jsdelivr.net/pyodide/v0.26.4/full
@@ -55,7 +58,10 @@ Windows 可在准备好 Python 3.13 和本机配置后运行 [start_all.bat](sta
            packaging-23.2-py3-none-any.whl \
            python_dateutil-2.9.0.post0-py2.py3-none-any.whl \
            six-1.16.0-py2.py3-none-any.whl \
-           pytz-2024.1-py2.py3-none-any.whl; do
+           pytz-2024.1-py2.py3-none-any.whl \
+           micropip-0.6.0-py3-none-any.whl \
+           openblas-0.3.26.zip \
+           scipy-1.12.0-cp312-cp312-pyodide_2024_0_wasm32.whl; do
     curl -fLO "$base/$f"
   done
   ```

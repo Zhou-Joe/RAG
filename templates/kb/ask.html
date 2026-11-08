@@ -471,9 +471,19 @@ except ImportError:
     return pyodidePromise;
   }
 
-  // 所有依赖（pandas/numpy/matplotlib）已在初始化时预装，这里无需再加载。
+  // 本地 static/pyodide/ 里额外托管、但不在预热列表的包：按代码里的 import 即时加载。
+  // （scipy + openblas 合计 ~53MB，预热会拖慢每个新会话，所以只在真需要时拉一次，之后走浏览器缓存。）
+  const LOCAL_PACKAGE_BY_IMPORT = { scipy: 'scipy' };
   async function ensurePackages(py, code, onProgress){
-    return;
+    const needed = new Set();
+    for (const m of String(code || '').matchAll(/^[ \t]*(?:import|from)\s+([A-Za-z_][\w.]*)/gm)){
+      const pkg = LOCAL_PACKAGE_BY_IMPORT[m[1].split('.')[0].toLowerCase()];
+      if (pkg) needed.add(pkg);
+    }
+    if (!needed.size) return;
+    const names = [...needed].join('、');
+    onProgress && onProgress('加载 ' + names + '…（首次约 50MB，之后走浏览器缓存）');
+    await py.loadPackage([...needed]);
   }
 
   // 在浏览器 Pyodide 沙箱里执行 agent 生成的代码

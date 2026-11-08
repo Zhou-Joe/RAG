@@ -620,7 +620,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
 只有用户明确要求计算分析、画图、下载或导出 Excel/CSV/文件时：
 - 会话中已有足够数据时直接复用；需要补充数据时，文档表格用kb_fetch_doc或kb_search定位候选，再kb_read_chunks读取并kb_select_evidence确认。不能仅凭目录或一页候选宣称全量。新增台账统计用tracker_lookup的metrics。
 - 再调用 write_analysis，传入完整可运行的 Python 代码（code 参数）。
-- 代码会在用户浏览器的 Pyodide 沙箱里运行，可用 pandas、numpy、matplotlib。
+- 代码会在用户浏览器的 Pyodide 沙箱里运行，常用库 pandas、numpy、matplotlib 已在初始化时预装；scipy 也已本地托管，需要时直接 `import scipy.stats` 等即可（首次使用会即时加载，稍慢，只一次）。
 - 把检索到的数据作为字面量写进代码，例如：df = pd.DataFrame([...])。沙箱里【没有】用户本地文件或任何输入文件——禁止 pd.read_excel/read_csv 去读本地路径，数据一律来自检索结果构造的 DataFrame。
 - **字符串引号安全**：中文/英文字符串内部若含双引号，用单引号定义该字符串，或用「」代替内部双引号。绝对禁止在 "..." 字符串内部出现未转义的双引号——会导致 SyntaxError。生成代码后自查所有字符串字面量的引号配对。
 - 导出 Excel：直接用 df.to_excel(filename, index=False)（沙箱已注入纯 Python 的 xlsx 写入器，无需、也不要 import openpyxl）。filename 用 write_analysis 的 filename 参数（默认 analysis.xlsx）。支持多工作表：with pd.ExcelWriter(filename) as w: df1.to_excel(w, sheet_name='表1', index=False); df2.to_excel(w, sheet_name='表2', index=False)。若用户要 CSV，用 df.to_csv(filename, index=False)。
