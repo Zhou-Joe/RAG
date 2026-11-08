@@ -222,3 +222,20 @@ test('a view transition that throws still switches the language exactly once', (
   assert.equal(applied, 1);
   assert.equal(env.classes.size, 0, 'no leftover transition class');
 });
+
+test('cron builder progress counters follow the language in both live and saved turns',()=>{
+  const merged={messages:{},patterns:[],englishSource:{}};
+  const directory=path.join(__dirname,'../../static/i18n');
+  for(const filename of fs.readdirSync(directory).filter(name=>name.endsWith('.json'))){
+    const part=JSON.parse(fs.readFileSync(path.join(directory,filename),'utf8'));
+    Object.assign(merged.messages,part.messages);merged.patterns.push(...(part.patterns||[]));
+    Object.assign(merged.englishSource,part.englishSource);
+  }
+  const {translate}=load(merged);
+  assert.equal(translate('正在处理本轮对话（1/50）。','en'),'Processing this conversation turn (1/50).');
+  assert.equal(translate('正在处理本轮对话（12/50）。','en'),'Processing this conversation turn (12/50).');
+  assert.equal(translate('Processing this conversation turn (12/50).','zh-hans'),'正在处理本轮对话（12/50）。');
+  assert.equal(translate('第 3 轮请求已发出，正在等待模型。','en'),'Round 3 request sent; waiting for the model.');
+  assert.equal(translate('工具活动 · 5 次调用','en'),'Tool activity · 5 calls');
+  assert.equal(translate('正在理解当前消息并接续对话。','en'),'Reading your message and continuing the conversation.');
+});

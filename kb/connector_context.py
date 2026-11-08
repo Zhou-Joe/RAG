@@ -18,7 +18,11 @@ def conversation_context(job):
         if not spec and candidate.spec and candidate.spec.get('kind')!='report':spec=candidate.spec;preview=candidate.preview
         history.append({'user':candidate.feedback or candidate.prompt,'assistant_questions':candidate.questions,'assistant_answer':candidate.preview.get('answer','')})
         candidate=candidate.parent
-    from .feed_reports import delivery_context
+    from .feed_reports import delivery_context,source_feed
+    from .feed_names import current_name,named_spec
+    feed=source_feed(job,required=False)
+    if feed:
+        name=current_name(feed);spec=named_spec(spec,name);report=named_spec(report,name)
     return {'conversation':list(reversed(history)),'previous_connector':spec,'previous_report':report,'previous_examples':preview,'review_feedback':job.feedback,'report_delivery':delivery_context(job)}
 
 

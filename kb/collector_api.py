@@ -230,7 +230,7 @@ def approve(*, user, job, write_mode=None, department=None, run_now=True, trigge
         if mode not in ("append", "upsert"):
             raise ValueError("请选择追加保留历史或覆盖更新。")
         spec = {**spec, "write_mode": mode}
-        kb = job.kb
+        kb = KnowledgeBase.objects.get(pk=job.kb_id) if job.kb_id else None
         if kb is None:
             dept = (department or DEPARTMENT_GENERAL) if access.is_global_admin(user) else access.user_department(user)
             if dept not in access.all_departments():
@@ -239,6 +239,7 @@ def approve(*, user, job, write_mode=None, department=None, run_now=True, trigge
                 category="business", description="由采集脚本自动更新的业务数据", created_by=user,**access.creation_fields(user,None,dept))
         elif not access.can_manage_kb(user, kb):
             raise ValueError("没有该知识库的管理权限。")
+        spec={**spec,"name":kb.name}
         cron = spec.get("cron", "0 * * * *")
         zone = spec.get("timezone", "Asia/Shanghai")
         schedule = CronSchedule(cron, zone)

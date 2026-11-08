@@ -68,6 +68,41 @@ class TrackerServiceTests(TestCase):
         self.assertEqual(row.status, "done")
         self.assertEqual(row.values, {"设备编号": "SDLSPDRTP0003", "结论": "合格"})
 
+    def test_long_extracted_cells_keep_up_to_2000_characters(self):
+        import json
+        tracker=KbTracker.objects.create(kb=self.kb,enabled=True,fields=[{'label':'分析'}])
+        for index,length in enumerate((1999,2000,2001)):
+            doc=Document.objects.create(kb=self.kb,original_name=f'long-{index}.txt',status='completed',md_content='报告')
+            text='元'*length
+            with patch('kb.tracker._llm_invoke',return_value=json.dumps({'分析':text},ensure_ascii=False)):
+                self.assertTrue(run_extraction(doc.pk))
+            self.assertEqual(TrackerRow.objects.get(document=doc,tracker=tracker).values['分析'],text[:2000])
+        prompt=build_extraction_prompt('报告',tracker.fields,'原文')
+        self.assertIn('2000 字符',prompt)
+        self.assertNotIn('80 字',prompt)
+
+    def test_element_json_is_stored_as_valid_complete_json(self):
+        import json
+        tracker=KbTracker.objects.create(kb=self.kb,enabled=True,fields=[{'label':'元素'}])
+        doc=Document.objects.create(kb=self.kb,original_name='oil.txt',status='completed',md_content='元素数据')
+        elements={f'元素{i}':i/10 for i in range(70)}
+        with patch('kb.tracker._llm_invoke',return_value=json.dumps({'元素':elements},ensure_ascii=False)):
+            self.assertTrue(run_extraction(doc.pk))
+        value=TrackerRow.objects.get(document=doc,tracker=tracker).values['元素']
+        self.assertGreater(len(value),80)
+        self.assertEqual(json.loads(value),elements)
+
+    def test_oversized_structured_json_reports_error_without_saving_broken_json(self):
+        import json
+        tracker=KbTracker.objects.create(kb=self.kb,enabled=True,fields=[{'label':'元素'}])
+        doc=Document.objects.create(kb=self.kb,original_name='oversized-oil.txt',status='completed',md_content='元素数据')
+        with patch('kb.tracker._llm_invoke',return_value=json.dumps({'元素':{'detail':'x'*2100}})):
+            self.assertFalse(run_extraction(doc.pk))
+        row=TrackerRow.objects.get(document=doc,tracker=tracker)
+        self.assertEqual(row.status,'failed')
+        self.assertIn('2000',row.error)
+        self.assertEqual(row.values,{})
+
     def test_run_extraction_llm_failure_marks_row(self):
         tr = KbTracker.objects.create(
             kb=self.kb, enabled=True, fields=[{"label": "结论"}])

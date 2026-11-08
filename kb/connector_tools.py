@@ -93,6 +93,11 @@ def api_origins(job):
 
 
 def check_spec(job,spec):
+    # Existing tasks inherit the KB name even if an old model transcript
+    # proposes a different source name. New KBs still receive their first name.
+    if getattr(job,'kb_id',None) and isinstance(spec,dict):
+        from .models import KnowledgeBase
+        spec={**spec,'name':KnowledgeBase.objects.values_list('name',flat=True).get(pk=job.kb_id)}
     validate_spec(spec)
     from .feed_protocol import validate_url
     validate_url(spec['url'],allow_fragment=spec.get('source_type')=='browser')

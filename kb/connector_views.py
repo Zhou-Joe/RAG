@@ -45,6 +45,12 @@ def _job(request, job_id):
 
 
 def _json(job,*,after=None,before=None):
+    from .feed_names import named_spec
+    spec=job.spec;preview=job.preview;name=''
+    if job.kb_id:
+        name=KnowledgeBase.objects.values_list('name',flat=True).get(pk=job.kb_id)
+        spec=named_spec(spec,name)
+        if isinstance(preview,dict) and 'source_feed' in preview:preview={**preview,'source_feed':name}
     first_run=job.feed.runs.order_by('-started_at').first() if job.feed_id else None
     browser_event=next((event for event in reversed(job.events) if event.get('kind')=='browser_view'),None)
     activity=job.activity.all()
@@ -57,14 +63,14 @@ def _json(job,*,after=None,before=None):
     if not events and after is None and before is None:events=job.events
     latest=activity.order_by('-id').values_list('id',flat=True).first() or 0
     last=rows[-1].pk if rows else after or 0
-    return {'id':str(job.pk),'status':job.status,'response_language':job.response_language,'prompt':job.prompt,'spec':job.spec,'preview':job.preview,
+    return {'id':str(job.pk),'status':job.status,'response_language':job.response_language,'prompt':job.prompt,'spec':spec,'preview':preview,
         'report_delivery':delivery_context(job),
         'events':events,'event_cursor':last,'latest_event_id':latest,'has_more_events':last<latest,
         'older_event_cursor':rows[0].pk if rows else None,
         'has_older_events':bool(rows and activity.filter(id__lt=rows[0].pk).exists()),
         'sources':job.sources,'questions':job.questions,'metrics':job.metrics,'error':job.error,
         'created_at':job.created_at.isoformat(),'updated_at':job.updated_at.isoformat(),
-        'feed_id':str(job.feed_id) if job.feed_id else None,'kb':job.kb.slug if job.kb_id else '',
+        'feed_id':str(job.feed_id) if job.feed_id else None,'kb':job.kb.slug if job.kb_id else '','kb_name':name,
         'tracker_url':reverse('kb:tracker',args=[job.kb.slug]) if job.kb_id else None,
         'api_url':job.api_url,'allow_private':job.allow_private,'authentication':summary(job),
         'limits':{'model_calls':MAX_CALLS,'tool_calls':MAX_TOOLS,'seconds':MAX_SECONDS},

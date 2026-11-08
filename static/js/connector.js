@@ -8,7 +8,7 @@
   const newTask = document.getElementById('connectorNew');
   const clearContext = document.getElementById('connectorClearContext');
   let thread = [], timer = null, generation = 0, submitting=false, stopping=false, confirming=false, clearing=false;
-  const detailStates=new Map();
+  const detailStates=new Map(),toolDisclosures=new Map();
   const writeModes=new Map();
   const fieldSelections=new Map();
   const availableFields=job=>[...new Set([...(job.spec.body_fields||[]).map(field=>field.label),'采集日期'])];
@@ -70,7 +70,12 @@
     const rows=[...open.values()];
     if(job.status!=='running')for(const row of rows)if(row.state==='running'){row.state='warning';row.note='本轮已结束，工具未返回完成结果';}
     if (!rows.length) return null;
-    const work = el('details', 'cx-work');work.dataset.nodeKey='tools';work.dataset.detailKey=job.id+':tools';work.open=detailStates.get(work.dataset.detailKey)??true;work.append(el('summary', null, `工具活动 · ${rows.length} 次调用`));
+    const work = el('details', 'cx-work');work.dataset.nodeKey='tools';work.dataset.detailKey=job.id+':tools';
+    let disclosure=toolDisclosures.get(job.id);
+    if(!disclosure){disclosure=new window.FosToolDisclosure();toolDisclosures.set(job.id,disclosure);}
+    work.open=disclosure.update(window.FosToolDisclosure.builderPhase(job),detailStates.get(work.dataset.detailKey)??true);
+    detailStates.set(work.dataset.detailKey,work.open);
+    work.append(el('summary', null, `工具活动 · ${rows.length} 次调用`));
     const list = el('div', 'cx-tool-list');
     for (const row of rows) {
       const key=job.id+':'+row.id,fresh=row.state!=='running'&&!completedTools.has(key);
@@ -216,7 +221,8 @@
       if (text) { const answer = el('div', 'cx-answer');answer.dataset.nodeKey='answer'; answer.innerHTML = md(text); bot.append(answer); }
       else if (job.status === 'running') {
         const phase = [...(job.events || [])].reverse().find(ev => ev.kind === 'phase' || ev.kind === 'notice');
-        const answer=el('div', 'cx-answer cx-plain', phase ? phase.message : '正在读取页面并分析取数方式…');answer.dataset.nodeKey='answer';answer.dataset.i18nUi='';bot.append(answer);
+        const message=phase?.message||'正在读取页面并分析取数方式…';
+        const answer=el('div', 'cx-answer cx-plain', window.FOSI18n?.t(message)??message);answer.dataset.nodeKey='answer';answer.dataset.i18nUi='';bot.append(answer);
       }
     }
     if (job.browser_preview_url) {
@@ -251,9 +257,11 @@
   }
   function render() {
     const nearBottom=messages.scrollHeight-messages.scrollTop-messages.clientHeight<90,scroll=messages.scrollTop;
+    const named=thread.findLast(job=>job.kb_name);
+    if(page.dataset.feedId&&named){const title=page.querySelector('.cx-heading h1');if(title){title.dataset.i18nIgnore='';title.textContent='EnGenie · '+named.kb_name;}}
     for(const detail of messages.querySelectorAll('details[data-detail-key]'))detailStates.set(detail.dataset.detailKey,detail.open);
     if (!thread.length) { messages.replaceChildren(welcome); welcome.querySelectorAll('.cx-prompt').forEach(b => { b.hidden = false; }); return; }
-    const nodes=thread.map((job,index)=>{const signature=JSON.stringify([job.status,job.event_cursor,job.first_run,job.error,job.metrics,job.report_delivery,window.FOSI18n?.language,[...selectedFields(job)]]);const previous=[...messages.children].find(node=>node.dataset.jobId===job.id);if(previous?.dataset.signature===signature)return previous;const node=turn(job,index);node.dataset.signature=signature;return node;});
+    const nodes=thread.map((job,index)=>{const signature=JSON.stringify([job.status,job.event_cursor,job.first_run,job.error,job.metrics,job.report_delivery,job.kb_name,job.spec?.name,job.spec?.title,job.preview?.source_feed,window.FOSI18n?.language,[...selectedFields(job)]]);const previous=[...messages.children].find(node=>node.dataset.jobId===job.id);if(previous?.dataset.signature===signature)return previous;const node=turn(job,index);node.dataset.signature=signature;return node;});
     const old=[...messages.children];
     nodes.forEach((node,index)=>{const previous=old.find(item=>item.dataset.jobId===node.dataset.jobId);if(previous&&previous!==node)patchNode(previous,node);const current=previous||node;if(messages.children[index]!==current)messages.insertBefore(current,messages.children[index]||null);});
     for(const node of old)if(!thread.some(job=>job.id===node.dataset.jobId))node.remove();
@@ -347,7 +355,7 @@
   }
   newTask.addEventListener('click',async()=>{
     if(newTask.disabled)return;newTask.disabled=true;
-    try{const response=await forget();if(response&&!response.ok)throw new Error('临时记录清理失败，请稍后重试。');generation++;clearTimeout(timer);thread=[];eventCache.clear();detailStates.clear();completedTools.clear();writeModes.clear();page.dataset.feedId='';prompt.value='';const url=new URL(location.href);url.searchParams.delete('feed');history.replaceState(null,'',url);page.querySelector('.cx-heading h1').textContent='EnGenie · 自动任务';page.querySelector('.cx-heading p').textContent='告诉我数据在哪，剩下的我们一起完成。';render();syncComposer(null);prompt.focus();}
+    try{const response=await forget();if(response&&!response.ok)throw new Error('临时记录清理失败，请稍后重试。');generation++;clearTimeout(timer);thread=[];eventCache.clear();detailStates.clear();toolDisclosures.clear();completedTools.clear();writeModes.clear();page.dataset.feedId='';prompt.value='';const url=new URL(location.href);url.searchParams.delete('feed');history.replaceState(null,'',url);page.querySelector('.cx-heading h1').textContent='EnGenie · 自动任务';page.querySelector('.cx-heading p').textContent='告诉我数据在哪，剩下的我们一起完成。';render();syncComposer(null);prompt.focus();}
     catch(error){hint.textContent=error.message;newTask.disabled=false;}
   });
   clearContext.addEventListener('click',async()=>{
@@ -357,7 +365,7 @@
     let message='',failure='';
     try{
       const data=await request(page.dataset.clearContextUrl,{feed});
-      eventCache.clear();detailStates.clear();completedTools.clear();writeModes.clear();
+      eventCache.clear();detailStates.clear();toolDisclosures.clear();completedTools.clear();writeModes.clear();
       page.dataset.feedId=feed;activate(data.thread);message=data.message;
     }catch(error){failure=error.message;const last=thread.at(-1);if(last)poll(last,generation);}
     finally{clearing=false;syncComposer(thread.at(-1));hint.textContent=failure||message;prompt.focus();}

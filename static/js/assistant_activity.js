@@ -11,7 +11,7 @@
   class ActivityState {
     constructor(now = () => performance.now()) {
       this.now=now;this.started=now();this.rows=new Map();this.serial=0;this.serverElapsed=0;
-      this.status='running';this.label='正在准备回答';this.note='';
+      this.status='running';this.label='正在准备回答';this.note='';this.answering=false;
     }
     update(type, payload = {}) {
       if(this.status!=='running')return;
@@ -27,6 +27,7 @@
         if(payload.status==='start')this.label=LABELS[payload.stage]||'正在处理';
         if(payload.status==='done'&&payload.ok===false)this.finish('error','答案核对未通过');
       } else if(type==='token') {
+        if(String(payload.text||'').trim())this.answering=true;
         this.label='正在生成回答';this.note='';
       } else if(type==='tool_start'||type==='tool_end') {
         let id=payload.run_id;
@@ -36,7 +37,7 @@
         if(!row){row={id,name:payload.tool||'',label:clean(payload.label)||TOOLS[payload.tool]||'执行工具',
           started:this.now(),state:'running',note:'正在执行…',seconds:null};this.rows.set(id,row);}
         if(type==='tool_start') {
-          this.label=row.label;this.note='';
+          this.answering=false;this.label=row.label;this.note='';
         } else if(row.state==='running') {
           row.state=payload.warning?'warning':payload.ok===false||['failed','error'].includes(payload.status)?'error':'done';
           const seconds=Number(payload.seconds);
@@ -67,8 +68,8 @@
     icon.setAttribute('aria-hidden','true');elapsed.setAttribute('aria-hidden','true');label.setAttribute('role','status');
     work.open=true;work.hidden=true;note.hidden=true;list.setAttribute('role','list');
     status.append(icon,label,elapsed);work.append(summary,list);rootEl.append(status,note,work);host.append(rootEl);
-    const nodes=new Map();let timer=null;
-    const text=(node,value)=>{if(node.textContent!==value)node.textContent=value;};
+    const nodes=new Map(),disclosure=new root.FosToolDisclosure();let timer=null;
+    const text=(node,value)=>{const translated=root.FOSI18n?.t(value)??value;if(node.textContent!==translated)node.textContent=translated;};
     const duration=seconds=>seconds<10?seconds.toFixed(1)+'s':Math.floor(seconds)+'s';
     list.addEventListener('animationend',event=>{if(event.animationName==='rag-tool-complete')event.target.closest('.rag-tool')?.classList.remove('is-fresh');});
     function render() {
@@ -78,6 +79,9 @@
       text(label,state.label);text(elapsed,duration(state.status==='running'?state.elapsed():state.seconds));
       text(note,state.note);note.hidden=!state.note;work.hidden=!state.rows.size;
       text(summary,'工具活动 · '+state.rows.size+' 次调用');
+      const pending=[...state.rows.values()].some(row=>row.state==='running');
+      const answering=(state.status==='done'||state.answering)&&!pending&&!['error','stopped'].includes(state.status);
+      const open=disclosure.update(answering?'answer':'tools',work.open);if(work.open!==open)work.open=open;
       for(const row of state.rows.values()){
         let entry=nodes.get(row.id);
         if(!entry){

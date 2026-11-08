@@ -370,7 +370,7 @@ def _chunk_neighbors(source: str, anchor: str, direction: str, department: str,
 
 
 def _image_search_core(query: str, target: str, lane_slugs: list[str],
-                       llm_cfg: dict, cite_sink: list, max_out: int):
+                       llm_cfg: dict, cite_sink: list, max_out: int, *, selection=None):
     """kb_image_search 工具正文（模块级便于测试）。
 
     两段式精确找图：①多模态向量召回图片候选（WeMM 图片专用道），按 softmax
@@ -397,6 +397,8 @@ def _image_search_core(query: str, target: str, lane_slugs: list[str],
             continue
         seen.add(key)
         unique.append(c)
+    if selection is not None:
+        unique=[row for row in unique if selection._document(row,lane_slugs) is not None]
     if not unique:
         return (f"在库「{target}」中未召回图片候选（库内无图片块，或与描述的相似度过低）。"
                 "可换更具体的图片描述重试；若文档确有插图，请检查该文档是否已重新入库。")
@@ -493,8 +495,25 @@ def _image_search_core(query: str, target: str, lane_slugs: list[str],
                      f"    (来源文档: {src})\n    图片内容: {cap}")
     text_out = head + "\n\n" + "\n\n".join(lines)
 
-    # 输出图片挂到引用区（URL 规则与 kb_search 同款，前端自动渲染缩略图）
-    for i in shown:
+    if selection is not None:
+        # These images/captions have actually been returned by the tool. Register
+        # them as read evidence; selection still belongs to the agent.
+        shown=shown[:16]
+        rows=[dict(unique[i],type='image',visual_confirmed=bool(verdicts.get(i,{}).get('match'))) for i in shown]
+        if rows:
+            directory=json.loads(selection.discover(rows,lane_slugs,query=query,limit=len(rows)))
+            ids=[item['candidate_id'] for item in directory.get('candidates',[])]
+            loaded=selection.read(ids,include_images=False) if ids else json.dumps(directory,ensure_ascii=False)
+            ready={(selection.candidates[cid]['row']['doc_id'],selection.candidates[cid]['row'].get('image'))
+                   for cid in ids if cid in selection.loaded}
+            shown=[i for i in shown if (str(unique[i]['doc_id']),unique[i]['image']) in ready]
+            confirmed=[i for i in confirmed if i in shown]
+            text_out=(('已载入图片来源与完整图注，视觉复核状态见下。' if shown else '没有载入可用图片依据，见读取结果。')+
+                '\n'+head.replace('已自动附到回答引用区','将在选定依据后附到回答引用区').replace('已附到回答引用区供用户查看','将在选定依据后附到引用区供用户查看')+
+                '\n'+loaded+'\n调用 kb_select_evidence 选择实际采用的已读 candidate_id，然后回答；不采用的文本候选无需读取。')
+        else:text_out=head
+    # Legacy callers can still collect citations; agent calls use final selection.
+    for i in shown if selection is None else []:
         c = unique[i]
         if str(c.get("image", "")).startswith("page") and c.get("chunk_id"):
             img_url = f"/kb/evidence/{c['chunk_id']}/page.png"
@@ -754,13 +773,13 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         return rag_selection.select(candidate_ids)
 
     def kb_image_search(query: str, kb_slug: str = "", top: int = 0):
-        """按图片描述在知识库里精确找图（向量召回候选 → 概率≥30% 逐张视觉复核）。
+        """按图片描述在知识库里精确找图（向量召回候选 → 概率前列候选逐张视觉复核）。
 
         用户想【找一张图/看某张图】时优先用本工具而不是 kb_search，例如：
         「有没有……的示意图/布置图/结构图/照片」「帮我找一张……的图」。
         先用多模态向量从图片块中召回与描述最相近的候选并计算相对概率，
         再把概率排前 3 且 ≥15% 的候选逐张交给视觉模型复核是否真的匹配
-        （概率不足时复核少于 3 张）；确认匹配的图片自动附到回答引用区给
+        （概率不足时复核少于 3 张）；确认匹配的图片及图注已读入证据目录；用kb_select_evidence选定后附到回答引用区给
         用户查看。回答时说明每张匹配图片的来源文档（含页码）与复核结论；
         没有确认匹配时如实说明。
 
@@ -784,7 +803,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         else:
             lane_slugs = [target]
         return _image_search_core(query, target, lane_slugs, llm_cfg,
-                                  cite_sink, top if top > 0 else 3)
+                                  cite_sink, top if top > 0 else 3, selection=rag_selection)
 
     def _fetch_doc_context(
         kb_slug: str = "", source: str = "", section: str = "",
@@ -1254,6 +1273,15 @@ async def run_agent_stream(
                     if isinstance(content, str) and content:
                         pending_reasoning.append(content)
                         selection_pending = retrieval_state.get('used') and not retrieval_state.get('finalized')
+                        if not enhance and not selection_pending and len(pending_reasoning)==1:
+                            image_evidence=[item for item in evidence if item.get('kind')=='image']
+                            if image_evidence:
+                                from .publication import validate_sources
+                                if not await sync_to_async(validate_sources)(image_evidence,(config or {}).get('user_id')):
+                                    citations.clear()
+                                    yield SSE_CITATIONS, {'citations':[],'replace':True}
+                                    yield SSE_ERROR, {'message':'图片来源权限或文件已变化，请重新检索。','code':'source_changed'}
+                                    return
                         if not enhance and not selection_pending and len(pending_reasoning) == 1 and citations:
                             # Publish source identity with visible text so an interrupted
                             # answer keeps its access checks when reopened.
@@ -1284,10 +1312,9 @@ async def run_agent_stream(
                     max_out = call_out
                 tool_calls = getattr(output, "tool_calls", None) or []
                 if not tool_calls and retrieval_state.get('used') and not retrieval_state.get('finalized'):
-                    yield SSE_CITATIONS, {'citations':list(citations),'replace':True}
-                    yield SSE_ERROR, {'message':'尚未选择已读原文依据，未发布回答；候选预览不能代替原文。',
-                                     'code':'evidence_not_selected'}
-                    return
+                    # Middleware may retry this premature final response once.
+                    # Never publish the draft, and wait for the actual graph end.
+                    continue
                 finish_reason = (getattr(output, "response_metadata", None) or {}).get("finish_reason")
                 final_complete = not tool_calls and finish_reason not in ('length', 'content_filter')
                 if finish_reason in ("length", "content_filter"):
@@ -1370,6 +1397,12 @@ async def run_agent_stream(
                     "status": "done",
                     "output_preview": "" if enhance else _preview(output),
                 }
+
+        if retrieval_state.get('used') and not retrieval_state.get('finalized'):
+            yield SSE_CITATIONS, {'citations':list(citations),'replace':True}
+            yield SSE_ERROR, {'message':'尚未选择已读原文依据，未发布回答；候选预览不能代替原文。',
+                             'code':'evidence_not_selected'}
+            return
 
         # 生成阶段收尾（无 token 输出的异常路径不补 done）
         if answer_step_on:

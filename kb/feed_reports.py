@@ -207,6 +207,7 @@ def workflow_setup_hint(delivery,kind=None):
 
 
 def summary(feed,selection=None):
+    from .feed_names import current_name
     plan=FeedReportPlan.objects.filter(feed=feed).first()
     data=select_destination(destination(plan) if plan else {},selection);address=site_address(data)
     last=plan.deliveries.exclude(status='preview').order_by('-created_at').first() if plan else None
@@ -221,7 +222,7 @@ def summary(feed,selection=None):
         'saved_workflow_types':sorted(bindings),'untyped_workflow_saved':bool(data.get('pending_url')),'missing':missing,'kind':data.get('kind'),
         'recipient':data.get('recipient','') if data.get('kind')=='email' else '','public_base':address['public_base'],'public_base_source':address['source'],
         'site_address_available':address['available'],'site_address_note':address['reason'],
-        'title':plan.spec.get('title','') if plan else '',
+        'title':current_name(feed) if plan else '',
         'schedule':plan.spec.get('schedule',{'mode':plan.schedule_mode,'cron':plan.cron,'timezone':plan.timezone}) if plan else {},
         'next_run_at':plan.next_run_at.isoformat() if plan and plan.next_run_at else None, 'last_status':last.status if last else '',
         'last_error':last.error if last else ''}
@@ -261,8 +262,8 @@ def report_schedule(value,feed):
 
 def normalize(spec,feed,*,legacy=False):
     if not isinstance(spec,dict):raise ValueError('报告配置必须是对象。')
-    title=spec.get('title','').strip()
-    if not title or len(title)>150:raise ValueError('报告标题需为1至150字。')
+    from .feed_names import current_name
+    title=current_name(feed)
     columns=spec.get('columns');fields=set(available(feed)['fields'])
     if not isinstance(columns,list) or not 1<=len(columns)<=30:raise ValueError('请选择1至30个报告字段。')
     clean=[];labels=set()
@@ -434,7 +435,7 @@ def preview(job,spec):
         spec['delivery']={'kind':delivery['kind']}
         if delivery['kind']=='email':spec['delivery']['recipient']=delivery['recipient']
     return spec,{'valid':True,'report':True,'items':len(rows),'headers':headers,'preview':rows[:10],
-        'delivery':delivery,'transformation_audit':audit,'source_feed':feed.name,'preview_as_of':at.isoformat(),'preview_timezone':spec['schedule']['timezone'],
+        'delivery':delivery,'transformation_audit':audit,'source_feed':spec['title'],'preview_as_of':at.isoformat(),'preview_timezone':spec['schedule']['timezone'],
         'next_send_at':CronSchedule(spec['schedule']['cron'],spec['schedule']['timezone']).next_after(at).isoformat() if spec['schedule']['mode']=='cron' else None,'warning':'目标日期范围目前暂无数据；可确认规则，发送时将重新读取已保存的数据。' if not rows else '预览使用当前已有数据；发送时会重新计算选定日期范围。','schedule':spec['schedule'],'range':spec['range'],'processing':'aggregate' if spec['aggregates'] else 'raw','note':'报告使用已保存的数据，按自己的发送计划运行；不触发或修改采集任务。'}
 
 def approve(job,user):

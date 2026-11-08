@@ -1222,7 +1222,9 @@
     "请选择有效的访问范围。": "Select a valid access level.",
     "无权创建通用知识库。": "You cannot create a general knowledge base.",
     "请选择具体部门，或使用通用访问范围。": "Select a department or use general access.",
-    "没有权限向该知识库上传。": "You cannot upload to this knowledge base."
+    "没有权限向该知识库上传。": "You cannot upload to this knowledge base.",
+    "名称同时用于数据源和 M365 报告计划；修改后自动同步。": "This name is also used for the data source and M365 report plan. Changes sync automatically.",
+    "请填写不超过100字符的知识库名称。": "Enter a knowledge base name of up to 100 characters."
   },
   "patterns": [
     {
@@ -1994,6 +1996,14 @@
     {
       "source": "期望：{value}",
       "target": "Expected: {value}"
+    },
+    {
+      "source": "正在处理本轮对话（{current}/{total}）。",
+      "target": "Processing this conversation turn ({current}/{total})."
+    },
+    {
+      "source": "第 {current} 轮请求已发出，正在等待模型。",
+      "target": "Round {current} request sent; waiting for the model."
     }
   ]
 }

@@ -117,7 +117,7 @@ class ReportWorkflowTests(TestCase):
             child=refine_draft(user=self.user,job=self.job,requirement='改为发送邮件给 fixture@example.com '+URL)
         self.assertNotIn('sig=',child.feedback)
         context=conversation_context(child)
-        self.assertEqual(context['previous_report']['title'],self.spec['title'])
+        self.assertEqual(context['previous_report']['title'],self.kb.name)
         self.assertEqual(context['previous_connector']['url'],'https://example.com/hours')
 
     def test_collection_hook_preserves_success_when_report_delivery_fails(self):

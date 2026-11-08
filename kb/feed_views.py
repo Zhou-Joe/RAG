@@ -45,7 +45,7 @@ def _feed_json(feed,user):
     from .report_controls import state as report_state
     report=report_state(feed,user)
     runs=[_run_json(run) for run in feed.runs.order_by('-started_at')[:10]]
-    return {'id':str(feed.pk),'name':feed.name,'kb':feed.kb.slug,'kb_name':feed.kb.name,'mode':feed.mode,'write_mode':feed.write_mode,
+    return {'id':str(feed.pk),'name':feed.kb.name,'kb':feed.kb.slug,'kb_name':feed.kb.name,'mode':feed.mode,'write_mode':feed.write_mode,
             'can_edit':access.can_edit_feed(user,feed),'workflow_settings':{'saved_workflow_types':report['saved_workflow_types']},'report':report,'url':feed.url,'header_env':feed.header_env,'allow_private':feed.allow_private,
             'cron':feed.cron,'timezone':feed.timezone,'enabled':feed.enabled,'token_configured':bool(feed.token_digest),
             'next_run_at':feed.next_run_at.isoformat() if feed.next_run_at else None,
@@ -98,8 +98,11 @@ def action(request):
         data=json.loads(request.body) if request.content_type=='application/json' else request.POST
         command=data.get('action','')
         if command in ('create','update'):
-            name=data.get('name','').strip()
-            if not name or len(name)>100:raise ValueError('请填写不超过100字符的数据源名称。')
+            requested_name=data.get('kb_name',data.get('name'))
+            if requested_name is not None:
+                if not isinstance(requested_name,str) or not requested_name.strip() or len(requested_name.strip())>100:
+                    raise ValueError('请填写不超过100字符的知识库名称。')
+                requested_name=requested_name.strip()
             mode=data.get('mode','pull')
             if mode not in ('pull','push'):raise ValueError('不支持的接入方式。')
             zone=data.get('timezone','Asia/Shanghai');cron=data.get('cron','0 * * * *')
@@ -119,7 +122,7 @@ def action(request):
                 if command=='create':
                     if data.get('kb'):kb=get_object_or_404(libraries,slug=data['kb'])
                     else:
-                        kb_name=data.get('kb_name','').strip()
+                        kb_name=requested_name or ''
                         if not kb_name or len(kb_name)>100:raise ValueError('请选择资料集合或填写新知识库名称。')
                         department=data.get('department',DEPARTMENT_GENERAL) if access.is_global_admin(request.user) else access.user_department(request.user)
                         if department not in access.all_departments():raise ValueError('请选择已有部门。')
@@ -132,6 +135,13 @@ def action(request):
                     if 'allow_private' not in data:private=feed.allow_private
                     if feed.lease_token and feed.lease_until and feed.lease_until>timezone.now():raise FeedBusy('任务运行中，请结束后再修改配置。')
                     if feed.url!=url or feed.mode!=mode:feed.cursor='';feed.etag=''
+                kb=feed.kb
+                # Older callers may still send name; selecting an existing KB on
+                # create never renames it implicitly through that legacy alias.
+                if requested_name is not None and (command=='update' or not data.get('kb') or 'kb_name' in data):
+                    if kb.name!=requested_name:
+                        kb.name=requested_name;kb.save(update_fields=['name','updated_at'])
+                name=kb.name
                 write_mode=data.get('write_mode',feed.write_mode)
                 if write_mode not in ('append','upsert'):raise ValueError('请选择追加保留历史或覆盖更新。')
                 if feed.write_mode!=write_mode:feed.etag=''

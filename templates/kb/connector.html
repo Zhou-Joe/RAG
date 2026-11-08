@@ -3,7 +3,7 @@
 {% block content %}
 <div id="connectorPage" data-create-url="{% url 'kb:connector_create' %}" data-resume-url="{% url 'kb:connector_resume' %}" data-clear-context-url="{% url 'kb:connector_clear_context' %}" data-feed-id="{{ editing_feed.pk|default:'' }}" data-test-auth-url="{% url 'kb:connector_test_auth' %}" data-forget-url="{% url 'kb:connector_forget' %}">
   <header class="cx-header">
-    <div class="cx-heading"><a class="page-back" href="{% url 'kb:feeds' %}">自主数据引擎</a><h1>EnGenie · {% if editing_feed %}{{ editing_feed.name }}{% else %}自动任务{% endif %}</h1><p>{% if editing_feed %}对话随此任务保存。告诉 EnGenie 想调整什么，查看新样例并确认后更新任务。{% else %}告诉我数据在哪，剩下的我们一起完成。{% endif %}</p></div>
+    <div class="cx-heading"><a class="page-back" href="{% url 'kb:feeds' %}">自主数据引擎</a><h1>EnGenie · {% if editing_feed %}{{ editing_feed.kb.name }}{% else %}自动任务{% endif %}</h1><p>{% if editing_feed %}对话随此任务保存。告诉 EnGenie 想调整什么，查看新样例并确认后更新任务。{% else %}告诉我数据在哪，剩下的我们一起完成。{% endif %}</p></div>
     <div class="cx-header-actions">
       <button type="button" class="btn outline" id="connectorClearContext" title="清空历史对话和工具上下文，保留已批准脚本、凭据、定时任务和业务数据" {% if not editing_feed %}hidden{% endif %}>清空上下文</button>
       <button type="button" class="btn outline" id="connectorNew">新任务</button>
@@ -36,4 +36,4 @@
 <link rel="stylesheet" href="{% static 'css/feeds.css' %}">
 <link rel="stylesheet" href="{% static 'css/connector_chat.css' %}?v=16-themed-questions">
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/vendor/marked.min.js' %}" defer></script><script src="{% static 'js/vendor/purify.min.js' %}" defer></script><script src="{% static 'js/connector.js' %}?v=25-response-language" defer></script><script src="{% static 'js/connector_reports.js' %}?v=6-http-test-send" defer></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/vendor/marked.min.js' %}" defer></script><script src="{% static 'js/vendor/purify.min.js' %}" defer></script><script src="{% static 'js/tool_disclosure.js' %}?v=1" defer></script><script src="{% static 'js/connector.js' %}?v=26-auto-fold-progress" defer></script><script src="{% static 'js/connector_reports.js' %}?v=6-http-test-send" defer></script>{% endblock %}

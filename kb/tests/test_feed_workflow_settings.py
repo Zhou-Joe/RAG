@@ -56,7 +56,7 @@ class FeedWorkflowSettingsTests(TestCase):
     def test_invalid_second_url_rolls_back_feed_and_first_url(self):
         response=self.action(name='Should roll back',email_workflow_url=EMAIL,teams_workflow_url='https://evil.example/invoke')
         self.assertEqual(response.status_code,400)
-        self.feed.refresh_from_db();self.assertEqual(self.feed.name,'Collector')
+        self.feed.refresh_from_db();self.kb.refresh_from_db();self.assertEqual(self.feed.name,self.kb.name);self.assertEqual(self.kb.name,'Reports')
         self.assertFalse(FeedReportPlan.objects.filter(feed=self.feed).exists())
 
     def test_other_admin_cannot_edit_or_take_ownership_through_any_write_path(self):

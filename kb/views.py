@@ -395,6 +395,8 @@ def kb_rename(request, slug):
     department = (request.POST.get("department") or "").strip()
     if not name:
         return JsonResponse({"ok": False, "message": "名称不能为空"}, status=400)
+    if len(name)>100:
+        return JsonResponse({"ok": False, "message": "请填写不超过100字符的知识库名称。"}, status=400)
     if 'access_level' in request.POST:
         try:
             level=request.POST['access_level']

@@ -46,3 +46,9 @@ Recipients must be able to access the configured public site address. Download l
 `run_feed_scheduler` runs independent collection and report loops so a slow collection cannot delay the report loop. Existing system cron deployments using `sync_feeds --due` scan reports before starting collections. `run_report_scheduler` is also available as a standalone report-only process (`--once` for one tick).
 
 Deployments must apply migrations `0049_feed_report_workflows` and `0050_independent_report_schedules` and preserve the existing credential encryption key alongside the database. Excel artifacts and delivery audit records are stored in the database. Expiry controls download access; it does not delete audit records or artifact bytes.
+
+## One task name
+
+The knowledge base name is the only editable task name. Edit it on the KB settings page or in the data source's **Edit settings** dialog. The data source, saved connector configuration, report plan, future email subjects, Teams card headings and Excel document titles use that name automatically. EnGenie does not require a separate report title.
+
+Migration `0054_unified_feed_names` aligns existing tasks to their current KB name. Renaming preserves KB slugs, source URLs, saved credentials, report destinations, enabled states and the independent collection/report schedules. Previously delivered workbooks and audit records remain unchanged. Legacy API `name` input is accepted as an alias when editing a source; new callers should send only `kb_name`.

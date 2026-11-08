@@ -47,8 +47,13 @@ def load_context(conversation, user):
             if identity not in checked_documents:
                 sources.append({'doc_id': identity[0], 'document_digest': identity[1]})
                 checked_documents.add(identity)
-        for item in context.get('rag', {}).get('candidates', {}).values():
-            add_document(item['snapshot'])
+        for cid,item in context.get('rag', {}).get('candidates', {}).items():
+            snapshot=item['snapshot']
+            if snapshot.get('kind')=='image' and cid in context.get('rag',{}).get('loaded',[]) and not snapshot.get('image_digest'):return {}
+            if snapshot.get('kind')=='image' and snapshot.get('image_digest'):
+                from .publication import image_snapshot_current
+                if not image_snapshot_current(snapshot,user):return {}
+            add_document(snapshot)
         for snapshot in context.get('evidence', []):
             if snapshot.get('kind') == 'graph':
                 sources.append({'kind': 'graph', 'relation_id': snapshot['relation_id'],

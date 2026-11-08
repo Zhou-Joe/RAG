@@ -26,7 +26,7 @@
   if(!feeds.length){list.append(node('p','暂无自动任务。点击「用 EnGenie 创建自动任务」，提供网页或 API 地址即可开始。','feed-empty'));return;}
   for(const feed of feeds){
    const card=node('section',undefined,'feed-card');card.dataset.feedId=feed.id;
-   card.append(node('h2',feed.name));const link=node('a',feed.kb_name);link.href='/kb/manage/'+encodeURIComponent(feed.kb)+'/';card.append(link);
+   const title=node('h2',feed.kb_name);title.translate='no';card.append(title);const link=node('a','打开知识库');link.href='/kb/manage/'+encodeURIComponent(feed.kb)+'/';card.append(link);
    card.append(node('p',(feed.mode==='pull'?'定时采集 · '+feed.cron+' · '+feed.timezone:'外部脚本推送')+' · '+(feed.enabled?'已启用':'已暂停')+' · '+(feed.write_mode==='upsert'?'覆盖相同 ID':'追加保留历史')+' · '+feed.items+' 条记录','feed-meta'));
    if(feed.mode==='pull')card.append(node('p','下次运行：'+date(feed.next_run_at,feed.timezone),'feed-meta'));
    const actions=node('div',undefined,'feed-actions');
@@ -55,7 +55,6 @@
   finally{if(!disposed&&!document.hidden&&ticket===sequence)timer=setTimeout(refresh,feeds.some(feed=>feed.runs[0]?.status==='running')?2000:15000);}
  }
  function fields(){
-  document.getElementById('feedNewLibrary').hidden=!!form.elements.kb.value;
   form.querySelector('.feed-pull-fields').hidden=form.elements.mode.value!=='pull';
   form.querySelector('.feed-push-hint').hidden=form.elements.mode.value!=='push';
   form.elements.url.required=form.elements.mode.value==='pull';
@@ -68,11 +67,11 @@
   document.getElementById('feedSourceHint').textContent=feed?.source_type==='browser'?'此来源使用 EnGenie 已试采的网页操作步骤。要调整采集内容，请与 EnGenie 对话并查看新样例。':'API 返回 fos-rag-feed/v1 JSON。网页或其他接口格式可通过 EnGenie 创建自动采集任务。';
   document.getElementById('feedEditorTitle').textContent=feed?'编辑数据源':'新建自动更新知识库';
   document.getElementById('feedLibraryFields').hidden=!!feed;
-  if(feed){for(const key of ['name','mode','url','cron','timezone','write_mode'])form.elements[key].value=feed[key];if(form.elements.header_env)form.elements.header_env.value=JSON.stringify(feed.header_env,null,2);if(form.elements.allow_private)form.elements.allow_private.checked=feed.allow_private;}
-  else form.elements.kb.value=filter.value;
-  fields();editor.showModal();form.elements.name.focus();
+  if(feed){form.elements.kb_name.value=feed.kb_name;for(const key of ['mode','url','cron','timezone','write_mode'])form.elements[key].value=feed[key];if(form.elements.header_env)form.elements.header_env.value=JSON.stringify(feed.header_env,null,2);if(form.elements.allow_private)form.elements.allow_private.checked=feed.allow_private;}
+  else {form.elements.kb.value=filter.value;form.elements.kb_name.value=filter.selectedOptions[0]?.value?filter.selectedOptions[0].textContent:'';}
+  fields();editor.showModal();form.elements.kb_name.focus();
  }
- form.elements.kb.addEventListener('change',fields);form.elements.mode.addEventListener('change',fields);
+ form.elements.kb.addEventListener('change',()=>{const option=form.elements.kb.selectedOptions[0];if(option?.value)form.elements.kb_name.value=option.textContent;fields();});form.elements.mode.addEventListener('change',fields);
  filter.addEventListener('change',refresh);
  document.addEventListener('fos:languagechange',()=>{fingerprint='';render();});
  document.addEventListener('click',e=>{const close=e.target.closest('[data-close]');if(close){const dialog=document.getElementById(close.dataset.close);dialog.close();if(dialog.id==='feedToken')document.getElementById('feedTokenValue').value='';}});
@@ -82,6 +81,7 @@
    const data=Object.fromEntries(new FormData(form));delete data.csrfmiddlewaretoken;data.action=data.id?'update':'create';delete data.allow_private;
    data.authentication=auth.read();const result=await post(data);message.textContent=result.message;auth.load(result.feed.authentication);
    if(![...filter.options].some(option=>option.value===result.feed.kb)){const option=node('option',result.feed.kb_name);option.value=result.feed.kb;filter.append(option);form.elements.kb.append(option.cloneNode(true));}
+   for(const select of [filter,form.elements.kb])for(const option of select.options)if(option.value===result.feed.kb)option.textContent=result.feed.kb_name;
    if(data.action==='create')filter.value=result.feed.kb;
    editor.close();await refresh();
   }catch(exc){error.textContent=exc.message;}finally{save.disabled=false;}

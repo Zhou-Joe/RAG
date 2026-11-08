@@ -22,10 +22,9 @@
 <dialog class="fos-dialog feed-dialog" id="feedEditor"><form id="feedForm">
   {% csrf_token %}<h2 id="feedEditorTitle">新建自动更新知识库</h2><input type="hidden" name="id">
   <div id="feedLibraryFields"><div class="field"><label>放入资料集合</label><select name="kb"><option value="">创建新知识库</option>{% for kb in libraries %}<option value="{{ kb.slug }}">{{ kb.name }}</option>{% endfor %}</select></div>
-    <div class="field" id="feedNewLibrary"><label>新知识库名称</label><input name="kb_name" maxlength="100"></div>
     {% if is_global_admin %}<div class="field"><label>所属部门</label><select name="department">{% for department in departments %}<option>{{ department }}</option>{% endfor %}</select></div>{% endif %}
   </div>
-  <div class="field"><label>数据源名称</label><input name="name" required maxlength="100" placeholder="例如：设备每日运行报告"></div>
+  <div class="field"><label for="feedKbName">知识库名称</label><input id="feedKbName" name="kb_name" required maxlength="100" placeholder="例如：设备每日运行报告"><small>名称同时用于数据源和 M365 报告计划；修改后自动同步。</small></div>
   <div class="field"><label>接入方式</label><select name="mode"><option value="pull">定时拉取 API</option><option value="push">外部脚本推送</option></select></div>
   <div class="field"><label for="feedWriteMode">数据写入方式</label><select id="feedWriteMode" name="write_mode"><option value="append">追加新记录，保留全部历史（推荐）</option><option value="upsert">按相同 ID 覆盖当前记录</option></select><small>追加适合运营时间、价格、指标及同比分析，每次采集都保留快照；切换方式不会清除已有历史。</small></div>
   <div class="feed-pull-fields">
@@ -66,4 +65,4 @@
 <dialog class="fos-dialog feed-dialog" id="feedToken"><h2>脚本推送接入</h2><p>此令牌只显示一次；生成后旧令牌立即失效。</p><label>推送地址<input id="feedIngestUrl" readonly></label><label>Bearer 令牌<textarea id="feedTokenValue" readonly rows="2"></textarea></label><p>将令牌放入脚本运行环境，按接入包示例调用。暂停数据源或轮换令牌可停用旧接入。</p><button type="button" class="btn outline" data-close="feedToken">已保存，关闭</button></dialog>
 <link rel="stylesheet" href="{% static 'css/feeds.css' %}?v=3-report-controls">
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=1" defer></script><script src="{% static 'js/feeds.js' %}?v=8-report-controls" defer></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=1" defer></script><script src="{% static 'js/feeds.js' %}?v=9-unified-name" defer></script>{% endblock %}

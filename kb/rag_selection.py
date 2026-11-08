@@ -153,9 +153,13 @@ class RagSelection:
         if (not doc or not self.allowed(doc.kb) or doc.kb.slug!=snapshot['kb_slug']
                 or digest(doc.md_content)!=snapshot['document_digest']):
             raise ValueError('文档权限或内容已变化，请重新检索后选择。')
+        if cid in self.loaded and snapshot.get('kind')=='image':
+            from .publication import image_source_digest
+            if not snapshot.get('image_digest') or image_source_digest(doc,snapshot.get('image'))!=snapshot['image_digest']:
+                raise ValueError('图片文件已变化或不可读，请重新检索后选择。')
         return doc
 
-    def read(self, candidate_ids):
+    def read(self, candidate_ids, *, include_images=True):
         with self.lock:
             try:
                 ids = self._ids(candidate_ids)
@@ -170,6 +174,13 @@ class RagSelection:
                         result['already_loaded'].append(cid)
                         continue
                     snap = self.candidates[cid]['snapshot']
+                    if snap['kind']=='image':
+                        from .publication import image_source_digest
+                        image=self.candidates[cid]['row'].get('image','')
+                        checksum=image_source_digest(current_docs[cid],image)
+                        if not checksum:
+                            result['not_loaded'].append(cid);continue
+                        snap.update(image=image,image_digest=checksum,visual_confirmed=bool(self.candidates[cid]['row'].get('visual_confirmed')))
                     chunk = {'candidate_id':cid,'source':snap['source'],'kb_slug':snap['kb_slug'],
                              'page':snap['page'],'text':snap['text'],'type':snap['kind']}
                     trial = {**result,'chunks':result['chunks']+[chunk]}
@@ -193,7 +204,7 @@ class RagSelection:
                 parts = [{'type':'text','text':text}]
                 for cid in accepted:
                     row = self.candidates[cid]['row']
-                    if row.get('type')=='image' and self.image_reader and self.images_read<4:
+                    if include_images and row.get('type')=='image' and self.image_reader and self.images_read<4:
                         image = self.image_reader(row['doc_id'],row.get('image',''))
                         if image:
                             parts.append(image); self.images_read += 1
@@ -227,6 +238,7 @@ class RagSelection:
                                                'is_image':snap['kind']=='image'})
                     anchor = re.sub(r'<[^>]+>|^【[^】]*】\s*','',snap['text']).strip()[:40]
                     if anchor and anchor not in entry['highlights']:entry['highlights'].append(anchor)
+                    if snap['kind']=='image':entry.setdefault('image_snapshots',[]).append(dict(snap))
                     if row.get('image'):
                         url = (f"/kb/evidence/{snap['chunk_id']}/page.png" if str(row['image']).startswith('page') and snap['chunk_id']
                                else f"/kb/doc/{snap['doc_id']}/img/{row['image']}")

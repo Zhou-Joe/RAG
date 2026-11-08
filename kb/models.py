@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 
 # 「通用」部门 = 所有部门可见。部门为自由文本，其余部门名由用户自定。
 DEPARTMENT_GENERAL = "通用"
@@ -72,7 +72,11 @@ class KnowledgeBase(models.Model):
     def access_label(self):
         return '个人（仅本人）' if self.access_level=='individual' else self.department
 
+    @transaction.atomic
     def save(self,*args,**kwargs):
+        name_update=kwargs.get('update_fields') is None or 'name' in kwargs['update_fields']
+        previous_name=(type(self).objects.filter(pk=self.pk).values_list('name',flat=True).first()
+                       if name_update and not self._state.adding else self.name)
         old=None
         scope_update=kwargs.get('update_fields') is None or bool(set(kwargs['update_fields'])&{'visibility','department'})
         if self.is_folder and not self._state.adding and scope_update:
@@ -84,6 +88,9 @@ class KnowledgeBase(models.Model):
         super().save(*args,**kwargs)
         if old is not None and old!=(self.visibility,self.department):
             self.children.update(visibility=self.visibility,department=self.department)
+        if previous_name!=self.name:
+            from .feed_names import sync_related_names
+            sync_related_names(self)
 
     def aggregate_counts(self) -> tuple[int, int]:
         """文件夹：聚合所有子文档库的 doc_count/chunk_count。文档库：返回自身值。"""
@@ -812,6 +819,14 @@ class KnowledgeFeed(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def save(self,*args,**kwargs):
+        from .feed_names import current_name,named_spec
+        fields=kwargs.get('update_fields')
+        if fields is None or set(fields)&{'name','adapter_spec','kb','kb_id'}:
+            self.name=current_name(self);self.adapter_spec=named_spec(self.adapter_spec,self.name)
+            if fields is not None:kwargs['update_fields']=set(fields)|{'name','adapter_spec'}
+        super().save(*args,**kwargs)
+
 
 class FeedRecord(models.Model):
     """上游稳定 ID 的最近状态；追踪表可按采集批次保留多个历史快照。"""
@@ -915,6 +930,14 @@ class FeedReportPlan(models.Model):
     next_run_at = models.DateTimeField(null=True, blank=True, db_index=True)
     enabled = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self,*args,**kwargs):
+        fields=kwargs.get('update_fields')
+        if fields is None or 'spec' in fields:
+            if isinstance(self.spec,dict) and self.spec.get('kind')=='report':
+                from .feed_names import current_name,named_spec
+                self.spec=named_spec(self.spec,current_name(self.feed))
+        super().save(*args,**kwargs)
 
 
 class FeedReportDelivery(models.Model):

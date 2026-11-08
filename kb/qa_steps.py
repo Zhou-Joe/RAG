@@ -121,6 +121,8 @@ def _format_evidence(evidence: list[dict]) -> str:
     lines = []
     for i, ev in enumerate(evidence[:_VERIFY_MAX_ITEMS], 1):
         text = (ev.get("text") or "").strip()
+        if ev.get('kind')=='image':
+            text=('图片图注（'+('视觉匹配已确认' if ev.get('visual_confirmed') else '仅召回候选，未经视觉确认')+'）：'+text)
         loc = f" {ev['page']}" if ev.get("page") else ""
         lines.append(f"[{i}] {ev.get('source', '未知')}{loc}\n{text}")
     return "\n\n".join(lines)
@@ -177,7 +179,16 @@ async def verify_answer(llm_cfg: dict, question: str, answer: str,
             f"【待核实回答】\n{answer}"
         )
         # 实测本部署约 77 tokens/秒；8000 输出的核实本身可能要上百秒，45 秒会先杀掉它。
-        result = await asyncio.wait_for(llm.ainvoke([{"role": "user", "content": prompt}],
+        content=prompt
+        if llm_cfg.get('vision') and any(ev.get('kind')=='image' for ev in evidence):
+            from .agent import _image_content_block
+            from asgiref.sync import sync_to_async
+            content=[{'type':'text','text':prompt}]
+            for ev in [item for item in evidence if item.get('kind')=='image'][:4]:
+                block=await sync_to_async(_image_content_block)(ev['doc_id'],ev['image'])
+                if block is None:return None,usage
+                content.append({'type':'image_url','image_url':{'url':f"data:{block['mime_type']};base64,{block['base64']}"}})
+        result = await asyncio.wait_for(llm.ainvoke([{"role": "user", "content": content}],
                                    max_tokens=_VERIFY_MAX_TOKENS), timeout=_VERIFY_TIMEOUT)
         if (getattr(result, "response_metadata", None) or {}).get("finish_reason") == "length":
             return None, _usage(result)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 
 def digest(text):
@@ -47,6 +48,36 @@ def bind_evidence(results, kb_slug):
     return bound
 
 
+def image_source_digest(document,name):
+    """Fingerprint the actual image, or the source PDF for a rendered page."""
+    import re
+    from django.core.exceptions import SuspiciousFileOperation
+    from .pipeline import doc_image_dir,_DOC_IMG_NAME_RE
+    if not isinstance(name,str):return None
+    try:
+        if re.fullmatch(r'page[1-9][0-9]*',name):
+            if not document.file:return None
+            path=Path(document.file.path)
+        elif _DOC_IMG_NAME_RE.fullmatch(name):path=doc_image_dir(document.pk)/name
+        else:return None
+        checksum=hashlib.sha256()
+        with path.open('rb') as source:
+            for block in iter(lambda:source.read(1024*1024),b''):checksum.update(block)
+        return checksum.hexdigest()
+    except (OSError,ValueError,SuspiciousFileOperation,NotImplementedError):return None
+
+
+def image_snapshot_current(snapshot,user):
+    from .models import Document
+    from .access import kb_accessible
+    from django.core.exceptions import ValidationError
+    try:doc=Document.objects.select_related('kb__parent').filter(pk=snapshot.get('doc_id'),status='completed').first()
+    except (ValueError,TypeError,ValidationError):return False
+    return bool(doc and kb_accessible(user,doc.kb) and doc.kb.slug==snapshot.get('kb_slug')
+        and digest(doc.md_content)==snapshot.get('document_digest') and snapshot.get('image_digest')
+        and image_source_digest(doc,snapshot.get('image'))==snapshot['image_digest'])
+
+
 def validate_sources(evidence, user_id):
     """Re-read current permissions, original text and chunk identity before release."""
     from django.contrib.auth import get_user_model
@@ -57,6 +88,9 @@ def validate_sources(evidence, user_id):
     if user is None or not evidence:
         return False
     for ev in evidence:
+        if ev.get('kind')=='image':
+            if not image_snapshot_current(ev,user):return False
+            continue
         if ev.get('kind') == 'tracker':
             from .tracker_query import validate_snapshot
             if not validate_snapshot(ev, user):
@@ -109,8 +143,12 @@ def visible_citations(citations, user):
             return False
         if citation.get('document_digest') and digest(doc.md_content) != citation['document_digest']:
             return False
+        image_snapshots=citation.get('image_snapshots',[])
+        if not isinstance(image_snapshots,list) or any(not isinstance(ev,dict) or ev.get('doc_id')!=str(doc.pk)
+                or not image_snapshot_current(ev,user) for ev in image_snapshots):return False
         if citation.get('chunks') or citation.get('selected_chunk_ids'):
             live_ids = {row['chunk_id'] for row in get_chunks(doc.kb.slug, doc.original_name)}
+            live_ids.update(ev['chunk_id'] for ev in image_snapshots if ev.get('chunk_id'))
             if (any(chunk.get('chunk_id') not in live_ids for chunk in citation.get('chunks',[]))
                     or any(cid not in live_ids for cid in citation.get('selected_chunk_ids',[]))):
                 return False

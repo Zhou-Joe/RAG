@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 # 送入 LLM 的正文上限：定检/财务类报告的关键信息集中在头部与表格，
 # 12k 字符足够覆盖；超出部分截断（也可在字段提示里要求只看某章节）。
 _MAX_CONTENT_CHARS = 24000
+_MAX_CELL_CHARS = 2000
 
 
 def _md_head_tail(md: str, limit: int = _MAX_CONTENT_CHARS) -> str:
@@ -56,7 +57,7 @@ def build_extraction_prompt(kb_name: str, fields: list[dict], md_content: str,
 {field_lines}
 
 规则：
-1. 每个字段的值必须是文档中事实信息的简明摘录，长度不超过 80 字。
+1. 每个字段的值必须是文档中事实信息的简明摘录，长度不超过 {_MAX_CELL_CHARS} 字符；要求完整 JSON 或元素数据时，逐项保留原文中的数据，可返回嵌套 JSON 对象或数组。
 2. 文档中没有提到的字段，值填空字符串 ""；严禁编造或推测。
 3. 日期统一写成 YYYY-MM-DD；金额写数字（可带单位说明）。
 """
@@ -168,7 +169,13 @@ def run_extraction(doc_id, tracker_id=None) -> bool:
         values = {}
         for f in tracker.fields:
             v = data.get(f["label"])
-            values[f["label"]] = str(v).strip()[:80] if v is not None else ""
+            if isinstance(v,(dict,list)):
+                text=json.dumps(v,ensure_ascii=False,separators=(',',':'),allow_nan=False)
+                if len(text)>_MAX_CELL_CHARS:
+                    raise ValueError(f"字段「{f['label']}」的 JSON 超过 {_MAX_CELL_CHARS} 字符，请拆分字段后重试；未保存截断的 JSON。")
+                values[f["label"]]=text
+            else:
+                values[f["label"]]=str(v).strip()[:_MAX_CELL_CHARS] if v is not None else ""
 
         # 终态写入均为 compare-and-set：仅当行仍处于 running（本次认领未被
         # 抢走）才落库，防止并发写入方互相覆盖（输家静默放弃）。
