@@ -401,3 +401,33 @@ class KbCreateDialogTests(TestCase):
                               {"action": "create_kb", "name": "  "},
                               HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertFalse(r3.json()["ok"])
+
+
+class KbCardActionTests(TestCase):
+    """资料上传首页每张卡片只留「知识库主页 + 删除」，其余入口收进知识库主页。"""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="card-actions", password="pw", is_staff=True)
+        self.manual = KnowledgeBase.objects.create(
+            name="卡片手册库", slug="card-manual", is_folder=True, created_by=self.user)
+        self.business = KnowledgeBase.objects.create(
+            name="卡片业务库", slug="card-business", is_folder=True,
+            category="business", created_by=self.user)
+        self.client.force_login(self.user)
+        self.html = self.client.get(reverse("kb:manage_list")).content.decode()
+
+    def test_manual_card_keeps_home_and_delete_only(self):
+        self.assertIn('href="' + reverse("kb:manage_detail", args=["card-manual"]) + '">知识库主页</a>', self.html)
+        self.assertIn('data-confirm-title="删除知识库"', self.html)
+        self.assertNotIn('/kb/ask/?kb=card-manual', self.html)          # 检索入口
+        self.assertNotIn('data-rn-toggle', self.html)                    # 改名入口
+        self.assertNotIn('id="kbRenameDialog"', self.html)               # 随之失效的弹窗
+
+    def test_business_card_keeps_home_and_delete_only(self):
+        self.assertIn('data-business-slug="card-business"', self.html)
+        self.assertIn('href="' + reverse("kb:manage_detail", args=["card-business"]) + '">知识库主页</a>', self.html)
+        self.assertIn('data-confirm-title="删除采集库"', self.html)
+        self.assertNotIn(reverse("kb:tracker", args=["card-business"]), self.html)   # 查看追踪表
+        self.assertNotIn("查看追踪表", self.html)
+        self.assertNotIn("管理自动更新", self.html)

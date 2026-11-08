@@ -52,9 +52,6 @@
       {% endwith %}
       <div class="kb-actions" data-actions>
         <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>
-        <a class="btn sm outline" href="/kb/ask/?kb={{ kb.slug }}">检索</a>
-        <button class="btn sm outline" type="button" data-rn-toggle
-                data-slug="{{ kb.slug }}" data-name="{{ kb.name }}" data-dept="{{ kb.department }}" data-access="{{ kb.access_level }}" data-individual="{% if kb.created_by_id == user.pk %}true{% else %}false{% endif %}">改名</button>
         <form method="post" action="/kb/manage/{{ kb.slug }}/delete/" style="display:inline"
               data-confirm-title="删除知识库"
               data-confirm="确定删除「{{ kb.name }}」？{{ kb.aggregate_counts.0 }} 份文档及所有向量数据将丢失。">
@@ -68,20 +65,6 @@
   <div class="empty">还没有手册库</div>
   {% endfor %}
 </div>
-
-<dialog id="kbRenameDialog" class="fos-dialog">
-  <form id="kbRenameForm">
-    {% csrf_token %}
-    <div class="dialog-title">编辑知识库</div>
-    <div class="field"><label>名称</label><input name="name" required></div>
-    {% include "kb/_access_fields.html" %}
-    <div class="dialog-err" id="kbRenameErr" hidden></div>
-    <div class="dialog-actions">
-      <button type="button" class="btn outline" id="kbRenameCancel">取消</button>
-      <button type="submit" class="btn primary" id="kbRenameSave">保存</button>
-    </div>
-  </form>
-</dialog>
 
 <div class="section-bar dataset-bar" data-kb-category>
   <div><h2>业务数据</h2><p>自动采集的数据与导入的 xlsx / csv 在这里管理。</p></div>
@@ -97,8 +80,6 @@
       <small>{{ kb.business_row_count }} 条记录</small>
       <div class="kb-actions">
         <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>
-        <a class="btn sm outline" href="{% url 'kb:tracker' kb.slug %}">查看追踪表</a>
-        <a class="btn sm outline" href="{% url 'kb:feeds' %}?kb={{ kb.slug }}">管理自动更新</a>
         <form method="post" action="{% url 'kb:manage_delete' kb.slug %}" style="display:inline"
               data-confirm-title="删除采集库"
               data-confirm="确定删除「{{ kb.name }}」？{{ kb.business_row_count }} 条记录、追踪表及关联的自动更新任务将一并删除，不可恢复。">
@@ -175,73 +156,6 @@ function getCSRFToken(){
       err.textContent = '请求失败：' + ex; err.hidden = false;
     } finally {
       submit.disabled = false; submit.textContent = '创建';
-    }
-  });
-})();
-</script>
-<script>
-/* 库名称/部门编辑弹窗（AJAX，全站统一 fos-dialog 样式） */
-function getCSRFToken(){
-  const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
-  return m ? decodeURIComponent(m[1]) : '';
-}
-(function(){
-  const dlg = document.getElementById('kbRenameDialog');
-  if (!dlg) return;
-  const form = document.getElementById('kbRenameForm');
-  const err = document.getElementById('kbRenameErr');
-  const save = document.getElementById('kbRenameSave');
-  let currentSlug = '', currentCard = null;
-
-  // 打开：预填当前卡片的名称/部门（事件委托，AJAX 刷新后仍有效）
-  document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-rn-toggle]');
-    if (!t) return;
-    currentSlug = t.dataset.slug;
-    currentCard = t.closest('.kb-card');
-    form.name.value = t.dataset.name || '';
-    const dept = form.querySelector('[name=department]');
-    if (dept && t.dataset.dept) dept.value = t.dataset.dept;
-    const scope=form.querySelector('[name=access_level]');if(scope){scope.value=t.dataset.access||'department';scope.querySelector('[value=individual]').disabled=t.dataset.individual!=='true';}
-    window.KBAccessFields?.sync(form);
-    err.hidden = true;
-    dlg.showModal();
-    form.name.focus();
-  });
-  document.getElementById('kbRenameCancel').addEventListener('click', () => dlg.close());
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    err.hidden = true;
-    save.disabled = true; save.textContent = '保存中…';
-    try {
-      const fd = new FormData(form);
-      const resp = await fetch('/kb/manage/' + encodeURIComponent(currentSlug) + '/rename/', {
-        method: 'POST',
-        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCSRFToken() },
-        body: fd,
-      });
-      const data = await resp.json();
-      if (!resp.ok||!data.ok) throw new Error(data.message || '保存失败');
-      // 回写卡片：只替换文本节点，保留部门徽章元素；改密按钮的 data 也同步
-      if (currentCard) {
-        const nameEl = currentCard.querySelector('[data-name]');
-        if (nameEl) nameEl.childNodes[0].nodeValue = data.name + ' ';
-        const badge = currentCard.querySelector('[data-dept-badge]');
-        if (badge && data.department) {
-          badge.textContent = data.access_label||data.department;
-          badge.title = data.access_label||data.department;
-        }
-        const t = currentCard.querySelector('[data-rn-toggle]');
-        if (t) { t.dataset.name = data.name; t.dataset.dept = data.department || '';t.dataset.access=data.access_level||'department'; }
-      }
-      dlg.close();
-      if (window.fosToast) fosToast('已保存', 'ok');
-      document.dispatchEvent(new CustomEvent('kb-libraries-changed'));
-    } catch (e2) {
-      err.textContent = e2.message || '保存失败'; err.hidden = false;
-    } finally {
-      save.disabled = false; save.textContent = '保存';
     }
   });
 })();
