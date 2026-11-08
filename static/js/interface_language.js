@@ -44,7 +44,26 @@
     return (original.match(/^\s*/)||[''])[0]+result+(original.match(/\s*$/)||[''])[0];
   }
   const api={t:translate,get language(){return language;},get locale(){return language==='en'?'en-US':'zh-CN';}};
-  if(typeof module!=='undefined'&&module.exports)module.exports={translate,compile,api};
+  /* 圆形展开过渡：与亮暗主题切换同一套动画（规则见 css/interface_language.css 的 fx-theme-vt）。
+     浏览器不支持 View Transitions 或用户设了「减少动效」时直接切换，不阻塞语言变更。 */
+  function reveal(button, apply, env){
+    const win=(env&&env.window)||global, doc=(env&&env.document)||(win&&win.document);
+    const reduced=typeof win.matchMedia==='function'&&win.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(!doc||typeof doc.startViewTransition!=='function'||reduced){apply();return null;}
+    const box=button.getBoundingClientRect(), x=box.left+box.width/2, y=box.top+box.height/2,
+      radius=Math.hypot(Math.max(x,(win.innerWidth||0)-x), Math.max(y,(win.innerHeight||0)-y));
+    doc.documentElement.classList.add('fx-theme-vt');
+    const cleanup=()=>doc.documentElement.classList.remove('fx-theme-vt');
+    let transition;
+    try{transition=doc.startViewTransition(apply);}
+    catch(e){cleanup();apply();return null;}
+    Promise.resolve(transition.ready).then(()=>doc.documentElement.animate(
+      {clipPath:[`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`]},
+      {duration:620, easing:'cubic-bezier(.4,0,.2,1)', pseudoElement:'::view-transition-new(root)'})).catch(()=>{});
+    Promise.resolve(transition.finished).finally(cleanup);
+    return transition;
+  }
+  if(typeof module!=='undefined'&&module.exports)module.exports={translate,compile,api,reveal};
   global.FOSI18n=api;if(!global.document)return;
   const document=global.document;
   const protectedSelector='script,style,noscript,code,pre,[translate="no"],[data-i18n-ignore],.notranslate,[contenteditable="true"],.answer:not([data-i18n-ui]),.msg.user .bubble,.rag-chat-message-content,.cx-user-text,.cx-answer:not([data-i18n-ui]),.cx-sample,.graph-live-excerpt,.vt-ai-text,.ev-quote,.slice-snip,.slice-content,.doc-body,.doc-viewer,.markdown-body,.kb-mono,.conv-title,.conv-meta,.dash-kb-name,.da-title,.da-meta,.slice-doc,.doc-name-text,.eval-q-text,.eval-text,.eval-kb';
@@ -113,7 +132,10 @@
     if(!scheduled){scheduled=true;queueMicrotask(()=>{scheduled=false;const nodes=Array.from(pending);pending.clear();nodes.forEach(node=>{if(node.isConnected)render(node);});});}
   });
   observer.observe(document.documentElement,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:attributes});
-  document.addEventListener('click',event=>{if(event.target.closest('[data-language-toggle]'))setLanguage(language==='en'?'zh-hans':'en');});
+  document.addEventListener('click',event=>{
+    const button=event.target.closest('[data-language-toggle]');if(!button)return;
+    reveal(button,()=>setLanguage(language==='en'?'zh-hans':'en'));
+  });
   global.addEventListener('storage',event=>{if(event.key==='fos-language')setLanguage(event.newValue,false);});
   for(const name of ['alert','confirm','prompt']){
     const native=global[name];if(typeof native==='function')global[name]=function(message,...rest){return native.call(global,translate(message),...rest);};

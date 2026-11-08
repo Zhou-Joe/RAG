@@ -1,4 +1,9 @@
 html[data-interface-loading] body{visibility:hidden}
+/* 亮暗主题与中英文切换共用的「从按钮处圆形展开」过渡：
+   关掉默认的交叉淡化，并让侧栏/助手气泡不参与本次快照（两处 JS 都加 .fx-theme-vt）。
+   本文件在所有带语言按钮的页面都会加载（知识库 / 登录 / 后台）。 */
+html.fx-theme-vt::view-transition-old(root),html.fx-theme-vt::view-transition-new(root){animation:none;mix-blend-mode:normal}
+html.fx-theme-vt .fos-sidebar,html.fx-theme-vt .rag-chat-launcher{view-transition-name:none}
 .language-btn{display:inline-flex;align-items:center;justify-content:center;gap:3px;min-width:58px;min-height:34px;padding:5px 7px;border:1px solid var(--rule,rgba(148,163,184,.3));border-radius:9px;background:transparent;color:var(--mute,#94a3b8);font:600 11px/1.2 var(--fm,system-ui);cursor:pointer;white-space:nowrap;flex-shrink:0;transition:background .15s,color .15s,border-color .15s}
 .language-btn:hover{background:var(--brand-soft,rgba(59,130,246,.15));color:var(--text,#e2e8f0)}
 .language-btn:focus-visible{outline:2px solid var(--brand,#3b82f6);outline-offset:3px}

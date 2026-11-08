@@ -214,9 +214,7 @@ html[data-theme="dark"] .page-head[data-tone] .page-eyebrow{color:var(--t1)}
 @keyframes fxBob{50%{transform:translateY(-2px) rotate(-4deg)}}
 @keyframes fxBlink{0%,93%,100%{transform:none}96%{transform:scaleY(.1)}}
 
-/* ── 主题切换：从按钮处圆形展开 ── */
-html.fx-theme-vt::view-transition-old(root),html.fx-theme-vt::view-transition-new(root){animation:none;mix-blend-mode:normal}
-html.fx-theme-vt .fos-sidebar,html.fx-theme-vt .rag-chat-launcher{view-transition-name:none}
+/* ── 主题 / 语言切换：从按钮处圆形展开（共用规则已移到 css/interface_language.css）── */
 
 /* ── 跨页过渡：侧栏与助手入口保持不动，内容区淡入 ── */
 @view-transition{navigation:auto}

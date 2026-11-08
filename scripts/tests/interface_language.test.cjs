@@ -154,3 +154,71 @@ test('the exported API works without a browser DOM', () => {
   assert.equal(api.t('保存', 'en'), 'Save');
   assert.equal(scope.FOSI18n, api);
 });
+
+/* ── 语言切换的圆形展开动画（与亮暗主题切换同一套） ── */
+function revealEnv({supported = true, reduced = false, throws = false} = {}) {
+  const classes = new Set(), runs = [], animated = [];
+  const root = {
+    classList: {add: name => classes.add(name), remove: name => classes.delete(name)},
+    animate(keyframes, options) { animated.push({keyframes, options}); return {finished: Promise.resolve()}; },
+  };
+  const doc = {
+    documentElement: root,
+    startViewTransition: supported
+      ? callback => { if (throws) throw new Error('transition rejected'); runs.push(callback); return {ready: Promise.resolve(), finished: Promise.resolve()}; }
+      : undefined,
+  };
+  const win = {innerWidth: 1000, innerHeight: 600, matchMedia: query => ({matches: reduced && query.includes('reduced-motion')}), document: doc};
+  const button = {getBoundingClientRect: () => ({left: 900, top: 20, width: 40, height: 30})};
+  return {root, classes, runs, animated, button, env: {window: win, document: doc}};
+}
+
+test('language switch sweeps the translated interface out from the button, like the theme toggle', async () => {
+  const {reveal} = load(catalog);
+  const env = revealEnv();
+  let applied = 0;
+  const transition = reveal(env.button, () => { applied += 1; }, env.env);
+  assert.ok(transition, 'returns the started view transition');
+  assert.equal(applied, 0, 'the language change is deferred into the transition callback');
+  assert.deepEqual(env.runs.length, 1, 'exactly one view transition started');
+  env.runs.forEach(run => run());
+  assert.equal(applied, 1);
+  assert.ok(env.classes.has('fx-theme-vt'), 'shared transition class is applied while running');
+  await new Promise(resolve => setImmediate(resolve));
+  const radius = Math.hypot(Math.max(920, 1000 - 920), Math.max(35, 600 - 35));
+  assert.equal(env.animated.length, 1, 'one clip-path animation');
+  // 模块跑在 vm 里，返回的数组来自另一个 realm：展开成本地数组再比，否则深比较只看原型就不等
+  assert.deepEqual([...env.animated[0].keyframes.clipPath], [`circle(0px at 920px 35px)`, `circle(${radius}px at 920px 35px)`]);
+  assert.equal(env.animated[0].options.pseudoElement, '::view-transition-new(root)');
+  assert.equal(env.animated[0].options.duration, 620);
+  assert.equal(env.animated[0].options.easing, 'cubic-bezier(.4,0,.2,1)');
+  assert.equal(env.classes.size, 0, 'class removed once finished');
+});
+
+test('language switch is instant without View Transitions support', () => {
+  const {reveal} = load(catalog);
+  const env = revealEnv({supported: false});
+  let applied = 0;
+  assert.equal(reveal(env.button, () => { applied += 1; }, env.env), null);
+  assert.equal(applied, 1);
+  assert.equal(env.classes.size, 0);
+});
+
+test('language switch honours prefers-reduced-motion', () => {
+  const {reveal} = load(catalog);
+  const env = revealEnv({reduced: true});
+  let applied = 0;
+  assert.equal(reveal(env.button, () => { applied += 1; }, env.env), null);
+  assert.equal(applied, 1);
+  assert.equal(env.runs.length, 0);
+  assert.equal(env.classes.size, 0);
+});
+
+test('a view transition that throws still switches the language exactly once', () => {
+  const {reveal} = load(catalog);
+  const env = revealEnv({throws: true});
+  let applied = 0;
+  assert.equal(reveal(env.button, () => { applied += 1; }, env.env), null);
+  assert.equal(applied, 1);
+  assert.equal(env.classes.size, 0, 'no leftover transition class');
+});
