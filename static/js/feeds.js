@@ -35,6 +35,7 @@
    if(feed.can_edit){actions.append(button('编辑配置','edit',feed.id),button(feed.enabled?'暂停后续更新':'启用更新',feed.enabled?'pause':'resume',feed.id));}
    else actions.append(node('span','仅创建者可编辑','feed-meta'));
    const tracker=node('a','查看追踪表','btn sm outline');tracker.href='/kb/manage/'+encodeURIComponent(feed.kb)+'/tracker/';actions.append(tracker);card.append(actions);
+   const report=window.FeedReportControls?.render(feed);if(report)card.append(report);
    const latest=feed.runs[0];if(latest?.error)card.append(node('p',latest.error,'feed-error'));
    const details=node('details');details.open=opened.has(feed.id);details.append(node('summary','运行记录（最近10次）'));
    const wrap=node('div',undefined,'feed-runs'),table=node('table'),head=node('tr');
@@ -73,6 +74,7 @@
  }
  form.elements.kb.addEventListener('change',fields);form.elements.mode.addEventListener('change',fields);
  filter.addEventListener('change',refresh);
+ document.addEventListener('fos:languagechange',()=>{fingerprint='';render();});
  document.addEventListener('click',e=>{const close=e.target.closest('[data-close]');if(close){const dialog=document.getElementById(close.dataset.close);dialog.close();if(dialog.id==='feedToken')document.getElementById('feedTokenValue').value='';}});
  form.addEventListener('submit',async event=>{
   event.preventDefault();const save=document.getElementById('feedSave');save.disabled=true;error.textContent='';
@@ -98,5 +100,6 @@
  document.getElementById('feedToken').addEventListener('close',()=>{document.getElementById('feedTokenValue').value='';});
  document.addEventListener('visibilitychange',()=>{clearTimeout(timer);if(!document.hidden)refresh();});
  window.addEventListener('pagehide',()=>{disposed=true;clearTimeout(timer);controller?.abort();});
+ window.FeedReportControls?.init({list,message,getFeed:id=>feeds.find(feed=>feed.id===id),refresh,csrf:()=>form.querySelector('[name=csrfmiddlewaretoken]').value});
  refresh();
 })();

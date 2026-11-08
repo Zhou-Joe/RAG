@@ -42,10 +42,11 @@ def _run_json(run):
 
 
 def _feed_json(feed,user):
-    from .feed_reports import summary as report_summary
+    from .report_controls import state as report_state
+    report=report_state(feed,user)
     runs=[_run_json(run) for run in feed.runs.order_by('-started_at')[:10]]
     return {'id':str(feed.pk),'name':feed.name,'kb':feed.kb.slug,'kb_name':feed.kb.name,'mode':feed.mode,'write_mode':feed.write_mode,
-            'can_edit':access.can_edit_feed(user,feed),'workflow_settings':{'saved_workflow_types':report_summary(feed)['saved_workflow_types']},'url':feed.url,'header_env':feed.header_env,'allow_private':feed.allow_private,
+            'can_edit':access.can_edit_feed(user,feed),'workflow_settings':{'saved_workflow_types':report['saved_workflow_types']},'report':report,'url':feed.url,'header_env':feed.header_env,'allow_private':feed.allow_private,
             'cron':feed.cron,'timezone':feed.timezone,'enabled':feed.enabled,'token_configured':bool(feed.token_digest),
             'next_run_at':feed.next_run_at.isoformat() if feed.next_run_at else None,
             'items':feed.tracker_rows.filter(status='done').count(),

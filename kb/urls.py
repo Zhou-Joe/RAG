@@ -9,6 +9,7 @@ from . import report_views
 app_name = "kb"
 
 urlpatterns = [
+    path('feeds/<uuid:feed_id>/report/schedule/',report_views.schedule_control,name='report_schedule_control'),
     path('feeds/<uuid:feed_id>/report/settings/',report_views.configuration,name='report_configuration'),
     path('feeds/<uuid:feed_id>/report/configure/',report_views.configure,name='report_configure'),
     path('feeds/reports/<uuid:job_id>/test/',report_views.test_send,name='report_test'),

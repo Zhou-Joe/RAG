@@ -22,6 +22,15 @@ def configure(request,feed_id):
     except (ValueError,TypeError,AttributeError) as exc:return JsonResponse({'ok':False,'error':str(exc)},status=400)
 
 @login_required
+@require_POST
+def schedule_control(request,feed_id):
+    from . import report_controls
+    feed=get_object_or_404(KnowledgeFeed.objects.select_related('kb'),pk=feed_id)
+    if not access.can_edit_feed(request.user,feed):return JsonResponse({'ok':False,'error':'仅此自动任务的创建者可编辑配置。'},status=403)
+    try:return JsonResponse(report_controls.change(request.user,feed,json.loads(request.body)))
+    except (ValueError,TypeError,AttributeError) as exc:return JsonResponse({'ok':False,'error':str(exc)},status=400)
+
+@login_required
 @require_GET
 def configuration(request,feed_id):
     try:

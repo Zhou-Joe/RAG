@@ -556,3 +556,8 @@ overwrite mode can only analyze observations still stored in the tracker, and a 
 
 Run history reports created/updated/deleted/unchanged counts and failure reasons. `stale` is a subset of unchanged items
 whose upstream timestamps were older. Pausing blocks future scheduled/push updates; an already accepted run can finish.
+
+
+### Manual M365 report controls
+
+Each configured report appears on its feed card in `kb/feeds`, with creator-only controls to pause/resume delivery and edit its frequency. Presets cover daily, weekly and evenly spaced hourly delivery; custom five-field cron, time zone, and on-demand-only mode are also supported. Saving a frequency preserves the paused/enabled state; resume computes the next future occurrence and never sends immediately. Pausing cancels future scheduling and any claimed delivery still preparing; a request already submitted to M365 may complete. Collection configuration, collection enablement, report content and encrypted workflow URLs are not changed. Legacy after-collection reports remain supported.

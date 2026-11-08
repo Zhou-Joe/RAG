@@ -37,7 +37,7 @@
   </div>
   <section class="feed-auth feed-workflows" aria-labelledby="feedWorkflowsTitle">
     <h3 id="feedWorkflowsTitle">M365 报告发送</h3>
-    <p class="fos-sub">仅任务创建者可编辑。链接加密保存，EnGenie 自动使用；报告内容和发送时间继续在对话中设置。</p>
+    <p class="fos-sub">仅任务创建者可编辑。链接加密保存，EnGenie 自动使用；报告内容在对话中设置，发送频率也可在任务卡片中调整。</p>
     <div class="field"><label for="feedEmailWorkflow">邮件工作流 URL</label><input id="feedEmailWorkflow" name="email_workflow_url" type="password" maxlength="8000" autocomplete="new-password" spellcheck="false" placeholder="粘贴邮件工作流的 HTTPS 触发地址"><small id="feedEmailWorkflowStatus"></small></div>
     <div class="field"><label for="feedTeamsWorkflow">Teams 工作流 URL</label><input id="feedTeamsWorkflow" name="teams_workflow_url" type="password" maxlength="8000" autocomplete="new-password" spellcheck="false" placeholder="粘贴 Teams 工作流的 HTTPS 触发地址"><small id="feedTeamsWorkflowStatus"></small></div>
     <small>留空保留已保存的链接；两种链接分别保存，不能混用。保存链接不会改变采集或报告的计划及启用状态。</small>
@@ -47,7 +47,23 @@
   <p id="feedFormError" class="dialog-err" role="alert"></p>
   <div class="dialog-actions"><button type="button" class="btn outline" data-close="feedEditor">取消</button><button type="submit" class="btn primary" id="feedSave">保存</button></div>
 </form></dialog>
+<dialog class="fos-dialog feed-dialog" id="feedReportEditor"><form id="feedReportForm">
+  <h2>调整报告发送频率</h2>
+  <p id="feedReportTitle" class="fos-sub" translate="no"></p>
+  <div class="field"><label for="feedReportFrequency">报告频率</label><select id="feedReportFrequency" name="frequency">
+    <option value="daily">每天</option><option value="weekly">每周</option><option value="hourly">每隔数小时</option><option value="custom">自定义 Cron</option><option value="manual">仅按需发送</option><option value="after_collection" hidden>采集后发送（原有设置）</option>
+  </select></div>
+  <div class="field" data-report-frequency="daily weekly"><label for="feedReportTime">发送时间</label><input id="feedReportTime" name="time" type="time" value="09:00" step="60" required></div>
+  <div class="field" data-report-frequency="weekly" hidden><label for="feedReportWeekday">星期</label><select id="feedReportWeekday" name="weekday"><option value="1">星期一</option><option value="2">星期二</option><option value="3">星期三</option><option value="4">星期四</option><option value="5">星期五</option><option value="6">星期六</option><option value="0">星期日</option></select></div>
+  <div class="field" data-report-frequency="hourly" hidden><label for="feedReportInterval">间隔小时数</label><select id="feedReportInterval" name="interval"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option><option>12</option></select><small>从每天零点起，按所选小时数间隔发送。</small></div>
+  <div class="field" data-report-frequency="hourly" hidden><label for="feedReportMinute">发送分钟</label><input id="feedReportMinute" name="minute" type="number" min="0" max="59" step="1" value="0" required></div>
+  <div class="field" data-report-frequency="custom" hidden><label for="feedReportCron">Cron（分 时 日 月 星期）</label><input id="feedReportCron" name="cron" maxlength="100" placeholder="0 9 * * *" required></div>
+  <div class="field"><label for="feedReportTimezone">时区</label><input id="feedReportTimezone" name="timezone" value="Asia/Shanghai" maxlength="100" required></div>
+  <p class="dialog-hint">仅调整 M365 报告发送，不改变数据采集。已暂停的报告保存后仍保持暂停。</p>
+  <p id="feedReportError" class="dialog-err" role="alert"></p>
+  <div class="dialog-actions"><button type="button" class="btn outline" data-close="feedReportEditor">取消</button><button type="submit" class="btn primary" id="feedReportSave">保存报告频率</button></div>
+</form></dialog>
 <dialog class="fos-dialog feed-dialog" id="feedToken"><h2>脚本推送接入</h2><p>此令牌只显示一次；生成后旧令牌立即失效。</p><label>推送地址<input id="feedIngestUrl" readonly></label><label>Bearer 令牌<textarea id="feedTokenValue" readonly rows="2"></textarea></label><p>将令牌放入脚本运行环境，按接入包示例调用。暂停数据源或轮换令牌可停用旧接入。</p><button type="button" class="btn outline" data-close="feedToken">已保存，关闭</button></dialog>
-<link rel="stylesheet" href="{% static 'css/feeds.css' %}?v=2-workflow-settings">
+<link rel="stylesheet" href="{% static 'css/feeds.css' %}?v=3-report-controls">
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/feeds.js' %}?v=7-preserve-filter" defer></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=1" defer></script><script src="{% static 'js/feeds.js' %}?v=8-report-controls" defer></script>{% endblock %}
