@@ -137,7 +137,7 @@ class RagSelectionTests(RagFixture, TestCase):
     def test_agent_search_and_filtered_fetch_are_both_candidate_only(self):
         tools=self.tools()
         with patch('kb.retriever.search_folder',return_value=self.rows),patch('kb.provenance.annotate_results'):
-            result=json.loads(tools['kb_search']('问题'))
+            result=json.loads(tools['kb_search']('问题',kb_slug=self.folder.slug))
         self.assertEqual(result['kind'],'rag_candidates')
         self.assertEqual(self.citations,[])
         with patch('kb.retriever.fetch_doc',return_value=[self.rows[1]]),patch('kb.provenance.annotate_results'):
@@ -249,7 +249,7 @@ class RagAgentExecutionTests(RagFixture, TransactionTestCase):
 
     def test_real_agent_reads_only_the_chosen_document_then_confirms_final_citations(self):
         model=PlannedRagModel(responses=[
-            AIMessage(content='',tool_calls=[{'id':'s','name':'kb_search','args':{'query':'参数'}}]),
+            AIMessage(content='',tool_calls=[{'id':'s','name':'kb_search','args':{'query':'参数','kb_slug':self.folder.slug}}]),
             AIMessage(content='',tool_calls=[{'id':'r','name':'kb_read_chunks','args':{'candidate_ids':['C2']}}]),
             AIMessage(content='',tool_calls=[{'id':'c','name':'kb_select_evidence','args':{'candidate_ids':['C2']}}]),
             AIMessage(content='根据第二份手册回答。')])

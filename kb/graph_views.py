@@ -97,8 +97,7 @@ async def graph_events(request, job_id: int):
 def _libraries(user):
     """从当前权限解析范围，不依赖客户端声明。"""
     qs = KnowledgeBase.objects.all()
-    if not access.is_global_admin(user):
-        qs = qs.filter(access.kb_q(user))
+    qs = qs.filter(access.kb_q(user,admin_all=True))
     return qs.order_by("name")
 
 

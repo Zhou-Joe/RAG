@@ -49,8 +49,8 @@ class LocalAIConfigurationTests(TransactionTestCase):
         self.assertContains(response, "embedding_base_url")
         self.assertContains(response, "cfgDialog")
 
-    def test_chat_uses_automatically_selected_kb_slug(self):
-        """The stream must not receive an empty default scope."""
+    def test_chat_does_not_automatically_select_an_indexed_kb(self):
+        """Available indexed sources must never become a default conversation scope."""
         from unittest.mock import AsyncMock
         from kb.models import KnowledgeBase
 
@@ -73,7 +73,10 @@ class LocalAIConfigurationTests(TransactionTestCase):
             import asyncio
             asyncio.run(consume())
 
-        self.assertEqual(stream.call_args.args[2], kb.slug)
+        self.assertEqual(stream.call_args.args[2], "")
+        self.assertIn(kb.slug,stream.call_args.args[3]["allowed_kb_slugs"])
+        from kb.models import Conversation
+        self.assertIsNone(Conversation.objects.get(thread_id="auto-kb-thread").kb_id)
 
     # 预设化后「测试」按钮只传 target，端点按【已保存配置】实际调用
     # （UI 上明确标注「使用已保存配置」）。

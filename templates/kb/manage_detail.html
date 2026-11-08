@@ -1,10 +1,10 @@
-{% extends "kb/_base.html" %}
+{% extends "kb/_base.html" %}{% load static %}
 {% block title %}{{ kb.name }} · 知识库管理{% endblock %}
 {% block content %}
 <header class="page-head">
   <div class="page-head-main">
     <a class="page-back" href="/kb/manage/">资料上传中心</a>
-    <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge">{{ kb.department }}</span>{% if kb.embedding_label %} <span class="emb-badge">🧬 {{ kb.embedding_label }}</span>{% endif %}</h1>
+    <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge" id="kbAccessBadge">{{ kb.access_label }}</span>{% if kb.embedding_label %} <span class="emb-badge">🧬 {{ kb.embedding_label }}</span>{% endif %}</h1>
     <p class="page-desc"><span id="kbDescText">{% if kb.description %}{{ kb.description }}{% else %}（无描述）{% endif %}</span>
       · 文档 <span id="kbDocCount">{{ docs_total }}</span>
       · 向量块 <span id="kbChunkCount">{{ chunks_total }}</span></p>
@@ -13,7 +13,7 @@
     <a class="btn outline" href="/kb/inspection/">检查项提取</a>
     {% if kb.is_folder %}<a class="btn outline" href="{% url 'kb:feeds' %}?kb={{ kb.slug|urlencode }}">自动更新数据源</a>{% endif %}
     {% if kb.tracker.enabled %}<a class="btn outline" id="trkEntry" href="/kb/manage/{{ kb.slug }}/tracker/">追踪表</a>{% endif %}
-    <button type="button" id="descEditBtn" class="btn outline">编辑</button>
+    <button type="button" id="descEditBtn" class="btn outline">编辑知识库</button>
   </div>
 </header>
 <style>
@@ -32,6 +32,7 @@
     <div class="dialog-title">编辑知识库</div>
     <div class="field"><label>名称</label>
       <input name="name" value="{{ kb.name }}" required></div>
+    {% include "kb/_access_fields.html" with scope_edit=True %}
     <div class="field"><label>描述（可选）</label>
       <textarea name="description" maxlength="200" rows="2"
                 >{{ kb.description }}</textarea></div>
@@ -132,7 +133,7 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
+{% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
 <script>
 // ── 名称/描述 编辑弹窗（POST kb_rename，AJAX；与全站 fos-dialog 同款）──
 (function(){
@@ -162,6 +163,7 @@
       if (!data.ok) { err.textContent = data.message || '保存失败'; err.hidden = false; return; }
       document.querySelector('h1').childNodes[0].textContent = data.name + ' ';
       txt.textContent = data.description || '（无描述）';
+      document.getElementById('kbAccessBadge').textContent=data.access_label||data.department;
       // 追踪表开关即时反映到顶部入口按钮（无需刷新）
       const entry = document.getElementById('trkEntry');
       if (entry) entry.style.display = form.tracker_enabled.checked ? '' : 'none';

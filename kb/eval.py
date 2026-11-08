@@ -5,15 +5,17 @@
 from __future__ import annotations
 
 from .models import Document, EvalQuestion, KnowledgeBase
+from . import access
 from .retriever import search_folder
 
 TOP_K = 5
 
 
-def _doc_libs() -> list[KnowledgeBase]:
+def _doc_libs(user=None) -> list[KnowledgeBase]:
     """有向量的文档库（子库 + 独立库）。"""
     return list(
-        KnowledgeBase.objects.filter(is_folder=False, chunk_count__gt=0)
+        KnowledgeBase.objects.filter(is_folder=False, chunk_count__gt=0).filter(
+            access.kb_q(user,admin_all=True) if user is not None else access.shared_q())
         .only("slug", "name")
     )
 
@@ -28,7 +30,7 @@ def _hit(item: dict, q: EvalQuestion) -> bool:
     return True
 
 
-def run_eval(top_k: int = TOP_K) -> dict:
+def run_eval(top_k: int = TOP_K, *, user=None) -> dict:
     """跑全部评估问题，返回报告 dict（模板与命令共用结构）。
 
     返回：{
@@ -37,7 +39,7 @@ def run_eval(top_k: int = TOP_K) -> dict:
       "summary": {"total", "scored", "hit1", "hit3", "hit1_rate", "hit3_rate"},
     }
     """
-    libs = _doc_libs()
+    libs = _doc_libs(user) if user is not None else _doc_libs()
     questions = []
     scored = hit1 = hit3 = 0
     for q in EvalQuestion.objects.all():

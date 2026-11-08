@@ -21,6 +21,7 @@ import uuid
 
 from django.db import transaction
 from django.utils import timezone
+from fos_rag.interface_language import normalize_response_language
 
 from . import access
 from .connector_agent import authorize, recover_stale, start_async
@@ -40,7 +41,7 @@ UNSET = _UNSET             # 入口层（页面/CLI/外部接口）使用的公�
 
 def require_manager(user) -> None:
     """建采集任务需要资料管理权限（全局管理员或部门管理员）。"""
-    if not user or not getattr(user, "is_active", False) or not access.is_manager(user):
+    if not user or not getattr(user, "is_active", False) or not access.can_use_kbs(user):
         raise ValueError("当前账号没有资料管理权限，无法配置自动采集。")
 
 
@@ -98,7 +99,7 @@ def resolve_auth(user, url, *, authentication=_UNSET, credential=_UNSET, header_
 # ---------------------------------------------------------------- 生成任务
 
 def create_draft(*, user, requirement, api_url="", authentication=_UNSET, credential=_UNSET,
-                 header_env=_UNSET, allow_private=True, sample=None, kb=None, created_via="web", conversation=False):
+                 header_env=_UNSET, allow_private=True, sample=None, kb=None, created_via="web", conversation=False, response_language=None):
     """创建采集脚本生成任务并在后台启动，立即返回草稿（不等生成结果）。
 
     认证三种给法：结构化的 `authentication={'type':'bearer','token':…}`（API/CLI/对话，
@@ -129,13 +130,14 @@ def create_draft(*, user, requirement, api_url="", authentication=_UNSET, creden
         job = ConnectorDraft.objects.create(
             user=user, kb=kb, prompt=redact(requirement, secrets), api_url=api_url,
             credential=credential, header_env=headers, allow_private=private,
-            sample=redact(sample, secrets), created_via=created_via)
+            sample=redact(sample, secrets), created_via=created_via,
+            response_language=normalize_response_language(response_language))
     start_async(job.pk)
     return job
 
 
 def refine_draft(*, user, job, requirement, api_url=_UNSET, credential=_UNSET, header_env=_UNSET,
-                 allow_private=None, question_answers=None) -> ConnectorDraft:
+                 allow_private=None, question_answers=None, response_language=None) -> ConnectorDraft:
     """在同一对话里按自然语言反馈生成新候选；沿用已保存凭据，仍等待用户批准。"""
     authorize(job)
     if job.user_id != user.pk:
@@ -177,7 +179,8 @@ def refine_draft(*, user, job, requirement, api_url=_UNSET, credential=_UNSET, h
         child = ConnectorDraft.objects.create(
             user=user, kb=job.kb, parent=job, feedback=feedback, prompt=job.prompt, api_url=url,
             header_env=headers, credential=credential, allow_private=private, sample=job.sample,
-            retain_context=job.retain_context or bool(job.feed_id), created_via=job.created_via)
+            retain_context=job.retain_context or bool(job.feed_id), created_via=job.created_via,
+            response_language=normalize_response_language(response_language))
     start_async(child.pk)
     return child
 
@@ -233,7 +236,7 @@ def approve(*, user, job, write_mode=None, department=None, run_now=True, trigge
             if dept not in access.all_departments():
                 raise ValueError("请选择已有部门。")
             kb = KnowledgeBase.objects.create(name=spec["name"], slug="auto-" + uuid.uuid4().hex[:20], is_folder=True,
-                category="business", description="由采集脚本自动更新的业务数据", department=dept, created_by=user)
+                category="business", description="由采集脚本自动更新的业务数据", created_by=user,**access.creation_fields(user,None,dept))
         elif not access.can_manage_kb(user, kb):
             raise ValueError("没有该知识库的管理权限。")
         cron = spec.get("cron", "0 * * * *")

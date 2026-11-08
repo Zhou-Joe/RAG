@@ -82,7 +82,7 @@ class PasswordChangeTests(TestCase):
         self.assertEqual(r.status_code, 302)  # → 登录页
 
     def test_dialog_markup_and_entry_points(self):
-        # 顶栏用户名 + 全局弹窗（任意登录页可见）
+        # 侧栏用户名进入个人信息；全局改密弹窗仍供个人页和管理页使用。
         r = self.client.get("/kb/search/")
         self.assertContains(r, 'id="pwdDialog"')
         self.assertContains(r, "pw-open")
@@ -142,3 +142,103 @@ class UserPageLayoutTests(TestCase):
                               {"action": "dept_add", "name": "通用"},
                               HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertFalse(r3.json()["ok"])
+
+
+class PersonalInfoTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user('personal-user', password='old-pass-123',
+            first_name='Chen', last_name='Zhou', email='chen@example.test')
+        self.other = get_user_model().objects.create_user('another-user', email='private-other@example.test')
+        UserProfile.objects.update_or_create(user=self.user, defaults={'department': '机械'})
+        self.client.force_login(self.user)
+        self.url = reverse('accounts:profile')
+
+    def values(self, **extra):
+        return {'first_name': 'Updated name', 'last_name': '姓氏', 'email': 'new@example.test', **extra}
+
+    def test_account_name_opens_personal_page_and_password_action_moves_there(self):
+        page = self.client.get(reverse('kb:search'))
+        self.assertContains(page, '<a class="side-user" href="'+self.url+'" title="个人信息">')
+        self.assertNotContains(page, 'class="side-user pw-open"')
+        profile = self.client.get(self.url)
+        self.assertContains(profile, 'class="btn outline pw-open">修改密码</button>')
+        self.assertContains(profile, 'id="pwdDialog"')
+        self.assertContains(profile, 'name="first_name"')
+        self.assertContains(profile, 'name="email"')
+        self.assertContains(profile, 'chen@example.test')
+        self.assertContains(profile, '机械')
+        self.assertContains(profile, '普通用户')
+        self.assertNotContains(profile, self.other.email)
+        self.assertIn('no-store', profile.headers['Cache-Control'])
+
+    def test_profile_is_own_account_even_when_another_user_is_requested(self):
+        response = self.client.get(self.url, {'user_id': self.other.pk, 'username': self.other.username})
+        self.assertContains(response, self.user.email)
+        self.assertNotContains(response, self.other.email)
+
+    def test_updates_contact_fields_and_keeps_session_and_password(self):
+        original_password = self.user.password
+        response = self.client.post(self.url, self.values())
+        self.assertRedirects(response, self.url)
+        self.user.refresh_from_db()
+        self.assertEqual((self.user.first_name, self.user.last_name, self.user.email),
+                         ('Updated name', '姓氏', 'new@example.test'))
+        self.assertEqual(self.user.password, original_password)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_invalid_email_or_overlong_name_does_not_save_any_changes(self):
+        for extra in ({'email': 'invalid email'}, {'first_name': 'x'*151}, {'last_name': 'x'*151}):
+            response = self.client.post(self.url, self.values(**extra))
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.context['form'].errors)
+            self.user.refresh_from_db()
+            self.assertEqual((self.user.first_name, self.user.email), ('Chen', 'chen@example.test'))
+
+    def test_optional_contact_fields_can_be_cleared(self):
+        response = self.client.post(self.url, self.values(first_name='', last_name='', email=''))
+        self.assertRedirects(response, self.url)
+        self.user.refresh_from_db()
+        self.assertEqual((self.user.first_name, self.user.last_name, self.user.email), ('', '', ''))
+
+    def test_forged_account_target_role_and_credentials_are_ignored(self):
+        self.client.post(self.url, self.values(user_id=self.other.pk, username='hijacked',
+            department='电气', role='dept_admin', is_staff='1', is_superuser='1', password='injected'))
+        self.user.refresh_from_db()
+        self.user.profile.refresh_from_db()
+        self.other.refresh_from_db()
+        self.assertEqual(self.user.username, 'personal-user')
+        self.assertEqual(self.user.profile.department, '机械')
+        self.assertEqual(self.user.profile.role, UserProfile.Role.USER)
+        self.assertFalse(self.user.is_staff)
+        self.assertFalse(self.user.is_superuser)
+        self.assertTrue(self.user.check_password('old-pass-123'))
+        self.assertEqual(self.other.email, 'private-other@example.test')
+
+    def test_concurrent_permission_change_is_not_overwritten_by_contact_save(self):
+        from unittest.mock import patch
+        from accounts.forms import PersonalInfoForm
+        original = PersonalInfoForm.save
+        def concurrent_save(form, **kwargs):
+            get_user_model().objects.filter(pk=form.instance.pk).update(is_staff=True)
+            return original(form, **kwargs)
+        with patch.object(PersonalInfoForm, 'save', concurrent_save):
+            self.assertRedirects(self.client.post(self.url, self.values()), self.url)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_staff)
+        self.assertEqual(self.user.email, 'new@example.test')
+
+    def test_password_change_remains_available_and_session_survives(self):
+        response = self.client.post(reverse('accounts:password_change'), {
+            'old_password': 'old-pass-123', 'new_password1': 'new-pass-456', 'new_password2': 'new-pass-456'})
+        self.assertTrue(response.json()['ok'])
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_authentication_csrf_and_method_checks(self):
+        from django.test import Client
+        anonymous = Client()
+        self.assertEqual(anonymous.get(self.url).status_code, 302)
+        self.assertEqual(anonymous.post(self.url, self.values()).status_code, 302)
+        strict = Client(enforce_csrf_checks=True)
+        strict.force_login(self.user)
+        self.assertEqual(strict.post(self.url, self.values()).status_code, 403)
+        self.assertEqual(self.client.delete(self.url).status_code, 405)

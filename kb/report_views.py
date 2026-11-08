@@ -72,6 +72,7 @@ def public_download(request,token):
         delivery=FeedReportDelivery.objects.select_related('plan__feed__kb','plan__created_by').get(pk=data['id'])
         if not secrets.compare_digest(delivery.token_digest,hashlib.sha256(token.encode()).hexdigest()) or not delivery.expires_at or delivery.expires_at<=timezone.now():raise ValueError()
         reports.require_feed(delivery.plan.created_by,delivery.plan.feed)
+        if access.root_kb(delivery.plan.feed.kb).visibility=='individual' and not access.kb_accessible(request.user,delivery.plan.feed.kb):raise ValueError()
         response=HttpResponse(bytes(delivery.content),content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition']='attachment; filename="EnGenie-report.xlsx"';response['Cache-Control']='no-store'
         response['Referrer-Policy']='no-referrer';response['X-Content-Type-Options']='nosniff';return response

@@ -48,8 +48,13 @@ def catalogue(request):
     return response
 
 
+def normalize_response_language(language=None):
+    """Canonical UI reply language, safe to persist outside the request context."""
+    return "en" if str(language or translation.get_language() or "zh-hans").lower().startswith("en") else "zh-hans"
+
+
 def response_language_instruction(language=None):
-    language = language or translation.get_language() or "zh-hans"
+    language = normalize_response_language(language)
     name = "English" if language.startswith("en") else "Simplified Chinese"
     return (f"The interface language is {name}. Write user-facing explanations, questions and answers in {name}, "
             "unless the user explicitly requests another language. Preserve source quotations, proper names, "

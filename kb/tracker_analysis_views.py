@@ -12,7 +12,7 @@ from .models import KbTracker
 from .tracker_analysis import analysis_options, analyze, completed_rows
 
 
-@user_passes_test(access.is_manager)
+@user_passes_test(access.can_use_kbs)
 @login_required
 @require_GET
 def tracker_analysis(request, slug: str) -> JsonResponse:

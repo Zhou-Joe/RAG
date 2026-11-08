@@ -855,7 +855,9 @@
     "每批网页采集最多500条记录。": "A webpage collection batch can contain up to 500 records.",
     "browser.max_records须为1至500。": "browser.max_records must be between 1 and 500.",
     "网络响应超过500条，请在页面选择范围或使用分页。": "The network response contains more than 500 records. Select a range on the page or use pagination.",
-    "网页记录超过500条，请选择范围或配置分页。": "The webpage contains more than 500 records. Select a range or configure pagination."
+    "网页记录超过500条，请选择范围或配置分页。": "The webpage contains more than 500 records. Select a range or configure pagination.",
+    "正在理解当前消息并接续对话。": "Reading your message and continuing the conversation.",
+    "正在读取页面并分析取数方式…": "Reading the page and checking how to collect the data…"
   },
   "patterns": [
     {

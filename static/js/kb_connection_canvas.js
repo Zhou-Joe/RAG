@@ -311,9 +311,9 @@ export class BubbleCanvas {
     this.elements.get(slug)?.classList.add('is-selected');
     this.selection.replaceChildren();this.selection.hidden=false;
     const text=node('div');text.append(node('strong','',item.name),node('span','',item.description||'拖动圆点连接其他知识库。'));
-    const actions=node('div','kl-selection-actions'),open=node('a','btn sm outline','打开知识库');open.href=item.url;
+    const actions=node('div','kl-selection-actions'),open=node('a','btn sm outline','知识库主页');open.href=item.url;
     const connect=node('button','btn sm outline','连接…');connect.type='button';connect.dataset.kbConnect=slug;
-    actions.append(open,connect);this.selection.append(text,actions);
+    actions.append(open);if(item.tracker_url){const tracker=node('a','btn sm outline','查看追踪表');tracker.href=item.tracker_url;actions.append(tracker);}actions.append(connect);this.selection.append(text,actions);
   }
   setQuery(query) {
     const text=query.trim().toLocaleLowerCase(),matches=new Set();

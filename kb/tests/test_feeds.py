@@ -309,7 +309,8 @@ class FeedViewsTests(TestCase):
 
     def test_reader_cannot_manage_sources_or_download_kit(self):
         self.client.force_login(self.reader)
-        for name in ('feeds','feed_state','feed_kit'):self.assertEqual(self.client.get(reverse('kb:'+name)).status_code,404)
+        for name in ('feeds','feed_state','feed_kit'):self.assertEqual(self.client.get(reverse('kb:'+name)).status_code,200)
+        self.assertEqual(self.client.get(reverse('kb:feed_state')).json()['feeds'],[])
 
     def test_department_manager_cannot_target_other_department_or_read_arbitrary_server_env(self):
         from accounts.models import UserProfile

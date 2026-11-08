@@ -92,7 +92,7 @@ def delivery_context(job):
 
 
 def require_feed(user,feed):
-    if not user or not user.is_active or not access.is_manager(user) or not access.can_manage_kb(user,feed.kb):
+    if not user or not user.is_active or not access.can_use_kbs(user) or not access.can_manage_kb(user,feed.kb):
         raise ValueError('没有此自动任务的管理权限。')
 
 def source_feed(job,*,required=True):

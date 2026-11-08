@@ -39,7 +39,7 @@ class EquipmentScopeTests(TestCase):
     def test_folder_search_passes_only_its_children(self):
         tools=self.tools()
         with patch('kb.retriever.search_folder',return_value=[]) as search:
-            tools['kb_search']('检查')
+            tools['kb_search']('检查',kb_slug=self.folder.slug)
             self.assertEqual(set(search.call_args.args[0]),{'dwarfs-cn','dwarfs-en'})
 
     def test_split_tool_markup_is_not_published(self):
@@ -56,7 +56,7 @@ class EquipmentScopeTests(TestCase):
 from django.test import TransactionTestCase
 from django.urls import reverse
 class ScopeConversationTests(TransactionTestCase):
-    def test_named_folder_overrides_wrong_previous_library_and_survives_followup(self):
+    def test_named_question_keeps_context_without_assigning_a_default_library(self):
         import asyncio
         from kb.models import Conversation,Message
         user=get_user_model().objects.create_user('scope-conv',is_staff=True)
@@ -79,8 +79,8 @@ class ScopeConversationTests(TransactionTestCase):
                 _=[chunk async for chunk in response.streaming_content]
         with patch('kb.agent.run_agent_stream',side_effect=events):asyncio.run(run())
         for slug,cfg in configs:
-            self.assertEqual(slug,'small')
-            # 作用域改为建议式：点名文件夹仍重绑会话默认范围，但不再硬锁工具可见库
-            self.assertIsNone(cfg['allowed_kb_slugs'])
+            self.assertEqual(slug,'')
+            # 点名资料交由模型按当前问题选择；没有默认库，权限范围仍完整保留。
+            self.assertEqual(set(cfg['allowed_kb_slugs']), {'cn','en','small','wrong'})
         self.assertIn('old wrong content',repr(configs[0][1]['published_history']))
-        conv.refresh_from_db();self.assertEqual(conv.kb_id,folder.pk)
+        conv.refresh_from_db();self.assertEqual(conv.kb_id,wrong.pk)  # Legacy access guard, never a retrieval default.

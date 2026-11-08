@@ -35,6 +35,31 @@ def register_view(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
+def profile(request):
+    """View and edit the signed-in user's contact details, never access rights."""
+    from django.contrib import messages
+    from django.utils.cache import add_never_cache_headers
+    from .forms import PersonalInfoForm
+    from .models import user_department, user_role
+
+    form = PersonalInfoForm(request.POST if request.method == "POST" else None, instance=request.user)
+    if request.method == "POST" and form.is_valid():
+        user = form.save(commit=False)
+        # Avoid overwriting a password, login timestamp or permissions changed concurrently.
+        user.save(update_fields=['first_name', 'last_name', 'email'])
+        messages.success(request, "个人信息已保存。")
+        response = redirect('accounts:profile')
+    else:
+        role = "全局管理员" if request.user.is_staff or request.user.is_superuser else dict(UserProfile.Role.choices).get(user_role(request.user), UserProfile.Role.USER.label)
+        response = render(request, "accounts/profile.html", {
+            "form": form, "account_role": role, "user_department": user_department(request.user),
+        })
+    add_never_cache_headers(response)
+    return response
+
+
+@login_required
 @require_http_methods(["POST"])
 def password_change(request):
     """用户自助修改自己的密码（AJAX，全站统一弹窗）。

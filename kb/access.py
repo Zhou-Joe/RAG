@@ -1,124 +1,141 @@
-"""部门级知识库访问控制。
-
-规则：
-- 知识库 department == 「通用」 → 所有登录用户可见/可查。
-- 否则仅 department 相同的用户（及 staff/superuser）可见。
-- 文件夹与其子库部门保持同步（改文件夹时级联更新子库）。
-"""
+"""Knowledge-base permissions: shared by department, or individual and owner-only."""
 from __future__ import annotations
-
-from django.db.models import Q, QuerySet
-
-from .models import DEPARTMENT_GENERAL, Document, KnowledgeBase
+from django.db.models import Q
+from .models import DEPARTMENT_GENERAL,Document,KnowledgeBase
 
 
-def _user_dept(user) -> str:
-    from accounts.models import user_department
-    return user_department(user)
+def user_department(user):
+    from accounts.models import user_department as value
+    return value(user)
 
 
-# 公开别名：views 等处直接 access.user_department(user)
-def user_department(user) -> str:
-    return _user_dept(user)
+def is_global_admin(user):
+    return bool(getattr(user,'is_staff',False) or getattr(user,'is_superuser',False))
 
 
-def is_global_admin(user) -> bool:
-    """全局管理员（is_staff / is_superuser）：不受部门限制，可管一切 + 站点设置。"""
-    return getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
+def is_manager(user):
+    from accounts.models import user_role,UserProfile
+    return is_global_admin(user) or user_role(user)==UserProfile.Role.DEPT_ADMIN
 
 
-def is_manager(user) -> bool:
-    """能否进入资料上传中心：全局管理员 或 部门管理员。"""
-    from accounts.models import user_role, UserProfile
-    return is_global_admin(user) or user_role(user) == UserProfile.Role.DEPT_ADMIN
+def can_use_kbs(user):
+    return bool(user and getattr(user,'is_authenticated',False) and getattr(user,'is_active',False) and getattr(user,'pk',None) is not None)
 
 
-def can_manage_kb(user, kb: KnowledgeBase) -> bool:
-    """能否管理（改名/删库/上传/删文档）该知识库。
-
-    - 全局管理员：全部
-    - 部门管理员：仅本部门的库（通用库只有全局管理员能管）
-    - 普通用户：不能
-    """
-    if is_global_admin(user):
-        return True
-    from accounts.models import user_role, UserProfile
-    if user_role(user) != UserProfile.Role.DEPT_ADMIN:
-        return False
-    return kb.department == _user_dept(user)
+def root_kb(kb):
+    seen=set()
+    while kb.parent_id and kb.pk not in seen:
+        seen.add(kb.pk);kb=kb.parent
+    return kb
 
 
-def kb_q(user) -> Q:
-    """用户可见知识库的 Q 条件（通用 ∪ 本部门）。"""
-    return Q(department=DEPARTMENT_GENERAL) | Q(department=_user_dept(user))
+def kb_accessible(user,kb):
+    if not can_use_kbs(user):return False
+    root=root_kb(kb)
+    if root.visibility=='individual':return root.created_by_id==user.pk
+    if kb.visibility=='individual':return kb.created_by_id==user.pk and (is_global_admin(user) or root.department in (DEPARTMENT_GENERAL,user_department(user)))
+    return is_global_admin(user) or all(value in (DEPARTMENT_GENERAL,user_department(user)) for value in (root.department,kb.department))
 
 
-def kb_accessible(user, kb: KnowledgeBase) -> bool:
-    """该用户能否访问此知识库（staff/superuser 全放行）。"""
-    if getattr(user, "is_staff", False) or getattr(user, "is_superuser", False):
-        return True
-    dept = _user_dept(user)
-    return kb.department in (DEPARTMENT_GENERAL, dept)
+def can_manage_kb(user,kb):
+    if not can_use_kbs(user):return False
+    root=root_kb(kb)
+    if root.visibility=='individual':return root.created_by_id==user.pk
+    if kb.visibility=='individual':return kb.created_by_id==user.pk and kb_accessible(user,kb)
+    return is_global_admin(user) or (is_manager(user) and root.department==user_department(user) and kb.department==user_department(user))
 
 
-def accessible_kbs(user) -> QuerySet[KnowledgeBase]:
-    """用户可见的顶层知识库（parent__isnull；子库对用户透明）。"""
-    return KnowledgeBase.objects.filter(parent__isnull=True).filter(kb_q(user))
+def _permission_q(user,prefix='',manage=False,admin_all=False):
+    if not can_use_kbs(user):return Q(**{prefix+'pk__in':[]})
+    def private(path):return Q(**{path+'visibility':'individual',path+'created_by_id':user.pk})
+    def shared(path):
+        if manage and not is_manager(user):return Q(**{path+'pk__in':[]})
+        value=Q(**{path+'visibility':'shared'})
+        if not (is_global_admin(user) and (manage or admin_all)):
+            value &= Q(**{path+'department':user_department(user)}) if manage else Q(**{path+'department__in':[DEPARTMENT_GENERAL,user_department(user)]})
+        return value
+    top=Q(**{prefix+'parent__isnull':True})&(private(prefix)|shared(prefix))
+    parent_private=Q(**{prefix+'parent__isnull':False})&private(prefix+'parent__')
+    children=shared(prefix+'parent__')&(private(prefix)|shared(prefix))
+    return top|parent_private|children
 
 
-def all_departments() -> list[str]:
-    """已知部门池 = 显式登记的部门 ∪ 用户档案 ∪ 知识库 的部门去重，「通用」固定排第一。
-
-    新部门的创建入口：全局管理员在用户管理页添加/重命名（重命名级联所有用户和库）；
-    注册页和库表单只能从本池中选择（防止随意拼写出新部门）。
-    """
-    from accounts.models import Department, UserProfile
-    depts = set(Department.objects.values_list("name", flat=True))
-    depts.update(
-        UserProfile.objects.exclude(department="").values_list("department", flat=True)
-    )
-    depts.update(
-        KnowledgeBase.objects.exclude(department="").values_list("department", flat=True)
-    )
-    depts.discard(DEPARTMENT_GENERAL)
-    return [DEPARTMENT_GENERAL] + sorted(depts)
+def kb_q(user,prefix='',*,admin_all=False):return _permission_q(user,prefix,admin_all=admin_all)
 
 
-def accessible_doc_slugs(user) -> set[str]:
-    """用户可检索的（子）库 slug 集合：可见顶层库自身 + 其全部子库。"""
-    tops = list(accessible_kbs(user).values_list("slug", "id"))
-    slugs = {s for s, _ in tops}
-    child_rows = KnowledgeBase.objects.filter(
-        parent_id__in=[i for _, i in tops], is_folder=False,
-    ).values_list("slug", flat=True)
-    slugs.update(child_rows)
-    return slugs
+def managed_q(user,prefix=''):return _permission_q(user,prefix,manage=True)
 
 
-def accessible_docs(user, completed_only: bool = True) -> QuerySet[Document]:
-    """用户可见的文档（按所属库的部门过滤；子库与文件夹部门同步）。"""
-    dept = _user_dept(user)
-    qs = Document.objects.select_related("kb")
-    if completed_only:
-        qs = qs.filter(status=Document.Status.COMPLETED)
-    return qs.filter(kb__department__in=[DEPARTMENT_GENERAL, dept])
+def shared_q(prefix=''):
+    return Q(**{prefix+'parent__isnull':True,prefix+'visibility':'shared'})|Q(**{prefix+'visibility':'shared',prefix+'parent__visibility':'shared'})
 
 
-def set_kb_department(kb: KnowledgeBase, department: str) -> None:
-    """设置知识库部门；文件夹会级联更新其所有子库，保持扇出检索一致性。"""
-    department = (department or "").strip() or DEPARTMENT_GENERAL
-    kb.department = department
-    kb.save(update_fields=["department", "updated_at"])
-    if kb.is_folder:
-        KnowledgeBase.objects.filter(parent=kb).update(department=department)
+def managed_kbs(user):return KnowledgeBase.objects.filter(managed_q(user))
 
 
-def can_edit_feed(user, feed) -> bool:
-    """Only the original builder with current KB management rights may edit a feed."""
-    return bool(user and user.is_active and user.pk == feed.created_by_id
-                and is_manager(user) and can_manage_kb(user, feed.kb))
+def accessible_kbs(user):return KnowledgeBase.objects.filter(parent__isnull=True).filter(kb_q(user))
 
 
-def require_feed_builder(user, feed) -> None:
-    if not can_edit_feed(user, feed):
-        raise ValueError('仅此自动任务的创建者可编辑配置。')
+def accessible_doc_slugs(user):return set(KnowledgeBase.objects.filter(kb_q(user)).values_list('slug',flat=True))
+
+
+def accessible_docs(user,completed_only=True):
+    if not hasattr(user,'is_authenticated'):user=getattr(user,'user',None)
+    qs=Document.objects.select_related('kb').filter(kb_q(user,'kb__'))
+    return qs.filter(status=Document.Status.COMPLETED) if completed_only else qs
+
+
+def all_departments():
+    from accounts.models import Department,UserProfile
+    values=set(Department.objects.values_list('name',flat=True))
+    values.update(UserProfile.objects.exclude(department='').values_list('department',flat=True))
+    values.update(KnowledgeBase.objects.filter(visibility='shared').exclude(department='').values_list('department',flat=True))
+    values.discard(DEPARTMENT_GENERAL)
+    return [DEPARTMENT_GENERAL]+sorted(values)
+
+
+def creation_fields(user,level=None,department=None):
+    if not can_use_kbs(user):raise ValueError('请先登录。')
+    own=user_department(user)
+    if not level:level='individual' if not is_manager(user) else 'general' if (department if is_global_admin(user) else own) in (None,'',DEPARTMENT_GENERAL) else 'department'
+    if level=='individual':return {'visibility':'individual','department':own}
+    if level not in ('general','department'):raise ValueError('请选择有效的访问范围。')
+    if not is_manager(user):raise ValueError('普通用户只能创建个人知识库。')
+    if level=='general':
+        if not is_global_admin(user) and own!=DEPARTMENT_GENERAL:raise ValueError('无权创建通用知识库。')
+        return {'visibility':'shared','department':DEPARTMENT_GENERAL}
+    department=(department or own) if is_global_admin(user) else own
+    if department==DEPARTMENT_GENERAL:raise ValueError('请选择具体部门，或使用通用访问范围。')
+    if department not in all_departments():raise ValueError('请选择已有部门。')
+    return {'visibility':'shared','department':department}
+
+
+def set_kb_department(kb,department):
+    kb.department=(department or '').strip() or DEPARTMENT_GENERAL
+    kb.save(update_fields=['department','updated_at'])
+
+
+def set_access(kb,user,level,department=None):
+    if not can_manage_kb(user,kb):raise ValueError('没有管理该知识库的权限。')
+    if level=='individual' and kb.created_by_id!=user.pk:raise ValueError('仅创建者可将知识库设为个人。')
+    fields=creation_fields(user,level,department)
+    kb.visibility=fields['visibility'];kb.department=fields['department']
+    kb.save(update_fields=['visibility','department','updated_at'])
+
+
+def can_edit_feed(user,feed):return bool(can_use_kbs(user) and user.pk==feed.created_by_id and can_manage_kb(user,feed.kb))
+
+
+def require_feed_builder(user,feed):
+    if not can_edit_feed(user,feed):raise ValueError('仅此自动任务的创建者可编辑配置。')
+
+
+def conversation_q(user):
+    """Unscoped chats are visible to their owner; retain legacy KB restrictions."""
+    if not can_use_kbs(user):return Q(pk__in=[])
+    return Q(user_id=user.pk)&(Q(kb__isnull=True)|kb_q(user,'kb__'))
+
+
+def conversation_accessible(user,conversation):
+    return bool(can_use_kbs(user) and conversation.user_id==user.pk and
+                (conversation.kb_id is None or kb_accessible(user,conversation.kb)))

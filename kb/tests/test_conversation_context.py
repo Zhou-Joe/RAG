@@ -55,7 +55,7 @@ class ConversationExecutionTests(TransactionTestCase):
 
     def test_followup_reuses_full_tool_context_with_an_identical_prefix_and_no_search(self):
         model = ConversationModel(responses=[
-            call('kb_search',{'query':'bearing interval'},'search-1'),
+            call('kb_search',{'query':'bearing interval','kb_slug':self.kb.slug},'search-1'),
             call('kb_read_chunks',{'candidate_ids':['C1']},'read-1'),
             call('kb_select_evidence',{'candidate_ids':['C1']},'select-1'),
             AIMessage(content='Inspect the bearing daily.'),
@@ -84,7 +84,7 @@ class ConversationExecutionTests(TransactionTestCase):
 
     def test_model_can_choose_a_new_search_on_a_later_turn(self):
         model = ConversationModel(responses=[AIMessage(content='Hello.'),
-            call('kb_search',{'query':'bearing interval'},'search'),
+            call('kb_search',{'query':'bearing interval','kb_slug':self.kb.slug},'search'),
             call('kb_read_chunks',{'candidate_ids':['C1']},'read'),
             call('kb_select_evidence',{'candidate_ids':['C1']},'select'),
             AIMessage(content='The manual says daily.')])

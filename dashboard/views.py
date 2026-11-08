@@ -21,6 +21,17 @@ from django.utils import timezone
 
 from kb.models import Conversation, Document, KnowledgeBase, Message
 
+from kb import access
+
+def _visible(user=None):
+    return KnowledgeBase.objects.filter(access.kb_q(user,admin_all=True) if user is not None else access.shared_q())
+
+
+def _conversations(user=None):
+    visible=Q(kb__in=_visible(user))
+    if user is not None:visible|=Q(kb__isnull=True,user=user)
+    return Conversation.objects.filter(visible)
+
 User = get_user_model()
 
 # 趋势图天数
@@ -40,7 +51,7 @@ def _today():
     return timezone.localtime(timezone.now()).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def _trend_series():
+def _trend_series(user=None):
     """构建近 N 天的问答趋势：user 问题数 + ai 回复数。
 
     返回 dict，含日期标签、两条序列、SVG 坐标点与 y 轴最大值（已预计算，
@@ -49,7 +60,7 @@ def _trend_series():
     start = _today() - timedelta(days=TREND_DAYS - 1)
     qs = (
         Message.objects
-        .filter(created_at__gte=start)
+        .filter(created_at__gte=start,conversation__in=_conversations(user))
         .annotate(day=TruncDate("created_at"))
         .values("day", "role")
         .annotate(c=Count("id"))
@@ -132,10 +143,10 @@ def _trend_series():
     }
 
 
-def _doc_status_bars():
+def _doc_status_bars(user=None):
     """文档按 status 聚合 → 水平条形（每条: label/颜色/数量/比例）。"""
     counts = (
-        Document.objects
+        Document.objects.filter(kb__in=_visible(user))
         .values("status")
         .annotate(c=Count("id"))
     )
@@ -154,10 +165,10 @@ def _doc_status_bars():
     return {"bars": bars, "total": total}
 
 
-def _kb_table():
+def _kb_table(user=None):
     """手册库一览：每库文档/向量数 + 状态拆分。"""
     kbs = list(
-        KnowledgeBase.objects
+        _visible(user)
         .annotate(
             doc_total=Count("documents"),
             doc_completed=Count("documents", filter=Q(documents__status="completed")),
@@ -172,10 +183,10 @@ def _kb_table():
     return kbs
 
 
-def _recent_activity(limit=8):
+def _recent_activity(limit=8,user=None):
     """最近会话活动。"""
     return list(
-        Conversation.objects
+        _conversations(user)
         .select_related("user", "kb")
         .order_by("-updated_at")[:limit]
     )
@@ -184,12 +195,13 @@ def _recent_activity(limit=8):
 def index(request):
     """运行日志看板主页（真实统计）。"""
     today = _today()
+    visible=_visible(request.user)
     total_chunks = (
-        KnowledgeBase.objects.aggregate(s=Sum("chunk_count"))["s"] or 0
+        visible.aggregate(s=Sum("chunk_count"))["s"] or 0
     )
     # 今日活跃：今天有新消息或会话更新的不同用户数
     active_today = (
-        Conversation.objects
+        _conversations(request.user)
         .filter(updated_at__gte=today)
         .values("user_id")
         .distinct()
@@ -199,14 +211,14 @@ def index(request):
     ctx = {
         "generated_at": timezone.localtime(timezone.now()),
         "stat_users": User.objects.count(),
-        "stat_docs": Document.objects.count(),
+        "stat_docs": Document.objects.filter(kb__in=visible).count(),
         "stat_chunks": total_chunks,
-        "stat_convs": Conversation.objects.count(),
-        "stat_messages": Message.objects.count(),
+        "stat_convs": _conversations(request.user).count(),
+        "stat_messages": Message.objects.filter(conversation__in=_conversations(request.user)).count(),
         "active_today": active_today,
-        "trend": _trend_series(),
-        "doc_bars": _doc_status_bars(),
-        "kbs": _kb_table(),
-        "recent": _recent_activity(),
+        "trend": _trend_series(request.user),
+        "doc_bars": _doc_status_bars(request.user),
+        "kbs": _kb_table(request.user),
+        "recent": _recent_activity(user=request.user),
     }
     return render(request, "dashboard/index.html", ctx)

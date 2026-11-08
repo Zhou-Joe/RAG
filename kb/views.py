@@ -9,6 +9,7 @@ from pathlib import Path
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.db import transaction
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import Http404, HttpResponse, JsonResponse, StreamingHttpResponse
@@ -47,21 +48,27 @@ def _derive_unique_slug(original_name: str) -> str:
     return slug
 
 
-def _scope_docs(kb: KnowledgeBase):
+def _scope_docs(kb: KnowledgeBase,user=None):
     """文件夹 → 其下所有子文档库的文档（扁平）；文档库 → 自身文档。"""
     if kb.is_folder:
         child_ids = list(kb.children.filter(is_folder=False).values_list("id", flat=True))
         docs = Document.objects.filter(kb_id__in=child_ids)
     else:
         docs = kb.documents.all()
+    if user is not None:
+        from . import access
+        docs=docs.filter(access.managed_q(user,'kb__'))
     return docs.exclude(status=Document.Status.SUPERSEDED).exclude(kb__slug__startswith='syncitem-',status__in=['pending','ocr','indexing','failed'])
 
 
-def _scope_kb_ids(kb: KnowledgeBase) -> list:
+def _scope_kb_ids(kb: KnowledgeBase,user=None) -> list:
     """文件夹 → [自身(不挂文档)] ∪ 子库 id 列表（用于按 id 找文档）；
     文档库 → [自身 id]。"""
     if kb.is_folder:
-        return list(kb.children.filter(is_folder=False).values_list("id", flat=True))
+        from . import access
+        children=kb.children.filter(is_folder=False)
+        if user is not None:children=children.filter(access.managed_q(user))
+        return list(children.values_list('id',flat=True))
     return [kb.id]
 
 
@@ -77,7 +84,7 @@ def doc_page_embed(request, slug, doc_id):
     kb = get_object_or_404(KnowledgeBase, slug=slug)
     if not kb_access.can_manage_kb(request.user, kb):
         raise Http404("知识库不存在")
-    doc = get_object_or_404(Document, id=doc_id, kb__in=_scope_kb_ids(kb))
+    doc = get_object_or_404(Document, id=doc_id, kb__in=_scope_kb_ids(kb,request.user))
     enable = (request.POST.get("enable") or "").strip() == "1"
 
     if doc.file_type != "pdf":
@@ -152,10 +159,7 @@ def _create_manual_document(kb: KnowledgeBase, upload, user,
             status=Document.Status.PENDING,
         )
 _is_staff = user_passes_test(lambda u: u.is_staff)
-_is_manager = user_passes_test(
-    lambda u: u.is_staff or u.is_superuser
-    or (getattr(u, "is_authenticated", False) and _mgr_role(u))
-)
+_is_manager = user_passes_test(lambda u: getattr(u,'is_authenticated',False) and getattr(u,'is_active',False))
 
 
 def _mgr_role(u) -> bool:
@@ -164,7 +168,7 @@ def _mgr_role(u) -> bool:
 
 
 # ------------------------------------------------------------------
-# 管理页面（全局管理员 或 部门管理员）
+# 管理页面（共享库管理员，或个人知识库的创建者）
 # ------------------------------------------------------------------
 @_is_manager
 @login_required
@@ -180,12 +184,10 @@ def manage_list(request):
         if action == "create_kb":
             name = request.POST.get("name", "").strip()
             department = (request.POST.get("department") or "").strip()
-            # 部门只能从已有部门池中选；池外值回落「通用」。
-            # 部门管理员建库强制归属本部门（不能替别的部门建库）。
-            if department not in kb_access.all_departments():
-                department = ""
-            if not kb_access.is_global_admin(request.user):
-                department = kb_access.user_department(request.user)
+            try:scope=kb_access.creation_fields(request.user,request.POST.get('access_level'),department)
+            except ValueError as exc:
+                if request.headers.get('x-requested-with')=='XMLHttpRequest':return JsonResponse({'ok':False,'message':str(exc)},status=400)
+                messages.error(request,str(exc));return redirect('kb:manage_list')
             if name:
                 from .models import DEPARTMENT_GENERAL
                 slug = _derive_unique_slug(name)
@@ -194,9 +196,9 @@ def manage_list(request):
                     description=(request.POST.get("description") or "").strip()[:200],
                     created_by=request.user,
                     is_folder=True, parent=None,
-                    department=department or DEPARTMENT_GENERAL,
+                    **scope,
                 )
-                ok, msg = True, f"手册库「{name}」已创建（部门：{department or DEPARTMENT_GENERAL}），可以上传手册了。"
+                ok, msg = True, f"手册库「{name}」已创建，可以上传手册了。"
             else:
                 slug = ""
                 ok, msg = False, "请填写手册库名称。"
@@ -214,7 +216,7 @@ def manage_list(request):
             elif not upload:
                 messages.error(request, "请选择要上传的手册文件。")
             elif not kb_access.can_manage_kb(request.user, kb):
-                messages.error(request, "没有权限向该手册库上传（仅本部门库可管理）。")
+                messages.error(request, "没有权限向该知识库上传。")
             else:
                 try:
                     doc = _create_manual_document(
@@ -227,6 +229,7 @@ def manage_list(request):
                     messages.error(request, str(exc))
 
         elif action == "upload_structured":
+            if not kb_access.is_manager(request.user):raise Http404("无权导入公共数据")
             from .structured_data import FIELD_LABELS, StructuredDataError, import_structured_dataset
             upload = request.FILES.get("file")
             kind = (request.POST.get("kind") or "").strip()
@@ -248,20 +251,14 @@ def manage_list(request):
 
     # 顶层库（文件夹 + 独立文档库）扁平渲染；子库对用户透明，不单独展示。
     # 部门管理员只看到本部门的库；全局管理员看全部。
-    _kb_qs = KnowledgeBase.objects.filter(parent__isnull=True).order_by("name")
-    if not kb_access.is_global_admin(request.user):
-        _kb_qs = _kb_qs.filter(department=kb_access.user_department(request.user))
+    _kb_qs = kb_access.managed_kbs(request.user).filter(parent__isnull=True).order_by('name')
     kbs = list(_kb_qs.filter(category='manual'))
     from django.db.models import Count, Q
     business_kbs = _kb_qs.filter(category='business').annotate(
         business_row_count=Count('tracker__rows',filter=Q(tracker__rows__status='done')))
     from .models import StructuredDataset
     datasets = StructuredDataset.objects.filter(active=True).order_by("kind", "-created_at")
-    if not kb_access.is_global_admin(request.user):
-        from django.db.models import Q
-        from .models import DEPARTMENT_GENERAL
-        datasets = datasets.filter(Q(kb__isnull=True) | Q(
-            kb__department__in=[DEPARTMENT_GENERAL, kb_access.user_department(request.user)]))
+    datasets = datasets.filter(Q(kb__in=_kb_qs) | (Q(kb__isnull=True) if kb_access.is_manager(request.user) else Q(pk__in=[])))
     # 部门池（用户 ∪ 知识库；新部门唯一入口 = 用户管理页），表单只能从中选
     departments = kb_access.all_departments()
     return render(request, "kb/manage_list.html", {
@@ -272,6 +269,8 @@ def manage_list(request):
         "departments": departments,
         "is_global_admin": kb_access.is_global_admin(request.user),
         "my_department": kb_access.user_department(request.user),
+        "shared_manager": kb_access.is_manager(request.user),
+        "default_access_level": "individual" if not kb_access.is_manager(request.user) else "general" if kb_access.is_global_admin(request.user) or kb_access.user_department(request.user)=="通用" else "department",
     })
 
 
@@ -328,13 +327,16 @@ def manage_detail(request, slug):
         return redirect("kb:manage_detail", slug=slug)
 
     # ---------- GET：渲染 ----------
-    docs = _scope_docs(kb)
+    docs = _scope_docs(kb,request.user)
     docs_total, chunks_total = kb.aggregate_counts()
     return render(request, "kb/manage_detail.html", {
         "kb": kb,
         "docs": docs,
         "docs_total": docs_total,
         "chunks_total": chunks_total,
+        "is_global_admin": kb_access.is_global_admin(request.user),
+        "shared_manager": kb_access.is_manager(request.user),
+        "departments":kb_access.all_departments(),
     })
 
 
@@ -377,6 +379,7 @@ def manage_delete(request, slug):
 @_is_manager
 @login_required
 @require_http_methods(["POST"])
+@transaction.atomic
 def kb_rename(request, slug):
     """重命名知识库（名称 + 可选描述；slug 保持不变，避免迁移向量目录）。
 
@@ -392,6 +395,13 @@ def kb_rename(request, slug):
     department = (request.POST.get("department") or "").strip()
     if not name:
         return JsonResponse({"ok": False, "message": "名称不能为空"}, status=400)
+    if 'access_level' in request.POST:
+        try:
+            level=request.POST['access_level']
+            if kb.parent_id:
+                if level!=kb.access_level:raise ValueError('子文档继承所属知识库的访问范围。')
+            else:kb_access.set_access(kb,request.user,level,department)
+        except ValueError as exc:return JsonResponse({'ok':False,'message':str(exc)},status=400)
     kb.name = name
     update_fields = ["name", "updated_at"]
     if "description" in request.POST:
@@ -407,7 +417,7 @@ def kb_rename(request, slug):
         tr.save(update_fields=["enabled", "updated_at"])
     # 可选：一并改部门（文件夹级联更新所有子库）；仅全局管理员可改归属，
     # 且只接受部门池内的值。
-    if department and kb_access.is_global_admin(request.user):
+    if department and "access_level" not in request.POST and kb.visibility=="shared" and kb_access.is_global_admin(request.user):
         if department in kb_access.all_departments():
             from .access import set_kb_department
             set_kb_department(kb, department)
@@ -417,7 +427,7 @@ def kb_rename(request, slug):
     if is_ajax:
         kb.refresh_from_db()
         return JsonResponse({"ok": True, "name": kb.name, "department": kb.department,
-                             "description": kb.description})
+                             "description": kb.description,"access_level":kb.access_level,"access_label":kb.access_label})
     messages.success(request, f"已更新「{kb.name}」。")
     return redirect("kb:manage_list")
 
@@ -433,7 +443,7 @@ def doc_desc_update(request, slug, doc_id):
     kb = get_object_or_404(KnowledgeBase, slug=slug)
     if not kb_access.can_manage_kb(request.user, kb):
         raise Http404("知识库不存在")
-    doc = get_object_or_404(Document, id=doc_id, kb__in=_scope_kb_ids(kb))
+    doc = get_object_or_404(Document, id=doc_id, kb__in=_scope_kb_ids(kb,request.user))
     doc.description = (request.POST.get("description") or "").strip()[:200]
     doc.save(update_fields=["description", "updated_at"])
     return JsonResponse({"ok": True, "description": doc.description})
@@ -448,7 +458,7 @@ def doc_retry(request, slug, doc_id):
     kb = get_object_or_404(KnowledgeBase, slug=slug)
     if not kb_access.can_manage_kb(request.user, kb):
         raise Http404("知识库不存在")
-    doc = get_object_or_404(Document, id=doc_id, kb__in=_scope_kb_ids(kb))
+    doc = get_object_or_404(Document, id=doc_id, kb__in=_scope_kb_ids(kb,request.user))
     if doc.kb.slug.startswith('syncitem-'):
         return JsonResponse({'ok':False,'message':'自动更新文档请从数据源重试，避免绕过批次发布。'},status=409)
     changed = Document.objects.filter(id=doc.id, status=Document.Status.FAILED).update(
@@ -482,7 +492,7 @@ def doc_delete(request, slug, doc_id):
     if not kb_access.can_manage_kb(request.user, kb):
         raise Http404("知识库不存在")
 
-    doc = Document.objects.filter(id=doc_id, kb__in=_scope_kb_ids(kb)).first()
+    doc = Document.objects.filter(id=doc_id, kb__in=_scope_kb_ids(kb,request.user)).first()
     if doc is None:
         # 已不存在 → 幂等：AJAX 返回成功（附带提示），表单则重定向回详情
         if is_ajax:
@@ -559,7 +569,7 @@ def tracker_view(request, slug):
     if not kb_access.can_manage_kb(request.user, kb):
         raise Http404("知识库不存在")
     tr, _ = KbTracker.objects.get_or_create(kb=kb, defaults={"fields": []})
-    docs_qs = Document.objects.filter(kb_id__in=_scope_kb_ids(kb))
+    docs_qs = Document.objects.filter(kb_id__in=_scope_kb_ids(kb,request.user))
     _json_dumps = lambda obj: json.dumps(obj, ensure_ascii=False)  # noqa: E731
 
     # 回收卡死的行：daemon 线程随进程退出被杀，行会永久停在 running。
@@ -801,7 +811,7 @@ def doc_status_api(request, slug):
             "error": d.error_msg[:100] if d.error_msg else "",
             "desc": d.description or "",
         }
-        for d in _scope_docs(kb)
+        for d in _scope_docs(kb,request.user)
     ]
     kb.refresh_from_db()
     docs_total, chunks_total = kb.aggregate_counts()
@@ -1081,7 +1091,7 @@ def ask(request):
     # 注意：Conversation 上过滤要走 kb__department（kb_q 的裸 department 只适用于 KB 查询集）
     conversations = (
         Conversation.objects.filter(user=request.user)
-        .filter(kb__department__in=[kb_access.DEPARTMENT_GENERAL, kb_access.user_department(request.user)])
+        .filter(kb_access.conversation_q(request.user))
         .select_related("kb").only("id", "title", "thread_id", "kb__name", "updated_at", "created_at")
     )
     import re
@@ -1172,7 +1182,7 @@ def _route_kb_by_question(message: str, user):
 async def chat_stream(request):
     """SSE 流式问答端点。
 
-    参数: message, thread_id, kb_slug
+    参数: message, thread_id；知识库由代理在需要资料时自行选择。
     仅接受带 CSRF 校验的 POST——此前 csrf_exempt + 允许 GET 时，外站可用
     <img src=...?message=...> 伪造受害者名下的消息并消耗本地 GPU。
     """
@@ -1181,7 +1191,6 @@ async def chat_stream(request):
 
     message = (request.POST.get("message") or "").strip()
     thread_id = request.POST.get("thread_id") or ""
-    kb_slug = request.POST.get("kb_slug") or ""
 
     if not message:
         return HttpResponse("missing 'message'", status=400)
@@ -1196,51 +1205,26 @@ async def chat_stream(request):
         from . import access as kb_access
 
         user_dept = kb_access.user_department(request.user)
-        # kb_slug 可选：未指定时优先选「有向量块的文档库」（文件夹自身无向量），
-        # 再退到任意文件夹（可扇出搜索），最后退到任意库——均在用户可见范围内。
-        # 明确命名的范围由后端传给全部检索工具；模型不能扩大范围。
-        explicit_scope = _route_kb_by_question(message, request.user)
-        kb = explicit_scope  # Named equipment/folder takes precedence over stale UI scope.
-        if kb_slug and not kb:
-            kb = KnowledgeBase.objects.filter(slug=kb_slug).first()
-            if kb and not kb_access.kb_accessible(request.user, kb):
-                kb = None  # 指定了不可访问的库 → 视为未指定，走自动挑选
-        if not kb:
-            # 词面路由：问题明确提到某库/文档名 → 直接定位，避免无关库检索
-            kb = _route_kb_by_question(message, request.user)
-        if not kb:
-            kb = (
-                KnowledgeBase.objects.filter(kb_access.kb_q(request.user), is_folder=False, chunk_count__gt=0).first()
-                or KnowledgeBase.objects.filter(kb_access.kb_q(request.user), is_folder=False).first()
-                or KnowledgeBase.objects.filter(kb_access.kb_q(request.user), is_folder=True).first()
-                or KnowledgeBase.objects.filter(kb_access.kb_q(request.user)).first()
-            )
-        if not kb:
-            return None, None, False, "no knowledge base available"
+        # A general chat has no assigned KB. Only an explicit manual overview
+        # may preload that named document; it never becomes a conversation default.
+        from .manual_overview import is_manual_overview
+        overview_kb=_route_kb_by_question(message,request.user) if is_manual_overview(message) else None
         # 首条消息 → 创建会话；标题取消息前 30 字
         conv, created = Conversation.objects.get_or_create(
             thread_id=thread_id,
             defaults={
                 "user": request.user,
-                "kb": kb,
+                "kb": None,
                 "title": message[:30],
             },
         )
         # 安全：会话必须属于当前用户
         if conv.user_id != request.user.id:
             return None, None, False, "forbidden"
-        # 未明确点名时：延续会话已绑定的库作为【默认范围提示】——不硬锁定，
-        # agent 仍可检索其它可见库（内容不足/用户另提文档时）。
-        # 优先于前端传来的 kb_slug（旧客户端可能带过期值）。
-        if explicit_scope is None and conv.kb_id:
-            kb = conv.kb
-        if explicit_scope and conv.kb_id != explicit_scope.pk:
-            conv.kb = explicit_scope
-            conv.save(update_fields=['kb', 'updated_at'])
-        # 续聊旧会话：若其 KB 因部门调整已不可访问，回退到自动挑选
-        if not kb_access.kb_accessible(request.user, conv.kb):
-            conv.kb = kb
-            conv.save(update_fields=["kb", "updated_at"])
+        # Existing chats keep their old access guard, without using that KB
+        # as a search target or exposing it as a default in the model prompt.
+        if not kb_access.conversation_accessible(request.user,conv):
+            return None, None, False, "forbidden"
         from .answer_tasks import ACTIVE, reconcile
         reconcile(list(conv.messages.filter(completion_status__in=ACTIVE)))
         if conv.messages.filter(completion_status__in=ACTIVE).exists():
@@ -1258,8 +1242,8 @@ async def chat_stream(request):
         Message.objects.create(conversation=conv, role=Message.Role.USER, content=message)
         conv.save(update_fields=["updated_at"])  # 刷新排序
         answer = Message.objects.create(conversation=conv, role=Message.Role.AI, content="", completion_status="queued")
-        # Named documents update the default search target without erasing the chat.
-        allowed_slugs = None
+        # All tools enforce the same current-user allowlist; no KB is preselected.
+        allowed_slugs = sorted(kb_access.accessible_doc_slugs(request.user))
         cfg = {
             "conversation_id": str(conv.pk),
             "allowed_kb_slugs": allowed_slugs,
@@ -1270,8 +1254,7 @@ async def chat_stream(request):
             "user_id": request.user.id,
             "top_k": retrieval_settings()["top_k"],
             "department": user_dept,
-            # _prepare 已解析出的可访问默认库（async 流里不能查库，故在此带回）
-            "effective_kb_slug": kb.slug,
+            "overview_kb_slug":overview_kb.slug if overview_kb else "",
         }
         return conv, cfg, created, None
 
@@ -1282,8 +1265,6 @@ async def chat_stream(request):
     conv, agent_config, _created, prep_err = prepared
     if prep_err == "answer active":
         return JsonResponse({"message": "该会话已有回答任务，请等待或停止后再提问。"}, status=409)
-    if prep_err == "no knowledge base available":
-        return HttpResponse("暂无知识库，请先上传文档。", status=400)
     if conv is None:
         return HttpResponse("forbidden", status=403)
 
@@ -1315,11 +1296,10 @@ async def chat_stream(request):
                     Conversation.objects.filter(pk=conv.pk, user_id=request.user.pk).update(
                         agent_context=agent_config["next_context"])
             await sync_to_async(persist)()
-        effective_kb_slug = agent_config.get("effective_kb_slug") or conv.kb.slug
         try:
             from contextlib import aclosing
             async with aclosing(bounded_events(run_agent_stream(
-                message, full_thread, effective_kb_slug, agent_config,
+                message, full_thread, "", agent_config,
             ), timeout=settings.QA_TURN_TIMEOUT)) as events:
                 async for event_type, payload in events:
                     if event_type == "error":
@@ -1390,7 +1370,7 @@ def conversation_messages(request, thread_id):
     """
     from . import access as kb_access
     conv = get_object_or_404(Conversation, thread_id=thread_id, user=request.user)
-    if not kb_access.kb_accessible(request.user, conv.kb):
+    if not kb_access.conversation_accessible(request.user,conv):
         raise Http404("会话不存在")
     from .answer_tasks import ACTIVE, reconcile, state
     reconcile(list(conv.messages.filter(completion_status__in=ACTIVE)))
@@ -1402,7 +1382,7 @@ def conversation_messages(request, thread_id):
             msg["content"] = "此回答的来源已不可访问或已变化，请重新检索。"
             msg["citations"] = []
     return JsonResponse({"thread_id": conv.thread_id, "title": conv.title,
-                         "kb_slug": conv.kb.slug, "messages": msgs,
+                         "kb_slug": "", "messages": msgs,
                          "active_answer": ({"id": active.pk, **(state(active.pk) or {})} if active else None)})
 
 
@@ -1411,7 +1391,7 @@ def conversation_states(request):
     from django.db.models import Max, Q
     from . import access as kb_access
     from .answer_tasks import ACTIVE, reconcile
-    conversations = Conversation.objects.filter(user=request.user, kb__in=KnowledgeBase.objects.filter(kb_access.kb_q(request.user)))
+    conversations = Conversation.objects.filter(user=request.user).filter(kb_access.conversation_q(request.user))
     reconcile(list(Message.objects.filter(conversation__in=conversations, completion_status__in=ACTIVE)))
     rows = conversations.annotate(
         latest_answer=Max('messages__id', filter=Q(messages__role='ai', messages__completion_status='complete')),
@@ -1430,7 +1410,7 @@ def conversation_states(request):
 def conversation_read(request, thread_id):
     from . import access as kb_access
     conv = get_object_or_404(Conversation, thread_id=thread_id, user=request.user)
-    if not kb_access.kb_accessible(request.user, conv.kb):
+    if not kb_access.conversation_accessible(request.user,conv):
         raise Http404("会话不存在")
     try:
         answer_id = int(request.POST.get('answer_id', '0'))
@@ -1449,7 +1429,7 @@ def conversation_stop(request, thread_id):
     from . import access as kb_access
     from .answer_tasks import ACTIVE, stop
     conv = get_object_or_404(Conversation, thread_id=thread_id, user=request.user)
-    if not kb_access.kb_accessible(request.user, conv.kb):
+    if not kb_access.conversation_accessible(request.user,conv):
         raise Http404("会话不存在")
     count = sum(stop(row.pk) for row in conv.messages.filter(completion_status__in=ACTIVE))
     return JsonResponse({"ok": True, "stopping": bool(count)})
@@ -1499,8 +1479,7 @@ def _semantic_matches(user, query: str, k: int = 8) -> list[dict]:
     slugs = list(
         KnowledgeBase.objects.filter(
             is_folder=False, chunk_count__gt=0,
-            department__in=[DEPARTMENT_GENERAL, user_dept],
-        ).values_list("slug", flat=True)
+        ).filter(kb_access.kb_q(user)).values_list("slug", flat=True)
     )
     if not slugs:
         return []
@@ -1567,7 +1546,7 @@ def search_view(request):
     from .structured_data import lookup_related
 
     user_dept = kb_access.user_department(request.user)
-    lookup = lookup_related(q, department=user_dept) if q else None
+    lookup = lookup_related(q, department=user_dept,user=request.user) if q else None
     # 手册原文命中（行级字面匹配）对齐 chunk 溯源：chip 直接开证据面板定位
     if lookup and lookup.get("manual_matches"):
         try:
@@ -1589,7 +1568,7 @@ def search_view(request):
     )
     from django.db.models import Q
     from .models import DEPARTMENT_GENERAL
-    datasets = datasets.filter(Q(kb__isnull=True) | Q(kb__department__in=[DEPARTMENT_GENERAL, user_dept]))
+    datasets = datasets.filter(Q(kb__isnull=True) | kb_access.kb_q(request.user,"kb__"))
     return render(request, "kb/asset_lookup.html", {
         "q": q,
         "lookup": lookup,
@@ -1655,7 +1634,7 @@ def inspection_list(request):
     doc_id = request.GET.get("doc", "").strip()
     is_ajax = (request.headers.get("x-requested-with") == "XMLHttpRequest"
                or "application/json" in (request.META.get("HTTP_ACCEPT") or ""))
-    docs_qs = kb_access.accessible_docs(request)
+    docs_qs = kb_access.accessible_docs(request.user)
 
     # 指定文档 → 提取检查项并返回
     if doc_id:
@@ -1756,9 +1735,11 @@ def eval_panel(request):
                 messages.error(request, "删除失败：无效的问题 ID。")
         return redirect("kb:eval_panel")
 
+    from . import access as kb_access
+    visible_slugs=sorted(KnowledgeBase.objects.filter(kb_access.kb_q(request.user,admin_all=True)).values_list('slug',flat=True))
     report = None
     if request.GET.get("run") == "1":
-        report = run_eval()
+        report = run_eval(user=request.user)
         # session 瘦身：只存 summary + 每题命中名次 + 前 3 行明细
         # （全量报告 Q×库×top5 行文本可达 MB 级，会把 django_session 撑爆）
         slim = {
@@ -1770,8 +1751,9 @@ def eval_panel(request):
             ],
         }
         request.session["eval_report"] = slim
+        request.session["eval_report_scope"] = visible_slugs
     else:
-        report = request.session.get("eval_report")
+        report = request.session.get("eval_report") if request.session.get("eval_report_scope")==visible_slugs else None
 
     return render(request, "kb/eval.html", {
         "questions": EvalQuestion.objects.all().only(
@@ -2136,10 +2118,12 @@ def home(request):
     from django.db.models import Sum
 
     from .models import Document, KnowledgeBase
+    from . import access
+    visible=KnowledgeBase.objects.filter(access.kb_q(request.user) if request.user.is_authenticated else access.shared_q())
     return render(request, "home.html", {
-        "kb_count": KnowledgeBase.objects.filter(is_folder=True).count(),
-        "doc_count": Document.objects.filter(status=Document.Status.COMPLETED).count(),
-        "chunk_count": KnowledgeBase.objects.filter(is_folder=False)
+        "kb_count": visible.filter(is_folder=True).count(),
+        "doc_count": Document.objects.filter(kb__in=visible,status=Document.Status.COMPLETED).count(),
+        "chunk_count": visible.filter(is_folder=False)
                        .aggregate(n=Sum("chunk_count"))["n"] or 0,
     })
 

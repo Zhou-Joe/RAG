@@ -1,0 +1,14 @@
+.profile-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);align-items:start;gap:20px;max-width:1040px}
+.profile-grid .card{margin:0;padding:24px}
+.profile-hint{font-size:13px;line-height:1.65;color:var(--mute);margin:8px 0 22px}
+.profile-name-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.profile-form-actions{display:flex;justify-content:flex-end;margin-top:22px}
+.profile-grid .errorlist{color:var(--danger);font-size:12px;line-height:1.6;list-style:none;padding:0;margin:6px 0 0}
+.profile-grid [aria-invalid=true]{border-color:var(--danger)}
+.profile-account{margin:0 0 24px}
+.profile-account>div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:12px;padding:12px 0;border-bottom:1px solid var(--rule-soft)}
+.profile-account>div:first-child{padding-top:0}
+.profile-account dt{color:var(--mute);font-size:12.5px}
+.profile-account dd{margin:0;color:var(--text);font-size:13px;overflow-wrap:anywhere}
+@media(max-width:760px){.profile-grid{grid-template-columns:1fr}.profile-grid .card{padding:20px}}
+@media(max-width:420px){.profile-name-fields{grid-template-columns:1fr;gap:0}}

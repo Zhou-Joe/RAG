@@ -16,8 +16,7 @@ def managed_kbs(user):
     """管理页只列出当前用户可以管理的顶层知识库。"""
     from . import access
     rows = KnowledgeBase.objects.filter(parent__isnull=True).order_by('name', 'pk')
-    if not access.is_global_admin(user):
-        rows = rows.filter(department=access.user_department(user))
+    rows = rows.filter(access.managed_q(user))
     return rows
 
 
@@ -34,7 +33,7 @@ def management_state(user) -> dict:
     return {'ok': True, 'nodes': [{'slug': kb.slug, 'name': kb.name, 'category': kb.category,
         'department': kb.department, 'description': kb.description[:200],
         'document_count': documents.get(kb.pk, 0), 'record_count': records.get(kb.pk, 0),
-        'url': f'/kb/manage/{kb.slug}/tracker/' if kb.category == 'business' else f'/kb/manage/{kb.slug}/'} for kb in nodes],
+        'visibility':kb.visibility,'access_level':kb.access_level,'access_label':kb.access_label,'url': f'/kb/manage/{kb.slug}/','tracker_url':f'/kb/manage/{kb.slug}/tracker/' if kb.category=='business' else ''} for kb in nodes],
         'links': [{'id': link.pk, 'left': link.left.slug, 'right': link.right.slug, 'summary': link.summary}
                   for link in KnowledgeBaseLink.objects.filter(left_id__in=ids, right_id__in=ids)
                   .select_related('left', 'right')]}

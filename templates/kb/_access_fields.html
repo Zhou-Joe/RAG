@@ -1,0 +1,13 @@
+<div data-kb-access>
+  <div class="field"><label>访问范围</label><select name="access_level" data-access-level {% if scope_edit and kb.parent_id %}disabled{% endif %}>
+    <option value="individual" {% if kb.access_level == 'individual' or default_access_level == 'individual' %}selected{% endif %} {% if scope_edit and kb.created_by_id != user.pk %}disabled{% endif %}>个人（仅本人）</option>
+    {% if shared_manager %}
+    <option value="department" {% if kb.access_level == 'department' or default_access_level == 'department' %}selected{% endif %}>部门</option>
+    {% if is_global_admin or user_department == '通用' %}<option value="general" {% if kb.access_level == 'general' or default_access_level == 'general' %}selected{% endif %}>通用（所有用户）</option>{% endif %}
+    {% endif %}
+  </select><small>个人知识库仅创建者可查看、检索和管理。</small></div>
+  <div class="field" data-access-department><label>所属部门</label>
+    {% if is_global_admin %}<select name="department">{% for d in departments %}{% if d != '通用' %}<option value="{{ d }}" {% if d == kb.department %}selected{% endif %}>{{ d }}</option>{% endif %}{% endfor %}</select>
+    {% else %}<input type="hidden" name="department" value="{{ user_department }}"><span class="dept-badge">{{ user_department }}</span>{% endif %}
+  </div>
+</div>

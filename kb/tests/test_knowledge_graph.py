@@ -65,7 +65,7 @@ class KnowledgeGraphTests(TestCase):
                          evidence=evidence, citations=citations, allowed_kb_slugs=[self.kb.slug])
         tools = {tool.__name__: tool for tool in create.call_args.kwargs['tools']}
         with patch('kb.retriever.search') as search:
-            result = json.loads(tools['kb_graph_search']('E-1'))
+            result = json.loads(tools['kb_graph_search']('E-1',kb_slug=self.kb.slug))
             search.assert_not_called()
         self.assertEqual(len(result['facts']), 2)
         self.assertEqual(len(evidence), 2)

@@ -126,7 +126,8 @@ class KnowledgeLinkViewsTests(LinksFixture, TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 302)
         reader = get_user_model().objects.create_user('link-reader')
         self.client.force_login(reader)
-        self.assertEqual(self.client.get(self.url).status_code, 302)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+        self.assertEqual(self.client.get(self.url).json()['nodes'],[])
         csrf = Client(enforce_csrf_checks=True); csrf.force_login(self.user)
         self.assertEqual(csrf.post(self.url, '{}', content_type='application/json').status_code, 403)
         self.client.force_login(self.user)
@@ -321,7 +322,7 @@ class KnowledgeLinkAgentTests(LinksFixture, TransactionTestCase):
         other_row = {'doc_id': str(doc.pk), 'source': doc.original_name, 'chunk_id': 'other-chunk',
                      'text': '记录'*200+'实际维修记录：已核对参数。', 'page_label': '第2页'}
         sequence = [
-            ('kb_search', {'query': '限值'}), ('kb_read_chunks', {'candidate_ids': ['C1']}),
+            ('kb_search', {'query': '限值', 'kb_slug': self.manual.slug}), ('kb_read_chunks', {'candidate_ids': ['C1']}),
             ('kb_select_evidence', {'candidate_ids': ['C1']}),
             ('kb_search', {'query': '维修记录', 'kb_slug': self.other.slug}),
             ('kb_read_chunks', {'candidate_ids': ['C2']}),

@@ -20,7 +20,7 @@ from .models import KnowledgeBase, KnowledgeNode
 
 def libraries(user):
     rows=KnowledgeBase.objects.all()
-    return rows if access.is_global_admin(user) else rows.filter(access.kb_q(user))
+    return rows.filter(access.kb_q(user,admin_all=True))
 
 
 def scopes(request):

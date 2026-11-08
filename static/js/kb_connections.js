@@ -23,7 +23,7 @@ function element(tag,className,text) {
   if(text!==undefined)node.textContent=String(text);return node;
 }
 async function init(root) {
-  const {BubbleCanvas}=await import('./kb_connection_canvas.js?v=20261107-bubbles-3');
+  const {BubbleCanvas}=await import('./kb_connection_canvas.js?v=20261108-individual-4');
   const get=id=>document.getElementById(id),panel=get('klClusterView'),dialog=get('klDialog'),form=get('klForm');
   const left=get('klLeft'),right=get('klRight'),summary=get('klSummary'),error=get('klError'),save=get('klSave');
   let state=null,pending=null,view='category';
@@ -74,6 +74,7 @@ async function init(root) {
   }
   async function setView(next) {
     view=next;panel.hidden=view!=='cluster';
+    root.querySelectorAll('[data-bubble-only]').forEach(node=>node.hidden=view!=='cluster');
     graph.setVisible(view==='cluster');
     document.querySelectorAll('[data-kb-category]').forEach(node=>node.hidden=view==='cluster');
     root.querySelectorAll('[data-kb-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.kbView===view)));
@@ -92,6 +93,7 @@ async function init(root) {
     get('klDialogTitle').textContent=link ? '编辑关联备注' : '连接知识库';save.textContent=link ? '保存备注' : '保存关联';
   }
   async function openDialog(source='',linkId=null,target='') {
+    if(view!=='cluster')return;
     try{await ensureState();}catch(exc){graph.clearDraft();toast(exc.message,'err');return;}
     if(state.nodes.length<2){toast('至少需要两个知识库才能建立关联。');return;}
     const link=linkId!==null ? state.links.find(item=>item.id===Number(linkId)) : target ? matchingLink(source,target) : null;

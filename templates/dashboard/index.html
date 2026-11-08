@@ -159,9 +159,9 @@
   {% if recent %}
   <div class="dash-act-list">
     {% for c in recent %}
-    <a class="dash-act-row" href="/kb/ask/?kb={{ c.kb.slug }}">
+    <a class="dash-act-row" href="/kb/ask/?conv={{ c.thread_id }}">
       <span class="da-title">{{ c.title|default:"（无标题会话）" }}</span>
-      <span class="da-meta">{{ c.user.username }} · {{ c.kb.slug }} · {{ c.updated_at|date:"m-d H:i" }}</span>
+      <span class="da-meta">{{ c.user.username }} · {{ c.updated_at|date:"m-d H:i" }}</span>
     </a>
     {% endfor %}
   </div>

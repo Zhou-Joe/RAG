@@ -222,4 +222,4 @@ class TrackerAnalysisTests(TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 302)
         reader = get_user_model().objects.create_user('analysis-reader')
         self.client.force_login(reader)
-        self.assertEqual(self.client.get(self.url).status_code, 302)
+        self.assertEqual(self.client.get(self.url).status_code, 404)

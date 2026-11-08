@@ -39,7 +39,8 @@
   const csrf = () => composer.querySelector('[name=csrfmiddlewaretoken]').value;
 
   async function request(url, data) {
-    const headers = { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+    const headers = { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
+      'X-Interface-Language': window.FOSI18n?.language || document.documentElement.dataset.language || 'zh-hans' };
     const options = { headers, cache: 'no-store', signal: AbortSignal.timeout(15000) };
     if (data !== undefined) { options.method = 'POST'; headers['Content-Type'] = 'application/json'; headers['X-CSRFToken'] = csrf(); options.body = JSON.stringify(data); }
     const response = await fetch(url, options), payload = await response.json();
@@ -215,7 +216,7 @@
       if (text) { const answer = el('div', 'cx-answer');answer.dataset.nodeKey='answer'; answer.innerHTML = md(text); bot.append(answer); }
       else if (job.status === 'running') {
         const phase = [...(job.events || [])].reverse().find(ev => ev.kind === 'phase' || ev.kind === 'notice');
-        const answer=el('div', 'cx-answer cx-plain', phase ? phase.message : '正在读取页面并分析取数方式…');answer.dataset.nodeKey='answer';bot.append(answer);
+        const answer=el('div', 'cx-answer cx-plain', phase ? phase.message : '正在读取页面并分析取数方式…');answer.dataset.nodeKey='answer';answer.dataset.i18nUi='';bot.append(answer);
       }
     }
     if (job.browser_preview_url) {

@@ -15,7 +15,7 @@ from .kb_links import managed_kbs, management_state
 from .models import KnowledgeBaseLink
 
 
-@user_passes_test(access.is_manager)
+@user_passes_test(access.can_use_kbs)
 @login_required
 @never_cache
 @require_http_methods(['GET', 'POST'])

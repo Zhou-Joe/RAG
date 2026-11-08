@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST,require_GET
 
 from . import access, collector_api
+from fos_rag.interface_language import normalize_response_language
 from .feed_reports import delivery_context
 from .connector_agent import MAX_CALLS, MAX_TOOLS, MAX_SECONDS, authorize, recover_stale
 from .connector_tools import check_spec, redact
@@ -28,6 +29,10 @@ from .feed_http import validate_headers
 from .feed_protocol import validate_url
 from .feed_views import _managed
 from .models import ConnectorDraft, KnowledgeBase, KnowledgeFeed
+
+
+def _response_language(request):
+    return normalize_response_language(request.headers.get("X-Interface-Language") or getattr(request,"LANGUAGE_CODE",None))
 
 
 def _job(request, job_id):
@@ -52,7 +57,7 @@ def _json(job,*,after=None,before=None):
     if not events and after is None and before is None:events=job.events
     latest=activity.order_by('-id').values_list('id',flat=True).first() or 0
     last=rows[-1].pk if rows else after or 0
-    return {'id':str(job.pk),'status':job.status,'prompt':job.prompt,'spec':job.spec,'preview':job.preview,
+    return {'id':str(job.pk),'status':job.status,'response_language':job.response_language,'prompt':job.prompt,'spec':job.spec,'preview':job.preview,
         'report_delivery':delivery_context(job),
         'events':events,'event_cursor':last,'latest_event_id':latest,'has_more_events':last<latest,
         'older_event_cursor':rows[0].pk if rows else None,
@@ -119,7 +124,7 @@ def resume(request):
             remember_request_site(request.user,feed,request)
             job=ConnectorDraft.objects.filter(feed=feed,user=request.user).order_by('-created_at').first()
             if job is None:
-                job=_script_edit_root(request.user,feed)
+                job=_script_edit_root(request.user,feed,response_language=_response_language(request))
             from .connector_storage import retain_chain
             retain_chain(job)
         response=_thread_response(request,job)
@@ -127,13 +132,13 @@ def resume(request):
     except (ValueError,TypeError,AttributeError) as exc:return JsonResponse({'ok':False,'error':str(exc)},status=400)
 
 
-def _script_edit_root(user,feed) -> ConnectorDraft:
+def _script_edit_root(user,feed,*,response_language=None) -> ConnectorDraft:
     """只使用已批准脚本建立干净的编辑起点，不继承旧对话或工具观察。"""
     fields='、'.join(field['label'] for field in feed.adapter_spec.get('body_fields',[]))
     return ConnectorDraft.objects.create(user=user,kb=feed.kb,feed=feed,status='enabled',retain_context=True,
         prompt='维护已有采集任务「'+feed.name+'」。来源：'+feed.url+'。字段：'+fields+'。定时计划：'+feed.cron+'，时区：'+feed.timezone+'。请按用户后续要求修改现有脚本。',
         api_url=feed.url,spec={**feed.adapter_spec,'write_mode':feed.write_mode},credential=feed.credential,
-        header_env=feed.header_env,allow_private=feed.allow_private)
+        header_env=feed.header_env,allow_private=feed.allow_private,response_language=normalize_response_language(response_language))
 
 
 @login_required
@@ -159,7 +164,7 @@ def clear_context(request):
                 return JsonResponse({'ok':False,'error':'AI 正在执行，请先停止生成后再清空上下文。'},status=409)
             jobs.update(status='context_cleared',context_snapshot='',sample=None,browser_state={},events=[],
                 preview={},sources=[],questions=[],metrics={},error='',updated_at=timezone.now())
-            job=_script_edit_root(request.user,feed)
+            job=_script_edit_root(request.user,feed,response_language=_response_language(request))
             from .connector_sessions import discard
             transaction.on_commit(lambda:discard(ids,request.user.pk))
         return JsonResponse({'ok':True,'thread':[_json(job)],
@@ -199,7 +204,7 @@ def create(request):
         credential,headers=_credentials(request,data,url)
         job = collector_api.create_draft(user=request.user,requirement=data.get('prompt',''),api_url=url,
             credential=credential,header_env=headers,allow_private=data.get('allow_private',True),
-            sample=data.get('sample'),kb=kb,created_via='web',conversation=True)
+            sample=data.get('sample'),kb=kb,created_via='web',conversation=True,response_language=_response_language(request))
         return JsonResponse({'ok':True,'job':_json(job)},status=202)
     except RequestDataTooBig: return JsonResponse({'ok':False,'error':'请求内容过大。'},status=413)
     except (ValueError,TypeError,AttributeError) as exc: return JsonResponse({'ok':False,'error':str(exc)},status=400)
@@ -354,7 +359,7 @@ def refine(request,job_id):
         if feed:remember_request_site(request.user,feed,request)
         feedback=data.get('feedback','')
         job=collector_api.refine_draft(user=request.user,job=previous,requirement=feedback,
-            allow_private=data.get('allow_private',True),question_answers=data.get('question_answers'),**extra)
+            allow_private=data.get('allow_private',True),question_answers=data.get('question_answers'),response_language=_response_language(request),**extra)
         return JsonResponse({'ok':True,'job':_json(job)},status=202)
     except (ValueError,TypeError,AttributeError) as exc:return JsonResponse({'ok':False,'error':str(exc)},status=400)
 

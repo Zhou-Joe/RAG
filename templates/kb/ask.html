@@ -32,7 +32,7 @@
       <a class="conv-item{% if c.thread_id == active_thread %} active{% endif %}" href="?conv={{ c.thread_id }}"
          data-thread="{{ c.thread_id }}" data-title="{{ c.title }}">
         <span class="conv-title">{{ c.title }}</span>
-        <span class="conv-meta">{{ c.kb.name }} · {{ c.updated_at|date:"m-d H:i" }}</span>
+        <span class="conv-meta">{{ c.updated_at|date:"m-d H:i" }}</span>
         <button class="conv-del" type="button" title="删除此会话"
                 data-thread="{{ c.thread_id }}" data-title="{{ c.title }}" aria-label="删除会话">×</button>
       </a>

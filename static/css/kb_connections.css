@@ -79,3 +79,5 @@
 @media(max-width:620px){.kl-toolbar{align-items:stretch}.kl-view-switch button{padding:7px 10px;font-size:12px}.kl-toolbar>.btn{font-size:12px}.kl-intro{align-items:stretch;flex-direction:column;gap:12px}.kl-intro input{width:100%}.kl-meta{align-items:flex-start;flex-direction:column;gap:5px}.kl-meta .kl-key:first-child{margin-left:0}.kl-pair{grid-template-columns:minmax(0,1fr)}.kl-pair>span{display:none}.kl-link-row{padding:12px}.kl-canvas{height:520px}.kl-canvas-hint{top:14px;bottom:auto;left:14px;font-size:10px}.kl-canvas-tools{bottom:12px;right:12px}.kl-selection{align-items:flex-start;flex-direction:column}.kl-pair-preview{gap:9px;padding:12px}}
 @media(prefers-reduced-motion:reduce){.kl-draft-wire,.kl-edge.is-new .kl-edge-line,.kl-edge.is-new .kl-edge-glow,.kl-bubble.is-settling .kl-bubble-body{animation:none}.kl-bubble-body,.kl-port::before{transition:none}}
 @media(pointer:coarse){.kl-wire-toolbar button{width:44px;height:44px}}
+
+[data-bubble-only][hidden],[data-access-department][hidden]{display:none!important}

@@ -35,8 +35,7 @@ def visible_documents(user):
     from kb.models import Document
     from kb import access
     qs = Document.objects.select_related("kb").filter(status=Document.Status.COMPLETED)
-    if not access.is_global_admin(user):
-        qs = qs.filter(kb__department__in=["通用", access.user_department(user)])
+    qs = qs.filter(access.kb_q(user,'kb__',admin_all=True))
     return qs
 
 

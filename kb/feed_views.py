@@ -32,8 +32,8 @@ from .publication import digest
 
 
 def _managed(user):
-    if not access.is_manager(user):raise Http404('页面不存在')
-    return KnowledgeBase.objects.filter(is_folder=True,**({} if access.is_global_admin(user) else {'department':access.user_department(user)}))
+    if not access.can_use_kbs(user):raise Http404('页面不存在')
+    return access.managed_kbs(user).filter(is_folder=True)
 
 
 def _run_json(run):
@@ -124,7 +124,7 @@ def action(request):
                         department=data.get('department',DEPARTMENT_GENERAL) if access.is_global_admin(request.user) else access.user_department(request.user)
                         if department not in access.all_departments():raise ValueError('请选择已有部门。')
                         kb=KnowledgeBase.objects.create(name=kb_name,slug='auto-'+uuid.uuid4().hex[:20],is_folder=True,category='business',
-                            description='API 自动更新知识库',department=department,created_by=request.user)
+                            description='API 自动更新知识库',created_by=request.user,**access.creation_fields(request.user,data.get('access_level'),department))
                     feed=KnowledgeFeed(kb=kb)
                 else:
                     feed=get_object_or_404(KnowledgeFeed.objects.select_for_update().filter(kb__in=libraries),pk=data.get('id'))

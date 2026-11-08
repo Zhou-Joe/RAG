@@ -308,7 +308,7 @@ def _direct_lookup_query(normalized: str, partial: bool = False) -> Q:
     return query
 
 
-def lookup_related(query_text: str, department: str = "") -> dict[str, Any]:
+def lookup_related(query_text: str, department: str = "", *, user=None) -> dict[str, Any]:
     """统一搜索业务键，并沿关联键进行最多三轮确定性跨表关联。
 
     department：手册全文搜索按部门过滤（空 = 不过滤，仅内部/兼容用途；
@@ -322,10 +322,11 @@ def lookup_related(query_text: str, department: str = "") -> dict[str, Any]:
         }
 
     base = StructuredRecord.objects.filter(dataset__active=True).select_related("dataset")
-    if department:
-        from .models import DEPARTMENT_GENERAL
-        base = base.filter(Q(dataset__kb__isnull=True) | Q(
-            dataset__kb__department__in=[DEPARTMENT_GENERAL, department]))
+    from . import access
+    from .models import KnowledgeBase,DEPARTMENT_GENERAL
+    allowed=KnowledgeBase.objects.filter(access.kb_q(user) if user is not None else access.shared_q())
+    if user is None and department:allowed=allowed.filter(department__in=[DEPARTMENT_GENERAL,department])
+    base=base.filter(Q(dataset__kb__isnull=True)|Q(dataset__kb__in=allowed))
     records = list(base.filter(_direct_lookup_query(normalized))[:500])
     match_mode = "exact"
     if not records:
@@ -369,9 +370,7 @@ def lookup_related(query_text: str, department: str = "") -> dict[str, Any]:
     ]
 
     doc_qs = Document.objects.filter(status=Document.Status.COMPLETED)
-    if department:
-        from .models import DEPARTMENT_GENERAL
-        doc_qs = doc_qs.filter(kb__department__in=[DEPARTMENT_GENERAL, department])
+    doc_qs=doc_qs.filter(kb__in=allowed)
     docs = list(
         doc_qs.select_related("kb").only("id", "original_name", "md_content", "kb__name")
     )

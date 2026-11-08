@@ -74,7 +74,7 @@ API脚本使用标准库，网页脚本使用已安装的Playwright和Chromium�
 
 def authorize(job: ConnectorDraft) -> None:
     """每次模型或工具操作前复核当前账号与目标库权限。"""
-    if not job.user or not job.user.is_active or not access.is_manager(job.user):
+    if not job.user or not job.user.is_active or not access.can_use_kbs(job.user):
         raise ValueError('账号已停用或失去管理权限，生成已停止。')
     if job.kb and not access.can_manage_kb(job.user, job.kb):
         raise ValueError('已失去目标知识库管理权限。')
@@ -583,26 +583,32 @@ def run(job_id) -> ConnectorDraft:
         checkpoint()
         progress.secrets = secret_values(job)
         progress.emit('phase',message='正在理解当前消息并接续对话。')
-        cfg=llm_settings();vision_enabled=bool(cfg.get('vision'))
+        from fos_rag.interface_language import normalize_response_language, response_language_instruction
+        cfg={**llm_settings(),'response_language':normalize_response_language(job.response_language)}
+        vision_enabled=bool(cfg.get('vision'))
+        language_instruction=response_language_instruction(cfg['response_language'])
+        current_reply_language='\n\nCurrent reply language for this turn (earlier replies and internal tool instructions do not set the reply language):\n'+language_instruction
         from .connector_schema import model_tools
         from .connector_context import conversation_context,clock_context
         from .connector_guide import TOOL_GUIDE
         model = _get_llm({**cfg,'single_request_connections':True}).bind_tools(model_tools(tools.values()),max_tokens=8192,timeout=120,stream_usage=True)
         context=conversation_context(job) if job.parent_id else {}
         current_time=clock_context()
+        system_instruction=INSTRUCTION+TOOL_GUIDE+'\n\n'+language_instruction
         if messages:
             messages=connector_sessions.complete_tool_groups(messages)
-            if isinstance(messages[0],SystemMessage):messages[0]=SystemMessage(content=INSTRUCTION+TOOL_GUIDE)
+            if isinstance(messages[0],SystemMessage):messages[0]=SystemMessage(content=system_instruction)
+            else:messages.insert(0,SystemMessage(content=system_instruction))
             restart=('已从持久保存的上下文恢复。上次浏览器已释放，旧@e编号不可用；如需网页操作先browser_open打开已知地址。已有记录可用于问答；仅当前明确要求修改取数方案时才重新实际取数验证，普通问题无需重新采集。' if resumed.get('restored_from_storage') else '沿用已获得的页面、工具结果、数据和脚本；仅在必要时补充读取。')
             messages.append(HumanMessage(content='用户当前消息（按本条意图回答，不自动重跑原任务）：'+clean(job.feedback)+'。'+restart+
                 '本轮当前时间（覆盖历史时间）：'+json.dumps(current_time,ensure_ascii=False)+
                 '当前已确认的脚本（写入模式如无新要求须保留）：'+json.dumps(clean(context.get('previous_connector',{})),ensure_ascii=False)+
-                '；当前报告发送设置与本站部署地址（优先使用，不重复询问）：'+json.dumps(clean(context.get('report_delivery',{})),ensure_ascii=False)))
+                '；当前报告发送设置与本站部署地址（优先使用，不重复询问）：'+json.dumps(clean(context.get('report_delivery',{})),ensure_ascii=False)+current_reply_language))
             progress.emit('resume',message='已恢复保存的模型上下文与工具结果。' if resumed.get('restored_from_storage') else '已接续完整模型上下文、工具结果及浏览器。')
             metrics['context_resumed']=True
             metrics['context_source']='saved' if resumed.get('restored_from_storage') else 'live'
-        else:messages = [SystemMessage(content=INSTRUCTION+TOOL_GUIDE), HumanMessage(content=json.dumps(clean({
-            'current_time':current_time,'requirement':job.prompt,'api_url':job.api_url,'header_env':job.header_env,'authentication':summary(job),
+        else:messages = [SystemMessage(content=system_instruction), HumanMessage(content=json.dumps(clean({
+            'current_time':current_time,'response_language':cfg['response_language'],'requirement':job.prompt,'api_url':job.api_url,'header_env':job.header_env,'authentication':summary(job),
             **context,
             'sample':sample if sample is None else json.dumps(sample,ensure_ascii=False)[:12000]}),ensure_ascii=False))]
         for turn in range(MAX_CALLS):

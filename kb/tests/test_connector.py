@@ -296,7 +296,8 @@ class ConnectorViewsTests(TestCase):
         job=self.ready();self.client.force_login(self.other)
         self.assertEqual(self.client.get(reverse('kb:connector_status',args=[job.pk])).status_code,404)
         self.assertEqual(self.client.post(reverse('kb:connector_enable',args=[job.pk]),'{}',content_type='application/json').status_code,404)
-        self.client.force_login(self.reader);self.assertEqual(self.client.get(reverse('kb:connector_builder')).status_code,404)
+        self.client.force_login(self.reader);self.assertEqual(self.client.get(reverse('kb:connector_builder')).status_code,200)
+        self.assertEqual(self.client.get(reverse('kb:connector_status',args=[job.pk])).status_code,404)
 
     def test_invalid_input_and_unapproved_job_do_not_create_kb(self):
         self.assertEqual(self.create(header_env={'Authorization':'NOT_APPROVED'}).status_code,400)

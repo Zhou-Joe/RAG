@@ -47,7 +47,7 @@
   if(typeof module!=='undefined'&&module.exports)module.exports={translate,compile,api};
   global.FOSI18n=api;if(!global.document)return;
   const document=global.document;
-  const protectedSelector='script,style,noscript,code,pre,[translate="no"],[data-i18n-ignore],.notranslate,[contenteditable="true"],.answer:not([data-i18n-ui]),.msg.user .bubble,.rag-chat-message-content,.cx-user-text,.cx-answer,.cx-sample,.graph-live-excerpt,.vt-ai-text,.ev-quote,.slice-snip,.slice-content,.doc-body,.doc-viewer,.markdown-body,.kb-mono,.conv-title,.conv-meta,.dash-kb-name,.da-title,.da-meta,.slice-doc,.doc-name-text,.eval-q-text,.eval-text,.eval-kb';
+  const protectedSelector='script,style,noscript,code,pre,[translate="no"],[data-i18n-ignore],.notranslate,[contenteditable="true"],.answer:not([data-i18n-ui]),.msg.user .bubble,.rag-chat-message-content,.cx-user-text,.cx-answer:not([data-i18n-ui]),.cx-sample,.graph-live-excerpt,.vt-ai-text,.ev-quote,.slice-snip,.slice-content,.doc-body,.doc-viewer,.markdown-body,.kb-mono,.conv-title,.conv-meta,.dash-kb-name,.da-title,.da-meta,.slice-doc,.doc-name-text,.eval-q-text,.eval-text,.eval-kb';
   const attributes=['title','placeholder','aria-label','aria-description','alt','data-confirm','data-confirm-title','data-confirm-ok'];
   const originals=new WeakMap(),attributeOriginals=new WeakMap();
   function isProtected(element){return !element||!!element.closest(protectedSelector);}

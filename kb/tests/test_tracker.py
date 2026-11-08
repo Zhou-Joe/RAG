@@ -163,8 +163,8 @@ class TrackerViewTests(TestCase):
         other = get_user_model().objects.create_user(username="trk-noob", password="pw")
         self.client.force_login(other)
         r = self.client.get(self.url)
-        # 与其它管理页一致：非管理员被 user_passes_test 重定向到登录页
-        self.assertEqual(r.status_code, 302)
+        # 普通用户可管理自己的个人库，但无权查看这个共享库的管理页。
+        self.assertEqual(r.status_code, 404)
 
     def test_xlsx_export_with_values(self):
         tr = KbTracker.objects.create(

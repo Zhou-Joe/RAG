@@ -42,7 +42,7 @@ urlpatterns = [
     path("graph/structure/", hierarchy_views.structure, name="knowledge_structure"),
     path("graph/structure/action/", hierarchy_views.action, name="knowledge_action"),
     path("graph/relation/<int:relation_id>/", graph_views.graph_relation, name="graph_relation"),
-    # 管理页面（仅 staff）
+    # 知识库管理（共享库管理员或个人库创建者）
     path("manage/", views.manage_list, name="manage_list"),
     path("manage/connections/state/", kb_link_views.connections, name="kb_connections"),
     path("manage/<slug:slug>/", views.manage_detail, name="manage_detail"),

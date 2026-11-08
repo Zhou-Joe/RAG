@@ -63,3 +63,17 @@ def load_context(conversation, user):
     except (KeyError, ValueError, TypeError):
         return {}
     return context
+
+
+def remove_legacy_kb_defaults(messages):
+    """Remove only the old injected first line, preserving user text and tool data."""
+    import re
+    from langchain_core.messages import HumanMessage
+    prefix=re.compile(r'^【当前默认知识库：[^\r\n】]*】\r?\n')
+    cleaned=[]
+    for message in messages:
+        if isinstance(message,HumanMessage) and isinstance(message.content,str):
+            text=prefix.sub('',message.content,count=1)
+            if text!=message.content:message=message.model_copy(update={'content':text})
+        cleaned.append(message)
+    return cleaned

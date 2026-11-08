@@ -24,7 +24,7 @@ class UserProfile(models.Model):
     )
     role = models.CharField(
         "账号级别", max_length=20, choices=Role.choices, default=Role.USER,
-        help_text="部门管理员可管理本部门的知识库（建库/上传/改名/删除）；普通用户只读。",
+        help_text="部门管理员可管理本部门的共享知识库；所有用户可创建和管理仅本人可访问的个人知识库。",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

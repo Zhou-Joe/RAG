@@ -180,7 +180,22 @@
     "待处理": "Pending",
     "通用（通用 = 所有部门可见）": "General (visible to every department)",
     "部门：通用（通用 = 所有部门可见）": "Department: General (visible to every department)",
-    "Department: 通用（通用 = 所有部门可见）": "Department: General (visible to every department)"
+    "Department: 通用（通用 = 所有部门可见）": "Department: General (visible to every department)",
+    "个人信息": "Personal information",
+    "个人信息 · SHDR RAG": "Personal information · SHDR RAG",
+    "查看账号信息，更新姓名与联系邮箱。": "View your account and update your name and contact email.",
+    "基本资料": "Personal details",
+    "姓名与联系邮箱为选填项。": "Name and contact email are optional.",
+    "请检查下方填写的信息。": "Check the information below.",
+    "姓氏": "Last name",
+    "名字": "First name",
+    "联系邮箱": "Contact email",
+    "账号信息": "Account details",
+    "部门和账号级别由管理员维护。": "Your department and account role are managed by an administrator.",
+    "上次登录": "Last sign-in",
+    "未记录": "Not recorded",
+    "管理我的知识库": "Manage my knowledge bases",
+    "个人信息已保存。": "Your personal information has been saved."
   },
   "patterns": [
     {

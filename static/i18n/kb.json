@@ -1210,7 +1210,19 @@
     "请选择独立的报告发送频率。": "Choose an independent report delivery frequency.",
     "仅任务创建者可编辑。链接加密保存，EnGenie 自动使用；报告内容在对话中设置，发送频率也可在任务卡片中调整。": "Only the task creator can edit these encrypted links. EnGenie uses them automatically. Set report content in chat; delivery frequency can also be changed on the task card.",
     "尚未确认报告计划。请先在对话中确认报告，再管理发送频率。": "No report schedule has been confirmed. Confirm the report in chat first, then manage its delivery frequency.",
-    "打开报告对话": "Open report chat"
+    "打开报告对话": "Open report chat",
+    "访问范围": "Access level",
+    "个人（仅本人）": "Individual (only me)",
+    "个人知识库仅创建者可查看、检索和管理。": "Only the creator can view, search and manage an individual knowledge base.",
+    "通用（所有用户）": "General (all users)",
+    "知识库主页": "Knowledge base home",
+    "普通用户只能创建个人知识库。": "Regular users can only create individual knowledge bases.",
+    "仅创建者可将知识库设为个人。": "Only the creator can make this knowledge base individual.",
+    "子文档继承所属知识库的访问范围。": "Documents inherit their knowledge base access level.",
+    "请选择有效的访问范围。": "Select a valid access level.",
+    "无权创建通用知识库。": "You cannot create a general knowledge base.",
+    "请选择具体部门，或使用通用访问范围。": "Select a department or use general access.",
+    "没有权限向该知识库上传。": "You cannot upload to this knowledge base."
   },
   "patterns": [
     {

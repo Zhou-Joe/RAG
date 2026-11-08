@@ -1,4 +1,4 @@
-{% extends "kb/_base.html" %}
+{% extends "kb/_base.html" %}{% load static %}
 {% block title %}资料上传中心 · SHDR RAG{% endblock %}
 {% block content %}
 <header class="page-head">
@@ -27,16 +27,7 @@
       <input name="name" required maxlength="80"></div>
     <div class="field"><label>描述（可选，会展示给 AI 帮它判断该搜哪个库）</label>
       <input name="description" maxlength="200"></div>
-    <div class="field"><label>部门（通用 = 所有人可见）</label>
-      {% if is_global_admin %}
-      <select name="department">
-        {% for d in departments %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-      </select>
-      {% else %}
-      <input type="hidden" name="department" value="{{ my_department }}">
-      <span class="dept-badge">{{ my_department }}</span>
-      {% endif %}
-    </div>
+    {% include "kb/_access_fields.html" %}
     <div class="dialog-err" id="kbCreateErr" hidden></div>
     <div class="dialog-actions">
       <button type="button" class="btn outline" id="kbCreateCancel">取消</button>
@@ -51,7 +42,7 @@
     <div class="pbody">
       <div class="kb-top">
         <span class="kb-mono" aria-hidden="true">{{ kb.name|first|upper }}</span>
-        <div class="kb-name" data-name>{{ kb.name }} <span class="dept-badge" data-dept-badge title="部门：{{ kb.department }}（通用 = 所有部门可见）">{{ kb.department }}</span>{% if kb.embedding_label %} <span class="emb-badge" title="该库向量所用的 embedding 模型（向量化时自动记录）">{{ kb.embedding_label }}</span>{% endif %}</div>
+        <div class="kb-name" data-name>{{ kb.name }} <span class="dept-badge" data-dept-badge title="{{ kb.access_label }}">{{ kb.access_label }}</span>{% if kb.embedding_label %} <span class="emb-badge" title="该库向量所用的 embedding 模型（向量化时自动记录）">{{ kb.embedding_label }}</span>{% endif %}</div>
       </div>
       {% with counts=kb.aggregate_counts %}
       <div class="kb-stats">
@@ -60,11 +51,10 @@
       </div>
       {% endwith %}
       <div class="kb-actions" data-actions>
-        <a class="btn sm primary" href="/kb/manage/{{ kb.slug }}/">管理 / 上传</a>
+        <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>
         <a class="btn sm outline" href="/kb/ask/?kb={{ kb.slug }}">检索</a>
-        <button class="btn sm outline" type="button" data-kb-connect="{{ kb.slug }}">关联</button>
         <button class="btn sm outline" type="button" data-rn-toggle
-                data-slug="{{ kb.slug }}" data-name="{{ kb.name }}" data-dept="{{ kb.department }}">改名</button>
+                data-slug="{{ kb.slug }}" data-name="{{ kb.name }}" data-dept="{{ kb.department }}" data-access="{{ kb.access_level }}" data-individual="{% if kb.created_by_id == user.pk %}true{% else %}false{% endif %}">改名</button>
         <form method="post" action="/kb/manage/{{ kb.slug }}/delete/" style="display:inline"
               data-confirm-title="删除知识库"
               data-confirm="确定删除「{{ kb.name }}」？{{ kb.aggregate_counts.0 }} 份文档及所有向量数据将丢失。">
@@ -84,12 +74,7 @@
     {% csrf_token %}
     <div class="dialog-title">编辑知识库</div>
     <div class="field"><label>名称</label><input name="name" required></div>
-    {% if is_global_admin %}
-    <div class="field"><label>部门（通用 = 所有部门可见；文件夹会同步其下全部子库）</label>
-      <select name="department">
-        {% for d in departments %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
-      </select></div>
-    {% endif %}
+    {% include "kb/_access_fields.html" %}
     <div class="dialog-err" id="kbRenameErr" hidden></div>
     <div class="dialog-actions">
       <button type="button" class="btn outline" id="kbRenameCancel">取消</button>
@@ -107,12 +92,12 @@
   <div class="dataset-grid">
     {% for kb in business_kbs %}
     <article data-business-slug="{{ kb.slug }}">
-      <span>自动采集 · {{ kb.department }}</span>
+      <span>自动采集 · {{ kb.access_label }}</span>
       <strong title="{{ kb.name }}">{{ kb.name }}</strong>
       <small>{{ kb.business_row_count }} 条记录</small>
       <div class="kb-actions">
-        <a class="btn sm primary" href="{% url 'kb:tracker' kb.slug %}">查看追踪表</a>
-        <button class="btn sm outline" type="button" data-kb-connect="{{ kb.slug }}">关联</button>
+        <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>
+        <a class="btn sm outline" href="{% url 'kb:tracker' kb.slug %}">查看追踪表</a>
         <a class="btn sm outline" href="{% url 'kb:feeds' %}?kb={{ kb.slug }}">管理自动更新</a>
         <form method="post" action="{% url 'kb:manage_delete' kb.slug %}" style="display:inline"
               data-confirm-title="删除采集库"
@@ -137,7 +122,7 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
+{% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
 <style>
 .dataset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
 .dataset-grid article{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border:1px solid var(--rule);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-sm)}
@@ -217,6 +202,8 @@ function getCSRFToken(){
     form.name.value = t.dataset.name || '';
     const dept = form.querySelector('[name=department]');
     if (dept && t.dataset.dept) dept.value = t.dataset.dept;
+    const scope=form.querySelector('[name=access_level]');if(scope){scope.value=t.dataset.access||'department';scope.querySelector('[value=individual]').disabled=t.dataset.individual!=='true';}
+    window.KBAccessFields?.sync(form);
     err.hidden = true;
     dlg.showModal();
     form.name.focus();
@@ -234,20 +221,19 @@ function getCSRFToken(){
         headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCSRFToken() },
         body: fd,
       });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
-      if (!data.ok) throw new Error(data.message || '保存失败');
+      if (!resp.ok||!data.ok) throw new Error(data.message || '保存失败');
       // 回写卡片：只替换文本节点，保留部门徽章元素；改密按钮的 data 也同步
       if (currentCard) {
         const nameEl = currentCard.querySelector('[data-name]');
         if (nameEl) nameEl.childNodes[0].nodeValue = data.name + ' ';
         const badge = currentCard.querySelector('[data-dept-badge]');
         if (badge && data.department) {
-          badge.textContent = data.department;
-          badge.title = '部门：' + data.department + '（通用 = 所有部门可见）';
+          badge.textContent = data.access_label||data.department;
+          badge.title = data.access_label||data.department;
         }
         const t = currentCard.querySelector('[data-rn-toggle]');
-        if (t) { t.dataset.name = data.name; t.dataset.dept = data.department || ''; }
+        if (t) { t.dataset.name = data.name; t.dataset.dept = data.department || '';t.dataset.access=data.access_level||'department'; }
       }
       dlg.close();
       if (window.fosToast) fosToast('已保存', 'ok');

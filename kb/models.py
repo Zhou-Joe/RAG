@@ -38,6 +38,7 @@ class KnowledgeBase(models.Model):
     department = models.CharField(
         "部门", max_length=50, default=DEPARTMENT_GENERAL,
     )
+    visibility = models.CharField('访问范围',max_length=16,choices=[('shared','通用/部门'),('individual','个人（仅本人）')],default='shared',db_index=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="knowledge_bases",
@@ -61,6 +62,28 @@ class KnowledgeBase(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def access_level(self):
+        root=self.parent if self.parent_id else self
+        return 'individual' if root.visibility=='individual' else 'general' if root.department==DEPARTMENT_GENERAL else 'department'
+
+    @property
+    def access_label(self):
+        return '个人（仅本人）' if self.access_level=='individual' else self.department
+
+    def save(self,*args,**kwargs):
+        old=None
+        scope_update=kwargs.get('update_fields') is None or bool(set(kwargs['update_fields'])&{'visibility','department'})
+        if self.is_folder and not self._state.adding and scope_update:
+            old=type(self).objects.filter(pk=self.pk).values_list('visibility','department').first()
+        if self.parent_id:
+            parent=self.parent;self.visibility=parent.visibility
+            if parent.visibility=='individual':self.department=parent.department
+            if kwargs.get('update_fields') is not None:kwargs['update_fields']=set(kwargs['update_fields'])|{'visibility'}|({'department'} if parent.visibility=='individual' else set())
+        super().save(*args,**kwargs)
+        if old is not None and old!=(self.visibility,self.department):
+            self.children.update(visibility=self.visibility,department=self.department)
 
     def aggregate_counts(self) -> tuple[int, int]:
         """文件夹：聚合所有子文档库的 doc_count/chunk_count。文档库：返回自身值。"""
@@ -478,7 +501,8 @@ class Conversation(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="conversations",
     )
-    kb = models.ForeignKey(KnowledgeBase, on_delete=models.CASCADE, related_name="conversations")
+    # Legacy access restriction only; new general chats leave this unset.
+    kb = models.ForeignKey(KnowledgeBase, on_delete=models.CASCADE, related_name="conversations",null=True,blank=True)
     title = models.CharField("标题", max_length=120, default="新对话")
     thread_id = models.CharField("会话线程", max_length=80, unique=True)
     last_read_answer_id = models.PositiveBigIntegerField(default=0)
@@ -843,6 +867,7 @@ class ConnectorDraft(models.Model):
     feed = models.ForeignKey(KnowledgeFeed, null=True, blank=True, on_delete=models.SET_NULL)
     parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='revisions')
     feedback = models.TextField('预览调整要求', blank=True)
+    response_language = models.CharField('回复语言',max_length=10,choices=[('zh-hans','简体中文'),('en','English')],default='zh-hans')
     prompt = models.TextField()
     api_url = models.URLField(max_length=2000, blank=True)
     header_env = models.JSONField(default=dict, blank=True)

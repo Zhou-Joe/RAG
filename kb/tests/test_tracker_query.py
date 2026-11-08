@@ -207,7 +207,7 @@ class TrackerQueryTests(TrackerFixture, TestCase):
         self.assertIn('between', filters['properties']['op']['enum'])
         metric = schema['properties']['metrics']['anyOf'][0]['items']
         self.assertIn('as', metric['properties'])
-        result=json.loads(tools['tracker_lookup'](metrics=[{'op':'count'}]))
+        result=json.loads(tools['tracker_lookup'](kb_slug=self.kb.slug,metrics=[{'op':'count'}]))
         self.assertEqual(result['groups'][0]['metrics']['count'],1)
         self.assertEqual(evidence[0]['kind'],'tracker')
         self.assertEqual(citations[0]['kind'],'tracker')
@@ -228,8 +228,9 @@ class TrackerAgentExecutionTests(TrackerFixture, TransactionTestCase):
         self.row(采集日期='2025-11-06',场次数=3)
         self.row(采集日期='2025-11-07',场次数=4)
         model=PlannedTrackerModel(responses=[
-            AIMessage(content='',tool_calls=[{'id':'preview','name':'tracker_preview','args':{}}]),
+            AIMessage(content='',tool_calls=[{'id':'preview','name':'tracker_preview','args':{'kb_slug':self.kb.slug}}]),
             AIMessage(content='',tool_calls=[{'id':'lookup','name':'tracker_lookup','args':{
+                'kb_slug':self.kb.slug,
                 'filters':[{'field':'采集日期','op':'between','type':'date','value':['2025-01-01','2025-12-31']}],
                 'metrics':[{'op':'sum','field':'场次数','as':'总场次'}]}}]),
             AIMessage(content='2025 年总场次为 7。')])

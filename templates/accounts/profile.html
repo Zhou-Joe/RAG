@@ -1,0 +1,43 @@
+{% extends "kb/_base.html" %}
+{% load static %}
+{% block title %}个人信息 · SHDR RAG{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/account_profile.css' %}?v=1">{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div class="page-head-main">
+    <a class="page-back" href="{% url 'home' %}">返回首页</a>
+    <h1>个人信息</h1>
+    <p class="page-desc">查看账号信息，更新姓名与联系邮箱。</p>
+  </div>
+  <div class="page-actions"><button type="button" class="btn outline pw-open">修改密码</button></div>
+</header>
+<div class="profile-grid">
+  <section class="card" aria-labelledby="profileDetailsTitle">
+    <h2 class="card-title" id="profileDetailsTitle">基本资料</h2>
+    <p class="profile-hint">姓名与联系邮箱为选填项。</p>
+    <form method="post" action="{% url 'accounts:profile' %}">
+      {% csrf_token %}
+      {% if form.errors %}<div class="msg-error" role="alert">请检查下方填写的信息。</div>{% endif %}
+      {{ form.non_field_errors }}
+      <div class="profile-name-fields">
+        <div class="field"><label for="{{ form.last_name.id_for_label }}">{{ form.last_name.label }}</label>{{ form.last_name }}{{ form.last_name.errors }}</div>
+        <div class="field"><label for="{{ form.first_name.id_for_label }}">{{ form.first_name.label }}</label>{{ form.first_name }}{{ form.first_name.errors }}</div>
+      </div>
+      <div class="field"><label for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>{{ form.email }}{{ form.email.errors }}</div>
+      <div class="profile-form-actions"><button type="submit" class="btn primary">保存修改</button></div>
+    </form>
+  </section>
+  <section class="card" aria-labelledby="profileAccountTitle">
+    <h2 class="card-title" id="profileAccountTitle">账号信息</h2>
+    <p class="profile-hint">部门和账号级别由管理员维护。</p>
+    <dl class="profile-account">
+      <div><dt>用户名</dt><dd translate="no">{{ user.username }}</dd></div>
+      <div><dt>所属部门</dt><dd>{{ user_department }}</dd></div>
+      <div><dt>账号级别</dt><dd>{{ account_role }}</dd></div>
+      <div><dt>注册时间</dt><dd><time datetime="{{ user.date_joined|date:'c' }}">{{ user.date_joined|date:"Y-m-d H:i" }}</time></dd></div>
+      <div><dt>上次登录</dt><dd>{% if user.last_login %}<time datetime="{{ user.last_login|date:'c' }}">{{ user.last_login|date:"Y-m-d H:i" }}</time>{% else %}未记录{% endif %}</dd></div>
+    </dl>
+    <a class="btn outline" href="{% url 'kb:manage_list' %}">管理我的知识库</a>
+  </section>
+</div>
+{% endblock %}
