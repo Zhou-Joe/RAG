@@ -958,6 +958,105 @@ class EmbeddingGemmaEmbeddings(WeMMEmbeddings):
         return self._embed_raw(items)
 
 
+# 部署中的 EmbeddingGemma 服务（FastAPI；GET /health 的 modalities 指示服务端
+# 多模态开关）只暴露 OpenAI 兼容的 /v1/embeddings，没有 WeMM 的 /embed 原生端点，
+# 因此不能走 EmbeddingGemmaEmbeddings。它的 input 条目形如 {"text": ...} /
+# {"image_base64": <裸 base64>}，同一条目内的图文融合成一条向量（实测同一 caption：
+# 图文融合↔纯文本 余弦≈0.84、纯图↔文本≈0.58），正是图片块「图 + 文本锚定」需要的
+# 形态。服务端未开多模态时该请求报错，由 _index_image_chunks 降级为跳过图片块。
+_OPENAI_VISION_CLASS: type | None = None
+_OPENAI_VISION_LOCK = threading.Lock()
+
+
+def openai_gemma_vision_class() -> type:
+    """OpenAI 协议 + 图片嵌入的客户端类（懒建，避免模块级 import openai）。"""
+    global _OPENAI_VISION_CLASS
+    if _OPENAI_VISION_CLASS is not None:
+        return _OPENAI_VISION_CLASS
+    with _OPENAI_VISION_LOCK:
+        if _OPENAI_VISION_CLASS is None:
+            from langchain_openai import OpenAIEmbeddings
+
+            class OpenAIGemmaVisionEmbeddings(OpenAIEmbeddings):
+                """文本侧原样继承父类（请求体不变，既有语料/查询向量继续可用），
+                只补 WeMM 同款的 embed_contents / _embed_raw 图片入口。"""
+
+                def _batch(self) -> int:
+                    return max(1, min(32, int(self.chunk_size or 4)))
+
+                def _create(self, items: list[dict]) -> list[list[float]]:
+                    kwargs: dict[str, Any] = {"model": self.model, "input": items}
+                    if self.dimensions:
+                        kwargs["dimensions"] = self.dimensions
+                    resp = self.client.create(**kwargs)
+                    vecs = [d.embedding for d in (getattr(resp, "data", None) or [])]
+                    if len(vecs) != len(items):
+                        raise ValueError(
+                            f"embedding 返回向量数不匹配（{len(vecs)}/{len(items)}），"
+                            f"端点：{self.openai_api_base}")
+                    return vecs
+
+                def _create_batched(self, items: list[dict]) -> list[list[float]]:
+                    out: list[list[float]] = []
+                    n = self._batch()
+                    for i in range(0, len(items), n):
+                        out.extend(self._create(items[i:i + n]))
+                    return out
+
+                @staticmethod
+                def _bare_b64(value: str) -> str:
+                    # image_base64 只收裸 base64，data URL 前缀须剥掉
+                    return value.split(",", 1)[-1] if value.startswith("data:") else value
+
+                def _embed_raw(self, items: list[dict]) -> list[list[float]]:
+                    """兼容 WeMM 原生条目写法（image_b64 / image → image_base64）。"""
+                    alias = {"image_b64": "image_base64", "image": "image_base64"}
+                    normalized: list[dict[str, Any]] = []
+                    for item in items:
+                        out: dict[str, Any] = {}
+                        for k, v in item.items():
+                            key = alias.get(k, k)
+                            if key == "image_base64" and isinstance(v, str):
+                                v = self._bare_b64(v)
+                            out[key] = v
+                        normalized.append(out)
+                    return self._create_batched(normalized)
+
+                def embed_contents(self, inputs: list[list[dict]]) -> list[list[float]]:
+                    """图文交错 content → 服务端融合条目（每条目一张图）。
+
+                    与 WeMMEmbeddings.embed_contents 同签名，故图片块/整页块索引
+                    无需区分两种服务；文本按出现顺序拼接。
+                    """
+                    items: list[dict[str, Any]] = []
+                    for parts in inputs:
+                        texts: list[str] = []
+                        images: list[str] = []
+                        for part in parts:
+                            ptype = part.get("type")
+                            if ptype == "text":
+                                texts.append(part.get("text") or "")
+                            elif ptype == "image":
+                                images.append(part.get("image") or "")
+                            else:
+                                raise ValueError(f"该 embedding 服务不支持内容类型：{ptype}")
+                        if len(images) > 1:
+                            raise ValueError("EmbeddingGemma 服务每个条目只接受一张图片")
+                        item: dict[str, Any] = {"text": "\n".join(t for t in texts if t)}
+                        if images:
+                            item["image_base64"] = self._bare_b64(images[0])
+                        items.append(item)
+                    return self._create_batched(items)
+
+            _OPENAI_VISION_CLASS = OpenAIGemmaVisionEmbeddings
+    return _OPENAI_VISION_CLASS
+
+
+def supports_image_embedding(ef: Any) -> bool:
+    """该 embedding 客户端能否嵌入图片（WeMM 原生 /embed 或 Gemma 服务 /v1/embeddings）。"""
+    return callable(getattr(ef, "embed_contents", None))
+
+
 def _native_embedding_class(model: str, base_url: str):
     if (base_url or "").rstrip("/").endswith("/v1"):
         return None
@@ -983,12 +1082,17 @@ def _embeddings():
     if not 1 <= batch_size <= 32:
         raise ValueError('EMBEDDING_BATCH_SIZE 必须在 1–32 范围内')
     request_timeout = 45
+    klass = OpenAIEmbeddings
     if is_wemm(e["model"]) or is_embeddinggemma(e["model"]):
         batch_size = min(batch_size, int(getattr(settings, "WEMM_BATCH_SIZE", 4)))
         request_timeout = float(getattr(settings, "WEMM_REQUEST_TIMEOUT", 180))
         if not 1 <= batch_size <= 32 or request_timeout <= 0:
             raise ValueError("WeMM 批次必须为 1–32，超时必须为正数")
-    return OpenAIEmbeddings(
+    if is_embeddinggemma(e["model"]):
+        # 不带 /v1 的 Gemma 端点已在上面走原生 EmbeddingGemmaEmbeddings；到这里
+        # 说明是 OpenAI 协议服务，用它自带的 /v1/embeddings 图片条目嵌入图片。
+        klass = openai_gemma_vision_class()
+    return klass(
         model=e["model"],
         dimensions=e["dimensions"],
         # Ollama's OpenAI-compatible API does not need authentication, but the
@@ -1160,8 +1264,8 @@ def _index_image_chunks(vs, img_items: list[tuple[Any, Path]], kb_slug: str,
         return 0
     log = logging.getLogger(__name__)
     ef = _embeddings()
-    if not isinstance(ef, WeMMEmbeddings):
-        log.info("当前 embedding 非多模态（%s），跳过 %d 个图片块 kb=%s",
+    if not supports_image_embedding(ef):
+        log.info("当前 embedding 不支持图片嵌入（%s），跳过 %d 个图片块 kb=%s",
                  type(ef).__name__, len(img_items), kb_slug)
         return 0
     import base64 as b64mod
@@ -1297,8 +1401,8 @@ def _index_page_chunks(vs, doc, kb_slug: str, content_list: list) -> int:
     if not items:
         return 0
     ef = _embeddings()
-    if not isinstance(ef, WeMMEmbeddings):
-        log.info("当前 embedding 非多模态（%s），跳过 %d 个整页块 kb=%s",
+    if not supports_image_embedding(ef):
+        log.info("当前 embedding 不支持图片嵌入（%s），跳过 %d 个整页块 kb=%s",
                  type(ef).__name__, len(items), kb_slug)
         return 0
 

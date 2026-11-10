@@ -253,6 +253,10 @@ opentelemetry-sdk==1.45.2
     #   opentelemetry-exporter-otlp-proto-grpc
 opentelemetry-semantic-conventions==0.66b2
     # via opentelemetry-sdk
+oracledb==4.0.2
+    # via
+    #   -r operations_workbench/requirements.txt
+    #   -r requirements-server.txt
 orjson==3.13.0
     # via
     #   chromadb

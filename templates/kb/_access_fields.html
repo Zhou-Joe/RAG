@@ -8,6 +8,9 @@
   </select><small>个人知识库仅创建者可查看、检索和管理。</small></div>
   <div class="field" data-access-department><label>所属部门</label>
     {% if is_global_admin %}<select name="department">{% for d in departments %}{% if d != '通用' %}<option value="{{ d }}" {% if d == kb.department %}selected{% endif %}>{{ d }}</option>{% endif %}{% endfor %}</select>
+    {% elif my_departments and my_departments|length > 1 %}<select name="department">{% for d in my_departments %}<option value="{{ d }}"{% if d == user_department or d == kb.department %} selected{% endif %}>{{ d }}</option>{% endfor %}</select>
+    {% elif my_departments|length == 1 %}<input type="hidden" name="department" value="{{ my_departments.0 }}"><span class="dept-badge">{{ my_departments.0 }}</span>
     {% else %}<input type="hidden" name="department" value="{{ user_department }}"><span class="dept-badge">{{ user_department }}</span>{% endif %}
+    {% if not is_global_admin and my_departments and my_departments|length > 1 %}<small>你属于多个部门，部门库可以建到其中任何一个。</small>{% endif %}
   </div>
 </div>

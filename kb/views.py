@@ -49,7 +49,12 @@ def _derive_unique_slug(original_name: str) -> str:
 
 
 def _scope_docs(kb: KnowledgeBase,user=None):
-    """文件夹 → 其下所有子文档库的文档（扁平）；文档库 → 自身文档。"""
+    """文件夹 → 其下所有子文档库的文档（扁平）；文档库 → 自身文档。
+
+    过滤用浏览范围（可读 ∪ 可写）：「通用」库对本部门外的账号只读，但文档列表
+    照常可见；全局管理员写范围不限部门，也要能看到自己管理的库。写入口
+    （重命名/重试/删除等）各自走 can_manage_kb，不依赖这里。
+    """
     if kb.is_folder:
         child_ids = list(kb.children.filter(is_folder=False).values_list("id", flat=True))
         docs = Document.objects.filter(kb_id__in=child_ids)
@@ -57,17 +62,17 @@ def _scope_docs(kb: KnowledgeBase,user=None):
         docs = kb.documents.all()
     if user is not None:
         from . import access
-        docs=docs.filter(access.managed_q(user,'kb__'))
+        docs=docs.filter(access.visible_q(user,'kb__'))
     return docs.exclude(status=Document.Status.SUPERSEDED).exclude(kb__slug__startswith='syncitem-',status__in=['pending','ocr','indexing','failed'])
 
 
 def _scope_kb_ids(kb: KnowledgeBase,user=None) -> list:
     """文件夹 → [自身(不挂文档)] ∪ 子库 id 列表（用于按 id 找文档）；
-    文档库 → [自身 id]。"""
+    文档库 → [自身 id]。同样用浏览范围（可读 ∪ 可写），调用方的写权限自己卡。"""
     if kb.is_folder:
         from . import access
         children=kb.children.filter(is_folder=False)
-        if user is not None:children=children.filter(access.managed_q(user))
+        if user is not None:children=children.filter(access.visible_q(user))
         return list(children.values_list('id',flat=True))
     return [kb.id]
 
@@ -250,23 +255,40 @@ def manage_list(request):
         return redirect("kb:manage_list")
 
     # 顶层库（文件夹 + 独立文档库）扁平渲染；子库对用户透明，不单独展示。
-    # 部门管理员只看到本部门的库；全局管理员看全部。
-    _kb_qs = kb_access.managed_kbs(request.user).filter(parent__isnull=True).order_by('name')
-    kbs = list(_kb_qs.filter(category='manual'))
+    # 可见范围 = 可读 ∪ 可写。两者分开展示：能管的库走主分类卡片（手册库 / 业务数据），
+    # 只能看的公共库（典型 = 其它部门看到的「通用」库）沉到页面底部一条弱化的列表，
+    # 写入口一律不给（视图在写端点再卡一次 can_manage_kb）。
+    _visible = kb_access.visible_kbs(request.user)
+    _visible_pks = [kb.pk for kb in _visible]
+    _writable = {kb.pk for kb in _visible if kb.can_manage}
     from django.db.models import Count, Q
-    business_kbs = _kb_qs.filter(category='business').annotate(
-        business_row_count=Count('tracker__rows',filter=Q(tracker__rows__status='done')))
+    _business_rows = {kb.pk: kb.business_row_count for kb in
+                      KnowledgeBase.objects.filter(pk__in=_visible_pks, category='business')
+                      .annotate(business_row_count=Count(
+                          'tracker__rows', filter=Q(tracker__rows__status='done')))}
+    kbs, business_kbs, read_kbs = [], [], []
+    for kb in _visible:
+        kb.can_manage = kb.pk in _writable
+        kb.business_row_count = _business_rows.get(kb.pk, 0)
+        if not kb.can_manage:
+            read_kbs.append(kb)
+        elif kb.category == 'business':
+            business_kbs.append(kb)
+        else:
+            kbs.append(kb)
     from .models import StructuredDataset
     datasets = StructuredDataset.objects.filter(active=True).order_by("kind", "-created_at")
-    datasets = datasets.filter(Q(kb__in=_kb_qs) | (Q(kb__isnull=True) if kb_access.is_manager(request.user) else Q(pk__in=[])))
+    datasets = datasets.filter(Q(kb__in=_visible_pks) | (Q(kb__isnull=True) if kb_access.is_manager(request.user) else Q(pk__in=[])))
     # 部门池（用户 ∪ 知识库；新部门唯一入口 = 用户管理页），表单只能从中选
     departments = kb_access.all_departments()
     return render(request, "kb/manage_list.html", {
         "kbs": kbs,
         "business_kbs": business_kbs,
+        "read_kbs": read_kbs,
         "datasets": datasets,
         "dataset_kinds": StructuredDataset.Kind.choices,
         "departments": departments,
+        "my_departments": kb_access.manageable_departments(request.user),
         "is_global_admin": kb_access.is_global_admin(request.user),
         "my_department": kb_access.user_department(request.user),
         "shared_manager": kb_access.is_manager(request.user),
@@ -286,12 +308,21 @@ def manage_detail(request, slug):
     """
     from . import access as kb_access
     kb = get_object_or_404(KnowledgeBase, slug=slug)
-    if not kb_access.can_manage_kb(request.user, kb):
+    if not kb_access.kb_accessible(request.user, kb):
         raise Http404("知识库不存在")
+    # 只读库（如其它部门看到的「通用」库）：列表与文档照常看，
+    # 本视图的上传与各独立写端点仍逐个卡 can_manage_kb。
+    can_manage = kb_access.can_manage_kb(request.user, kb)
 
     # ---------- 上传（统一入口，按格式自动路由） ----------
     # pdf/md/txt → 手册解析入库；csv/xlsx → 业务数据导入（kind 自动识别）
     if request.method == "POST" and request.FILES.get("file"):
+        if not can_manage:
+            denied = "该知识库为只读（通用库由全局管理员维护），无法上传。"
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse({"ok": False, "message": denied}, status=403)
+            messages.error(request, denied)
+            return redirect("kb:manage_detail", slug=slug)
         upload = request.FILES["file"]
         ext = Path(upload.name).suffix.lower()
         is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
@@ -336,7 +367,9 @@ def manage_detail(request, slug):
         "chunks_total": chunks_total,
         "is_global_admin": kb_access.is_global_admin(request.user),
         "shared_manager": kb_access.is_manager(request.user),
+        "can_manage": can_manage,
         "departments":kb_access.all_departments(),
+        "my_departments":kb_access.manageable_departments(request.user),
     })
 
 
@@ -554,6 +587,37 @@ def doc_delete(request, slug, doc_id):
     return redirect("kb:manage_detail", slug=slug)
 
 
+# 追跟表分页：整表渲染在上千行时会卡浏览器（每行还有字段 chip、明细行与
+# 确认弹窗 JSON），默认每页 50 行；?per= 只认白名单里的值。
+_TRACKER_PER_PAGE = 50
+_TRACKER_PER_PAGE_CHOICES = (25, 50, 100, 200)
+
+
+def _page_numbers(page_obj, window=2):
+    """页码窗口：首页 … 当前页左右 window … 末页；缺位用 None 渲染省略号。"""
+    total, cur = page_obj.paginator.num_pages, page_obj.number
+    if total <= 1 + 2 * (window + 1):
+        return list(range(1, total + 1))
+    pages = [1]
+    low, high = max(2, cur - window), min(total - 1, cur + window)
+    if low > 2:
+        pages.append(None)
+    pages.extend(range(low, high + 1))
+    if high < total - 1:
+        pages.append(None)
+    pages.append(total)
+    return pages
+
+
+def _qs_without(request, *drop):
+    """其余查询参数拼成 query string（非空时以 & 结尾，方便直接续 page=…）。"""
+    args = request.GET.copy()
+    for name in drop:
+        args.pop(name, None)
+    encoded = args.urlencode()
+    return f"{encoded}&" if encoded else ""
+
+
 @_is_manager
 @login_required
 def tracker_view(request, slug):
@@ -568,15 +632,23 @@ def tracker_view(request, slug):
     from .models import KbTracker, TrackerRow
 
     kb = get_object_or_404(KnowledgeBase, slug=slug)
-    if not kb_access.can_manage_kb(request.user, kb):
+    if not kb_access.kb_accessible(request.user, kb):
         raise Http404("知识库不存在")
-    tr, _ = KbTracker.objects.get_or_create(kb=kb, defaults={"fields": []})
+    can_manage = kb_access.can_manage_kb(request.user, kb)
+    if can_manage:
+        tr, _ = KbTracker.objects.get_or_create(kb=kb, defaults={"fields": []})
+    else:
+        # 只读账号（如看到「通用」库的其它部门）：只展示已启用的追踪表，
+        # 不替他们建空配置，也不为未启用的表开入口。
+        tr = KbTracker.objects.filter(kb=kb, enabled=True).first()
+        if tr is None:
+            raise Http404("追踪表不存在")
     docs_qs = Document.objects.filter(kb_id__in=_scope_kb_ids(kb,request.user))
     _json_dumps = lambda obj: json.dumps(obj, ensure_ascii=False)  # noqa: E731
 
     # 回收卡死的行：daemon 线程随进程退出被杀，行会永久停在 running。
     # LLM 超时 600s，给 20 分钟余量；updated_at 在每次状态写入时都会刷新。
-    if request.method == "GET":
+    if request.method == "GET" and can_manage:
         from datetime import timedelta
         from django.utils import timezone as _tz
         from .models import TrackerRow as _TR
@@ -588,6 +660,12 @@ def tracker_view(request, slug):
                  updated_at=_tz.now())
 
     if request.method == "POST":
+        if not can_manage:
+            denied = "该知识库为只读，无法修改追踪表（可正常查看与导出）。"
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse({"ok": False, "message": denied}, status=403)
+            messages.error(request, denied)
+            return redirect("kb:tracker", slug=slug)
         action = request.POST.get("action", "")
         if action == "enable":
             tr.enabled = True
@@ -741,8 +819,21 @@ def tracker_view(request, slug):
     done_doc_ids = list(tr.rows.filter(status=TrackerRow.Status.DONE)
                         .values_list("document_id", flat=True))
     field_labels = [f["label"] for f in tr.fields]
+    # 追跟表可能上千行（每行还要渲染字段 chip、明细行与确认弹窗 JSON），
+    # 整表输出是几 MB 的 HTML，浏览器解析/展开/轮询刷新都卡 → 服务端分页。
+    # Excel 导出不受影响（上面那个分支本来就是全量）。
+    from django.core.paginator import Paginator
+    try:
+        per_page = int(request.GET.get("per") or _TRACKER_PER_PAGE)
+    except (TypeError, ValueError):
+        per_page = _TRACKER_PER_PAGE
+    if per_page not in _TRACKER_PER_PAGE_CHOICES:
+        per_page = _TRACKER_PER_PAGE
+    paginator = Paginator(tr.rows.select_related("document")
+                          .order_by("-created_at", "-pk"), per_page)
+    page_obj = paginator.get_page(request.GET.get("page"))
     rows = []
-    for r in tr.rows.select_related("document").order_by("-created_at","-pk"):
+    for r in page_obj.object_list:
         cells = [r.values.get(k, "") for k in field_labels]
         proposed = [r.proposed_values.get(k, "") for k in field_labels]
         # 卡片式字段 chip：标签+值成对，跳过空值；待确认行里与登记值不同的
@@ -770,8 +861,20 @@ def tracker_view(request, slug):
         "kb": kb,
         "tracker": tr,
         "rows": rows,
-        "show_analysis": kb.category == "business" or any(r["is_feed"] for r in rows),
+        "can_manage": can_manage,
+        # 趋势分析不跑模型（只是表内已完成采集行的 DB 聚合），能看追跟表就能用；
+        # 判定不能采样 rows（分页后那只是当页），要直接问库。
+        "show_analysis": kb.category == "business" or tr.rows.filter(feed__isnull=False).exists(),
         "fields_text": "\n".join(f["label"] for f in tr.fields),
+        "total_rows": paginator.count,
+        "page_obj": page_obj,
+        "paginator": paginator,
+        "page_numbers": _page_numbers(page_obj),
+        "per_page": per_page,
+        "per_page_choices": _TRACKER_PER_PAGE_CHOICES,
+        # 其余额外参数（如 ?xlsx）在页码间原样保留；per 与 page 各自重建。
+        "page_query": _qs_without(request, "page"),
+        "per_query": _qs_without(request, "page", "per"),
         "completed_n": docs_qs.filter(status=Document.Status.COMPLETED).count(),
         "missing_n": docs_qs.filter(status=Document.Status.COMPLETED)
                             .exclude(id__in=done_doc_ids).count(),
@@ -792,7 +895,7 @@ def doc_status_api(request, slug):
         "completed": 100, "failed": 100,
     }
     kb = get_object_or_404(KnowledgeBase, slug=slug)
-    if not kb_access.can_manage_kb(request.user, kb):
+    if not kb_access.kb_accessible(request.user, kb):
         raise Http404("知识库不存在")
     def document_progress(doc):
         if doc.status == "indexing":
@@ -1206,7 +1309,7 @@ async def chat_stream(request):
     def _prepare():
         from . import access as kb_access
 
-        user_dept = kb_access.user_department(request.user)
+        user_depts = kb_access.user_departments(request.user)
         # A general chat has no assigned KB. Only an explicit manual overview
         # may preload that named document; it never becomes a conversation default.
         from .manual_overview import is_manual_overview
@@ -1255,7 +1358,7 @@ async def chat_stream(request):
             "conversation_context": conversation_context,
             "user_id": request.user.id,
             "top_k": retrieval_settings()["top_k"],
-            "department": user_dept,
+            "department": user_depts,
             "overview_kb_slug":overview_kb.slug if overview_kb else "",
         }
         return conv, cfg, created, None
@@ -1468,16 +1571,14 @@ def _semantic_matches(user, query: str, k: int = 8) -> list[dict]:
     """综合搜索的语义命中：与问答页同一条混合检索链路
     （WeMM 向量 + 关键词双路 → RRF 融合 → rerank 精排），跨库用 search_folder 扇出。
 
-    部门过滤与手册路一致（通用 ∪ 本部门）；只检索已建向量的库（chunk_count>0，
+    部门过滤与手册路一致（通用 ∪ 账号所属全部部门）；只检索已建向量的库（chunk_count>0，
     也让测试库天然跳过）；任何失败降级为空列表，不影响页面其它区块。
     """
     import logging as _logging
 
     from . import access as kb_access
-    from .models import DEPARTMENT_GENERAL
     from .retriever import _image_distance, search_folder
 
-    user_dept = kb_access.user_department(user)
     slugs = list(
         KnowledgeBase.objects.filter(
             is_folder=False, chunk_count__gt=0,
@@ -1547,8 +1648,8 @@ def search_view(request):
     from .models import StructuredDataset
     from .structured_data import lookup_related
 
-    user_dept = kb_access.user_department(request.user)
-    lookup = lookup_related(q, department=user_dept,user=request.user) if q else None
+    user_depts = kb_access.user_departments(request.user)
+    lookup = lookup_related(q, department=user_depts,user=request.user) if q else None
     # 手册原文命中（行级字面匹配）对齐 chunk 溯源：chip 直接开证据面板定位
     if lookup and lookup.get("manual_matches"):
         try:

@@ -77,7 +77,7 @@
     {% if user.is_authenticated %}
     <a class="side-user" href="{% url 'accounts:profile' %}" title="个人信息">
       <span class="side-ava" aria-hidden="true" translate="no">{{ user.username|first|upper }}</span>
-      <span class="side-who"><b translate="no">{{ user.username }}</b><small>{% if user_department %}{{ user_department }}{% else %}已登录{% endif %}</small></span>
+      <span class="side-who"><b translate="no">{{ user.username }}</b><small{% if user_departments|length > 1 %} title='{{ user_departments|join:"、" }}'{% endif %}>{{ user_department_label|default:"已登录" }}</small></span>
     </a>
     {% else %}
     <a class="side-user" href="/accounts/login/"><span class="side-ava" aria-hidden="true">?</span><span class="side-who"><b>登录</b><small>访问知识库</small></span></a>

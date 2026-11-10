@@ -32,7 +32,7 @@
     <p class="profile-hint">部门和账号级别由管理员维护。</p>
     <dl class="profile-account">
       <div><dt>用户名</dt><dd translate="no">{{ user.username }}</dd></div>
-      <div><dt>所属部门</dt><dd>{{ user_department }}</dd></div>
+      <div><dt>所属部门</dt><dd>{% for m in user_department_roles %}{{ m.name }}{% if m.is_primary %}（主）{% endif %}{% if m.is_admin %}·{{ m.role_label }}{% endif %}{% if not forloop.last %}、{% endif %}{% empty %}{{ user_department|default:"—" }}{% endfor %}</dd></div>
       <div><dt>账号级别</dt><dd>{{ account_role }}</dd></div>
       <div><dt>注册时间</dt><dd><time datetime="{{ user.date_joined|date:'c' }}">{{ user.date_joined|date:"Y-m-d H:i" }}</time></dd></div>
       <div><dt>上次登录</dt><dd>{% if user.last_login %}<time datetime="{{ user.last_login|date:'c' }}">{{ user.last_login|date:"Y-m-d H:i" }}</time>{% else %}未记录{% endif %}</dd></div>

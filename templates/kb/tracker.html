@@ -4,30 +4,33 @@
 <header class="page-head">
   <div class="page-head-main">
     {% if show_analysis %}<a class="page-back" href="{% url 'kb:manage_list' %}">业务数据</a>{% else %}<a class="page-back" href="/kb/manage/{{ kb.slug }}/">{{ kb.name }}</a>{% endif %}
-    <h1>{{ kb.name }} <span class="dept-badge">{% if show_analysis %}业务数据{% else %}追踪表{% endif %}</span></h1>
+    <h1>{{ kb.name }} <span class="dept-badge">{% if show_analysis %}业务数据{% else %}追踪表{% endif %}</span>{% if not can_manage %} <span class="dept-badge">只读</span>{% endif %}</h1>
+    {% if not can_manage %}<p class="page-desc">此追踪表为只读：可核对记录与导出 Excel，字段配置、补录与删除由库的管理员维护。</p>{% endif %}
   </div>
 </header>
 
 {% if show_analysis %}
 {% include "kb/_tracker_analysis.html" %}
 <details class="trk-raw" id="trkRawRecords">
-  <summary>原始记录 <span>全部 {{ rows|length }} 条采集记录 · 展开查看明细</span></summary>
+  <summary>原始记录 <span>全部 {{ total_rows }} 条采集记录 · 展开查看明细</span></summary>
 {% endif %}
 <div class="section-bar">
   <div>
     <h2>追踪记录</h2>
-    <p>{% if show_analysis %}全量采集记录 · 分析筛选不改变原始数据{% elif tracker.enabled %}已启用 · 新文档入库后自动登记{% else %}未启用{% endif %}
-       · {{ rows|length }} 条
-       {% if missing_n %}· {{ missing_n }} 份已完成文档待补录{% endif %}</p>
+    <p>{% if show_analysis %}<span>全量采集记录 · 分析筛选不改变原始数据</span>{% elif tracker.enabled %}<span>已启用 · 新文档入库后自动登记</span>{% else %}<span>未启用</span>{% endif %}
+       <span>{{ total_rows }} 条</span>
+       {% if missing_n %}<span>· {{ missing_n }} 份已完成文档待补录</span>{% endif %}</p>
   </div>
   <div class="section-actions">
+    {% if can_manage %}
     {% if not tracker.enabled %}
     <button type="button" class="btn primary" id="trkEnable">启用追踪表</button>
     {% else %}
     <button type="button" class="btn outline" id="trkDisable">停用</button>
     <button type="button" class="btn outline" id="trkBackfill" title="为库里已完成但未登记的文档排队抽取">补录已有文档</button>
-    <a class="btn outline" href="/kb/manage/{{ kb.slug }}/tracker/?xlsx=1">导出 Excel</a>
     {% endif %}
+    {% endif %}
+    <a class="btn outline" href="/kb/manage/{{ kb.slug }}/tracker/?xlsx=1">导出 Excel</a>
   </div>
 </div>
 
@@ -43,7 +46,7 @@
       {% for f in tracker.fields %}<th class="c-field">{{ f.label }}</th>{% endfor %}
       <th class="c-status">状态</th>
       <th class="c-time">时间</th>
-      {% if tracker.enabled %}<th class="c-acts">操作</th>{% endif %}
+      {% if can_manage and tracker.enabled %}<th class="c-acts">操作</th>{% endif %}
     </tr>
   </thead>
   <tbody>
@@ -69,7 +72,7 @@
           title="追踪字段在该文档登记后有过变更，可点「重试」按新字段补齐">字段已变更</span>{% endif %}
       </td>
       <td class="c-time">{{ r.updated_at|date:"m-d H:i" }}</td>
-      {% if tracker.enabled %}
+      {% if can_manage and tracker.enabled %}
       <td class="c-acts">
         {% if r.status == 'proposed' %}
         <button type="button" class="btn sm primary trk-confirm" data-payload="{{ r.payload }}">确认变更</button>
@@ -104,16 +107,41 @@
   </tbody>
 </table>
 </div>
+{% if paginator.num_pages > 1 %}
+{# 分页：默认每页 50 行，避开上千行整表渲染的卡顿；?per= 可改档位 #}
+<nav class="trk-pager" aria-label="追踪表分页">
+  {% if page_obj.has_previous %}
+  <a class="btn sm outline" href="?{{ page_query }}page={{ page_obj.previous_page_number }}" rel="prev">上一页</a>
+  {% else %}<span class="btn sm outline is-off" aria-disabled="true">上一页</span>{% endif %}
+  {% for n in page_numbers %}
+  {% if n == None %}<span class="trk-page-gap">…</span>
+  {% elif n == page_obj.number %}<span class="trk-page is-cur" aria-current="page">{{ n }}</span>
+  {% else %}<a class="trk-page" href="?{{ page_query }}page={{ n }}">{{ n }}</a>{% endif %}
+  {% endfor %}
+  {% if page_obj.has_next %}
+  <a class="btn sm outline" href="?{{ page_query }}page={{ page_obj.next_page_number }}" rel="next">下一页</a>
+  {% else %}<span class="btn sm outline is-off" aria-disabled="true">下一页</span>{% endif %}
+  <span class="trk-pager-meta">
+    <span>第 {{ page_obj.number }} 页</span>
+    <span>共 {{ total_rows }} 条</span>
+    <span class="trk-per">每页{% for p in per_page_choices %}{% if not forloop.first %} · {% endif %}{% if p == per_page %}<b>{{ p }}</b>{% else %}<a href="?{{ per_query }}per={{ p }}">{{ p }}</a>{% endif %}{% endfor %}</span>
+  </span>
+</nav>
+{% endif %}
 {% elif tracker.enabled %}
 <div class="empty">
+  {% if can_manage %}
   还没有追踪记录。在下方配置字段后，
   {% if completed_n %}点「补录已有文档」即可把库里 {{ completed_n }} 份已完成文档登记进来；{% endif %}
   之后新上传的文档会在入库完成时自动登记。
+  {% else %}
+  还没有追踪记录。
+  {% endif %}
 </div>
 {% endif %}
 
 {% if show_analysis %}</details>{% endif %}
-{% if tracker.enabled %}
+{% if can_manage and tracker.enabled %}
 <div class="section-bar">
   <div><h2>抽取配置</h2><p>字段即表格列名；抽取由站点 LLM 完成，失败可重试</p></div>
 </div>
@@ -143,6 +171,17 @@
 /* 表格布局：fixed 列宽 + 省略号单元格，首列与表头冻结，横向滚动 */
 .trk-table-wrap{background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);
   overflow:auto;max-height:calc(100vh - 240px);min-height:120px}
+/* 分页条：与表格同宽、轻量样式，不抢内容视线 */
+.trk-pager{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px;font-size:12px}
+.trk-page{padding:3px 10px;border:1px solid var(--rule);border-radius:999px;font-size:12px;
+  color:var(--dim);text-decoration:none;line-height:1.6}
+.trk-page:hover{border-color:var(--brand);color:var(--brand)}
+.trk-page.is-cur{background:var(--brand-soft);border-color:var(--brand);color:var(--brand);font-weight:600}
+.trk-page-gap{color:var(--mute);padding:0 2px}
+.trk-pager-meta{margin-left:auto;display:flex;align-items:center;gap:12px;color:var(--mute);font-size:11.5px}
+.trk-per a{color:var(--brand);text-decoration:none}
+.trk-per b{color:var(--dim)}
+.btn.is-off,.btn[disabled]{opacity:.45;pointer-events:none}
 .trk-table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;font-size:13px}
 .trk-table th{position:sticky;top:0;z-index:2;background:var(--surface-2);
   font-family:var(--fd);font-weight:600;font-size:12px;

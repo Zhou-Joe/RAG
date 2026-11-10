@@ -4,7 +4,7 @@
 <header class="page-head">
   <div class="page-head-main">
     <h1>用户管理</h1>
-    <p class="page-desc">管理账号的部门归属与级别{% if viewer_global %}，以及决定可见范围的部门{% endif %}。</p>
+    <p class="page-desc">管理账号的部门归属与级别{% if viewer_global %}，以及决定可见范围的部门{% endif %}。<span>一个账号可属于多个部门，「通用」默认分配给所有账号。</span></p>
   </div>
   <div class="page-actions">
     <button class="btn primary" type="button" id="openUserAdd">＋ 添加账号</button>
@@ -20,7 +20,7 @@
   <thead>
     <tr>
       <th>用户名</th>
-      <th>{% if viewer_global %}部门 / 级别（可编辑）{% else %}级别（可编辑）{% endif %}</th>
+      <th>{% if viewer_global %}部门与各级别（可编辑）{% else %}部门级别（可编辑）{% endif %}</th>
       <th>角色</th>
       <th>注册时间</th>
       <th></th>
@@ -38,26 +38,38 @@
           <input type="hidden" name="action" value="save">
           <input type="hidden" name="user_id" value="{{ r.id }}">
           {% if viewer_global %}
-          <select name="department">
+          <select name="department" title="主部门：新建知识库与个人库落在它身上">
             {% for d in departments %}<option value="{{ d }}"{% if r.department == d %} selected{% endif %}>{{ d }}</option>{% endfor %}
           </select>
-          {% else %}
-          <span class="dept-badge">{{ r.department }}</span>
           {% endif %}
-          <select name="role">
-            {% for value, label in roles %}<option value="{{ value }}"{% if r.role == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
-          </select>
+          <details class="dept-multi">
+            <summary>部门 <b>{{ r.departments|length }}</b></summary>
+            <div class="dept-rows">
+              {% for p in r.picker %}
+              <label class="dept-row{% if p.is_general %} is-fixed{% endif %}">
+                <input type="checkbox" name="departments" value="{{ p.name }}"{% if p.checked %} checked{% endif %}{% if p.is_general %} disabled{% endif %}>
+                <span class="dept-row-name">{{ p.name }}{% if p.is_primary %}<em>主</em>{% endif %}</span>
+                {% if p.role_editable %}
+                <select name="dept_role__{{ p.name }}" title="在「{{ p.name }}」里的级别">
+                  {% for value, label in roles %}<option value="{{ value }}"{% if value == p.role %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+                {% else %}<span class="dept-row-role">{{ p.role_label }}</span>{% endif %}
+              </label>
+              {% endfor %}
+            </div>
+            <p class="dept-note">勾选＝能看到那个部门的知识库；级别＝在那个部门能不能建/改库。「通用」人人都有（只读），它的级别由全局管理员维护。</p>
+          </details>
           <button class="btn sm primary" type="submit">保存</button>
         </form>
         {% else %}
-        <span class="dept-badge">{{ r.department }}</span>
+        {% for d in r.departments %}<span class="dept-badge">{{ d }}{% if d in r.admin_of %} ·管理员{% endif %}</span>{% endfor %}
         <span class="fos-sub">{{ r.get_role_display|default:r.role }}</span>
         {% endif %}
       </td>
       <td>
         {% if r.is_superuser %}<span class="dept-badge">全局管理员</span>
         {% elif r.is_staff %}<span class="dept-badge">staff</span>
-        {% elif r.role == 'dept_admin' %}<span class="dept-badge">部门管理员</span>
+        {% elif r.admin_of %}<span class="dept-badge" title="在这些部门是部门管理员">{{ r.admin_of|join:"、" }} 管理员</span>
         {% else %}<span class="fos-sub">—</span>{% endif %}
       </td>
       <td class="fos-sub">{{ r.date_joined|date:"Y-m-d" }}</td>
@@ -87,16 +99,33 @@
     <div class="field"><label>用户名</label><input type="text" name="username" required></div>
     <div class="field"><label>初始密码</label><input type="text" name="password" value="disney123"></div>
     {% if viewer_global %}
-    <div class="field"><label>部门</label>
+    <div class="field"><label>主部门</label>
       <select name="department">
-        {% for d in departments %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+        {% for d in departments %}<option value="{{ d }}"{% if d == '通用' %} selected{% endif %}>{{ d }}</option>{% endfor %}
       </select>
+      <small>新建知识库的归属按它判定；要看到多个部门的资料请在下方勾选。</small>
     </div>
     {% else %}
-    <div class="field"><label>部门（固定为本部门）</label>
+    <div class="field"><label>主部门（固定为本部门）</label>
       <span class="dept-badge">{{ viewer_department }}</span>
     </div>
     {% endif %}
+    <div class="field"><label>部门（可多选，「通用」人人默认）</label>
+      <div class="dept-checks">
+        <label class="dept-check is-fixed" title="通用是默认部门，人人都有，不可取消">
+          <input type="checkbox" checked disabled> 通用 <span>默认</span></label>
+        {% if viewer_global %}
+        {% for d in departments %}{% if d != '通用' %}
+        <label class="dept-check"><input type="checkbox" name="departments" value="{{ d }}"> {{ d }}</label>
+        {% endif %}{% endfor %}
+        {% else %}
+        {% for d in my_departments %}
+        <label class="dept-check"><input type="checkbox" name="departments" value="{{ d }}"> {{ d }}</label>
+        {% endfor %}
+        {% endif %}
+      </div>
+      {% if not viewer_global and not my_departments %}<small>你不属于任何具体部门，新账号只能先归入「通用」。</small>{% endif %}
+    </div>
     <div class="field"><label>账号级别</label>
       <select name="role">
         {% for value, label in roles %}<option value="{{ value }}"{% if value == 'user' %} selected{% endif %}>{{ label }}</option>{% endfor %}
@@ -113,7 +142,7 @@
 {% if viewer_global %}
 {# ── 板块二：部门（添加、改名、删除） ── #}
 <div class="section-bar dept-section">
-  <div><h2>部门</h2><p>部门决定用户与知识库的可见范围 · 共 {{ dept_rows|length }} 个</p></div>
+  <div><h2>部门</h2><p>部门决定用户与知识库的可见范围 · 共 {{ dept_rows|length }} 个<span>（「通用」人人都有，只读）</span></p></div>
   <div class="section-actions">
     <button type="button" class="btn primary" id="openDeptAdd">＋ 添加部门</button>
   </div>
@@ -122,7 +151,7 @@
   {% for d in dept_rows %}
   <div class="dept-item">
     <span class="dept-name">{{ d.name }}{% if d.locked %} <span class="dept-badge">固定</span>{% endif %}</span>
-    <span class="fos-sub">{{ d.users }} 人 · {{ d.kbs }} 库</span>
+    <span class="fos-sub">{{ d.users }} 人{% if d.admins %} · {{ d.admins }} 管理员{% endif %} · {{ d.kbs }} 库</span>
     <span class="dept-item-actions">
       {% if not d.locked %}
       <button type="button" class="btn sm outline dept-rename-btn" data-old="{{ d.name }}">改名</button>
@@ -146,9 +175,34 @@
 .user-table td{padding:9px 16px}
 .user-table .uname{font-weight:600;color:var(--text)}
 .user-table .fos-sub{margin:0}
-.dept-edit{display:flex;gap:6px;align-items:center}
+.dept-edit{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .dept-edit select{min-height:30px;padding:4px 8px;font-size:12.5px;width:auto}
-.dept-edit select[name=department]{width:140px;flex-shrink:0}
+.dept-edit select[name=department]{width:120px;flex-shrink:0}
+.dept-edit .dept-badge{margin:0 3px 0 0}
+/* 多选部门：收在「所属部门 n」里，点开才是一排 checkbox。因为
+   .table-wrap 是 overflow:auto，弹层会被裁掉，所以在单元格内展开。 */
+.dept-multi{position:relative}
+.dept-multi summary{list-style:none;cursor:pointer;font-size:12.5px;color:var(--dim);border:1px solid var(--rule);border-radius:999px;padding:4px 10px;background:var(--surface);white-space:nowrap}
+.dept-multi summary::-webkit-details-marker{display:none}
+.dept-multi summary b{color:var(--text)}
+.dept-multi[open] summary{border-color:var(--accent);color:var(--accent)}
+.dept-multi[open] .dept-checks{margin-top:6px;width:250px}
+.dept-checks{display:flex;flex-wrap:wrap;gap:4px 10px;max-width:300px;max-height:168px;overflow:auto;padding:8px 10px;background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm)}
+.dept-check{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;white-space:nowrap;cursor:pointer}
+.dept-check input{margin:0;width:auto}
+.dept-check span{color:var(--dim);font-size:11px}
+.dept-check.is-fixed{opacity:.72}
+.field .dept-checks{max-width:none;max-height:132px}
+/* 逐部门一行：勾选框 + 部门名 + 该部门级别 */
+.dept-rows{display:flex;flex-direction:column;gap:2px;margin-top:6px;padding:8px 10px;background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);width:290px}
+.dept-row{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}
+.dept-row input[type=checkbox]{margin:0;width:auto;flex-shrink:0}
+.dept-row-name{min-width:96px;display:inline-flex;align-items:center;gap:5px}
+.dept-row-name em{font-style:normal;font-size:10px;color:var(--dim);border:1px solid var(--rule-soft);border-radius:999px;padding:0 5px}
+.dept-row select{min-height:28px;padding:3px 6px;font-size:12px;width:auto}
+.dept-row-role{font-size:11.5px;color:var(--dim)}
+.dept-row.is-fixed{opacity:.72}
+.dept-note{margin:6px 0 0;font-size:11px;line-height:1.6;color:var(--dim)}
 .dept-mgr{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--rule);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:2px 18px}
 .dept-item{display:flex;gap:14px;align-items:center;padding:11px 0;border-bottom:1px solid var(--rule-soft)}
 .dept-item:last-child{border-bottom:0}
@@ -207,6 +261,23 @@ document.addEventListener('click', async (e) => {
     });
     if (v === null || !v.trim() || v.trim() === old) return;
     await deptPost({action: 'dept_rename', old: old, new: v.trim()});
+  }
+});
+
+/* 主部门与部门勾选保持同步：取消勾选当前主部门→主部门退回「通用」
+   （否则存出一个已移除的部门）；选主部门→自动勾上那个部门。 */
+document.addEventListener('change', (e) => {
+  const form = e.target.closest('form');
+  if (!form) return;
+  const sel = form.querySelector('select[name=department]');
+  if (!sel) return;
+  if (e.target.matches('input[name=departments]')) {
+    const checked = [...form.querySelectorAll('input[name=departments]:checked')].map(i => i.value);
+    if (sel.value !== '通用' && !checked.includes(sel.value)) sel.value = '通用';
+  } else if (e.target === sel && sel.value !== '通用') {
+    const box = [...form.querySelectorAll('input[name=departments]')]
+      .find(i => i.value === sel.value);
+    if (box) box.checked = true;
   }
 });
 

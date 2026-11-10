@@ -16,13 +16,19 @@ from kb.models import ChunkProvenance, Document, KnowledgeBase, SiteConfig
 from kb.pipeline import (
     EmbeddingGemmaEmbeddings, WeMMEmbeddings, _embed_input_version,
     _embedding_fingerprint, _embeddings, _index_image_chunks, _index_page_chunks,
-    run_indexing,
+    openai_gemma_vision_class, run_indexing, supports_image_embedding,
 )
 
 
 CONFIG = {
     "model": "google/embeddinggemma-2", "base_url": "http://localhost:8301",
     "dimensions": 256, "api_key": "",
+}
+# 部署形态：服务只提供 OpenAI 兼容 /v1/embeddings（无 WeMM 的 /embed），
+# 图片走同端点的 image_base64 条目，图文同条=融合向量。
+SERVICE = {
+    "model": "embeddinggemma-2", "base_url": "http://10.136.185.9:8001/v1",
+    "dimensions": 768, "api_key": "",
 }
 IMAGE = "data:image/jpeg;base64," + base64.b64encode(b"image").decode()
 
@@ -157,6 +163,117 @@ class GemmaPipelineTests(TestCase):
         ), patch("kb.pipeline.Chroma", return_value=vs), self.assertRaisesMessage(ValueError, "请重建该库"):
             run_indexing("inspect the bearing", self.kb.slug, "manual.pdf")
         vs.add_documents.assert_not_called()
+
+
+class GemmaServiceProtocolTests(SimpleTestCase):
+    """部署中的 EmbeddingGemma 服务：OpenAI 协议上额外的图片嵌入能力。"""
+
+    def service_client(self, **overrides):
+        cls = openai_gemma_vision_class()
+        client = cls(model=SERVICE["model"], dimensions=SERVICE["dimensions"],
+                     api_key="local-no-key", base_url=SERVICE["base_url"],
+                     check_embedding_ctx_length=False, chunk_size=2,
+                     request_timeout=180, max_retries=0)
+        client.client = MagicMock()
+        return client
+
+    def reply(self, vectors):
+        return MagicMock(data=[MagicMock(embedding=v) for v in vectors])
+
+    def test_service_endpoint_client_keeps_openai_protocol_and_gains_images(self):
+        with patch("kb.pipeline.embedding_settings", return_value=SERVICE):
+            client = _embeddings()
+        from langchain_openai import OpenAIEmbeddings
+        self.assertIsInstance(client, OpenAIEmbeddings)   # 文本协议不变
+        self.assertTrue(supports_image_embedding(client))  # 图片块不再被跳过
+        self.assertEqual(client.chunk_size, 4)             # 图片 base64 大，批次压到 WEMM_BATCH_SIZE
+
+    def test_wemm_openai_endpoint_stays_text_only(self):
+        """vLLM 类 WeMM /v1 端点不认 image_base64 条目，不能误判为可嵌图。"""
+        with patch("kb.pipeline.embedding_settings",
+                   return_value={**SERVICE, "model": "Tencent/WeMM-Embedding-2B"}):
+            self.assertFalse(supports_image_embedding(_embeddings()))
+
+    def test_embed_contents_sends_fused_text_and_bare_image(self):
+        client = self.service_client()
+        client.client.create.return_value = self.reply([[1.0], [2.0]])
+        vecs = client.embed_contents([
+            [{"type": "text", "text": "diagram"}, {"type": "image", "image": IMAGE}],
+            [{"type": "text", "text": "detail"}, {"type": "image", "image": IMAGE}],
+        ])
+        self.assertEqual(vecs, [[1.0], [2.0]])
+        self.assertEqual(client.client.create.call_args.kwargs["input"], [
+            {"text": "diagram", "image_base64": base64.b64encode(b"image").decode()},
+            {"text": "detail", "image_base64": base64.b64encode(b"image").decode()},
+        ])                                  # data URL 前缀必须剥掉
+        self.assertEqual(client.client.create.call_args.kwargs["dimensions"], 768)
+
+    def test_images_are_batched_and_count_mismatch_rejected(self):
+        client = self.service_client()
+        client.client.create.side_effect = [self.reply([[1.0], [2.0]]), self.reply([[3.0]])]
+        parts = [{"type": "text", "text": "图"}, {"type": "image", "image": IMAGE}]
+        self.assertEqual(len(client.embed_contents([parts] * 3)), 3)
+        self.assertEqual(client.client.create.call_count, 2)   # chunk_size=2
+
+    def test_short_response_is_rejected_instead_of_misaligned(self):
+        client = self.service_client()
+        client.client.create.return_value = self.reply([[1.0]])   # 2 条目只返 1 向量
+        parts = [{"type": "text", "text": "图"}, {"type": "image", "image": IMAGE}]
+        with self.assertRaisesMessage(ValueError, "向量数不匹配"):
+            client.embed_contents([parts, parts])
+
+    def test_multiple_images_and_unknown_types_are_refused(self):
+        client = self.service_client()
+        one = {"type": "image", "image": IMAGE}
+        with self.assertRaisesMessage(ValueError, "只接受一张图片"):
+            client.embed_contents([[one, dict(one)]])
+        with self.assertRaisesMessage(ValueError, "不支持内容类型"):
+            client.embed_contents([[{"type": "audio", "audio": "x"}]])
+
+    def test_raw_image_fallback_matches_service_field_names(self):
+        """_index_image_chunks 的降级路径用 WeMM 的 image_b64 写法。"""
+        client = self.service_client()
+        client.client.create.return_value = self.reply([[1.0]])
+        self.assertEqual(client._embed_raw([{"image_b64": "QUJD"}]), [[1.0]])
+        self.assertEqual(client.client.create.call_args.kwargs["input"],
+                         [{"image_base64": "QUJD"}])
+
+
+class GemmaServiceImageIndexTests(TestCase):
+    """图片块索引门控：OpenAI 协议的 Gemma 服务不得被当作「非多模态」跳过。"""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.kb = KnowledgeBase.objects.create(name="Gemma service KB", slug="gemma-service")
+        cls.doc = Document.objects.create(kb=cls.kb, original_name="manual.pdf", file="manual.pdf")
+
+    def test_illustration_chunk_is_indexed_over_openai_protocol(self):
+        client = MagicMock(spec=["embed_contents", "chunk_size", "model", "dimensions"])
+        client.embed_contents.return_value = [[1.0, 2.0]]
+        vs = MagicMock()
+        chunk = Chunk(page_content="bearing diagram", metadata={
+            "source": "manual.pdf", "image": "a.jpg", "type": "image"})
+        with tempfile.TemporaryDirectory() as root, patch(
+            "kb.pipeline._embeddings", return_value=client,
+        ):
+            image = Path(root) / "a.jpg"
+            image.write_bytes(b"jpeg")
+            self.assertEqual(_index_image_chunks(
+                vs, [(chunk, image)], self.kb.slug, "manual.pdf", doc_id=self.doc.pk), 1)
+        sent = client.embed_contents.call_args.args[0][0]
+        self.assertEqual([p["type"] for p in sent], ["text", "image"])
+        vs._collection.add.assert_called_once()
+
+    def test_text_only_client_still_skips_images_without_failing(self):
+        client = MagicMock(spec=["chunk_size", "model", "dimensions"])  # 无 embed_contents
+        chunk = Chunk(page_content="x", metadata={"source": "s", "image": "a.jpg", "type": "image"})
+        vs = MagicMock()
+        with tempfile.TemporaryDirectory() as root, patch("kb.pipeline._embeddings", return_value=client):
+            image = Path(root) / "a.jpg"
+            image.write_bytes(b"jpeg")
+            self.assertEqual(_index_image_chunks(
+                vs, [(chunk, image)], self.kb.slug, "manual.pdf", doc_id=self.doc.pk), 0)
+        vs._collection.add.assert_not_called()
 
 
 class NativeConnectionTests(TestCase):

@@ -217,9 +217,17 @@ class TrackerAnalysisTests(TestCase):
         self.kb.save(update_fields=['department'])
         self.assertEqual(self.client.get(self.url).status_code, 200)
 
-    def test_anonymous_and_regular_users_cannot_use_management_analysis(self):
+    def test_anonymous_blocked_and_reader_follows_kb_read_access(self):
+        """分析权限跟“能不能读这个库”走，不再卡管理员。
+
+        原期望是「普通账号 404」（分析仅管理可用）；现在「通用」库对所有部门
+        开放，所以同库可读 = 可分析；但库改成部门专属后必须立刻 404。
+        """
         self.client.logout()
         self.assertEqual(self.client.get(self.url).status_code, 302)
         reader = get_user_model().objects.create_user('analysis-reader')
         self.client.force_login(reader)
-        self.assertEqual(self.client.get(self.url).status_code, 404)
+        self.assertEqual(self.client.get(self.url).status_code, 200)   # 共享库：可读即可分析
+        self.kb.department = '机械'
+        self.kb.save(update_fields=['department'])
+        self.assertEqual(self.client.get(self.url).status_code, 404)    # 换部门 -> 马上关掉

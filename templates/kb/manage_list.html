@@ -52,17 +52,17 @@
       {% endwith %}
       <div class="kb-actions" data-actions>
         <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>
-        <form method="post" action="/kb/manage/{{ kb.slug }}/delete/" style="display:inline"
+        {% if kb.can_manage %}<form method="post" action="/kb/manage/{{ kb.slug }}/delete/" style="display:inline"
               data-confirm-title="删除知识库"
               data-confirm="确定删除「{{ kb.name }}」？{{ kb.aggregate_counts.0 }} 份文档及所有向量数据将丢失。">
           {% csrf_token %}
           <button class="btn sm danger" type="submit">删除</button>
-        </form>
+        </form>{% endif %}
       </div>
     </div>
   </div>
   {% empty %}
-  <div class="empty">还没有手册库</div>
+  <div class="empty">{% if read_kbs %}你还没有可管理的手册库；下方「公共知识库」可以直接查阅。{% else %}还没有手册库{% endif %}</div>
   {% endfor %}
 </div>
 
@@ -75,17 +75,17 @@
   <div class="dataset-grid">
     {% for kb in business_kbs %}
     <article data-business-slug="{{ kb.slug }}">
-      <span>自动采集 · {{ kb.access_label }}</span>
+      <span>自动采集 · {{ kb.access_label }}{% if not kb.can_manage %} · 只读{% endif %}</span>
       <strong title="{{ kb.name }}">{{ kb.name }}</strong>
       <small>{{ kb.business_row_count }} 条记录</small>
       <div class="kb-actions">
         <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>
-        <form method="post" action="{% url 'kb:manage_delete' kb.slug %}" style="display:inline"
+        {% if kb.can_manage %}<form method="post" action="{% url 'kb:manage_delete' kb.slug %}" style="display:inline"
               data-confirm-title="删除采集库"
               data-confirm="确定删除「{{ kb.name }}」？{{ kb.business_row_count }} 条记录、追踪表及关联的自动更新任务将一并删除，不可恢复。">
           {% csrf_token %}
           <button class="btn sm danger" type="submit">删除</button>
-        </form>
+        </form>{% endif %}
       </div>
     </article>
     {% endfor %}
@@ -101,10 +101,47 @@
   <div class="empty">尚未导入业务数据</div>
   {% endif %}
 </div>
+
+{% if read_kbs %}
+<div class="section-bar public-bar">
+  <div><h2>公共知识库</h2><p>其它部门或「通用」范围开放给你的库：可查阅、可检索、可问答；上传与修改由所属部门或全局管理员维护。</p></div>
+  <span class="count-chip">{{ read_kbs|length }} 个只读库</span>
+</div>
+<ul class="public-list">
+  {% for kb in read_kbs %}
+  {% with counts=kb.aggregate_counts %}
+  <li>
+    <a href="{% url 'kb:manage_detail' kb.slug %}">{{ kb.name }}</a>
+    <span class="pl-meta">
+      <span>{{ kb.access_label }}</span>
+      · <span>{% if kb.category == 'business' %}业务数据{% else %}手册库{% endif %}</span>
+      {% if kb.category == 'business' %}
+      · <span class="pl-num">{{ kb.business_row_count }}</span> <span>条记录</span>
+      {% else %}
+      · <span class="pl-num">{{ counts.0 }}</span> <span>文档</span> · <span class="pl-num">{{ counts.1 }}</span> <span>向量块</span>
+      {% endif %}
+    </span>
+    <a class="pl-open" href="{% url 'kb:manage_detail' kb.slug %}">打开</a>
+  </li>
+  {% endwith %}
+  {% endfor %}
+</ul>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
 <style>
+.public-bar{margin-top:28px}
+.public-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.public-list li{display:flex;align-items:baseline;gap:10px;padding:7px 2px;border-bottom:1px dashed var(--rule)}
+.public-list li:last-child{border-bottom:0}
+.public-list a{font-size:13px;font-weight:500;text-decoration:none}
+.public-list a:hover{color:var(--brand);text-decoration:underline}
+.pl-meta{font-size:11.5px;color:var(--mute)}
+.pl-num{font-variant-numeric:tabular-nums}
+.pl-open{margin-left:auto;font-size:11.5px;color:var(--brand);text-decoration:none;white-space:nowrap}
+.pl-open:hover{text-decoration:underline}
+.ro-badge{font:500 11px/1.6 var(--fb);padding:1px 8px;border-radius:999px;background:var(--surface-2,var(--brand-soft));color:var(--mute);border:1px solid var(--rule)}
 .dataset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
 .dataset-grid article{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border:1px solid var(--rule);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-sm)}
 .dataset-grid span{align-self:flex-start;font:500 11px/1.6 var(--fb);color:var(--brand);background:var(--brand-soft);padding:0 8px;border-radius:999px}

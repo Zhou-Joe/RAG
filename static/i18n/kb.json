@@ -1,5 +1,18 @@
 {
   "messages": {
+    "每页": "Per page",
+    "追踪表分页": "Tracker pagination",
+    "只读": "Read-only",
+    "打开": "Open",
+    "公共知识库": "Shared libraries",
+    "还没有追踪记录。": "No tracker records yet.",
+    "你还没有可管理的手册库；下方「公共知识库」可以直接查阅。": "You have no libraries you can manage; the shared libraries listed below are open to you.",
+    "其它部门或「通用」范围开放给你的库：可查阅、可检索、可问答；上传与修改由所属部门或全局管理员维护。": "Libraries that other departments or the General scope share with you: browse, search and ask questions freely; uploads and edits are maintained by the owning department or a site admin.",
+    "此库为只读（通用库由全局管理员维护）：可正常查看文档、检索与问答；需上传或修改请联系全局管理员。": "This library is read-only (general libraries are maintained by site admins). You can view documents, search and ask questions; contact a site admin to upload or change files.",
+    "此追踪表为只读：可核对记录与导出 Excel，字段配置、补录与删除由库的管理员维护。": "This tracker is read-only: you can review records and export Excel. Field setup, backfilling and deletion are maintained by the library's administrators.",
+    "通用库对所有部门开放：可浏览、可检索、可问答；上传与修改由全局管理员维护": "General libraries are open to every department: browse, search and ask questions; uploads and edits are maintained by site admins",
+    "该知识库为只读（通用库由全局管理员维护），无法上传。": "This library is read-only (general libraries are maintained by site admins), so uploads are not allowed.",
+    "该知识库为只读，无法修改追踪表（可正常查看与导出）。": "This library is read-only, so the tracker cannot be changed. Viewing and exporting still work.",
     "业务数据 · 趋势洞察": "Business data · Trend insights",
     "采集参数分析": "Collected parameter analysis",
     "选择同一对象的参数，按采集时间分析变化与周期统计。": "Select parameters for the same item to analyze changes and summarize them over time.",
@@ -71,6 +84,8 @@
     "创建新知识库": "Create a knowledge base",
     "新知识库名称": "New knowledge base name",
     "所属部门": "Department",
+    "你属于多个部门，部门库可以建到其中任何一个。": "You belong to several departments; create the library in whichever fits.",
+    "部门（可多选）": "Departments (multiple)",
     "数据源名称": "Data source name",
     "例如：设备每日运行报告": "For example: Daily equipment operating report",
     "接入方式": "Connection method",
@@ -1227,6 +1242,34 @@
     "请填写不超过100字符的知识库名称。": "Enter a knowledge base name of up to 100 characters."
   },
   "patterns": [
+    {
+      "source": "全部 {count} 条采集记录 · 展开查看明细",
+      "target": "All {count} collected records · expand for details"
+    },
+    {
+      "source": "删除「{name}」的这条追踪记录？",
+      "target": "Delete this tracker record for “{name}”?"
+    },
+    {
+      "source": "{count} 个只读库",
+      "target": "{count} read-only libraries"
+    },
+    {
+      "source": "{count} 个采集库",
+      "target": "{count} collection libraries"
+    },
+    {
+      "source": "{count} 条",
+      "target": "{count} records"
+    },
+    {
+      "source": "· {count} 份已完成文档待补录",
+      "target": "· {count} completed documents pending"
+    },
+    {
+      "source": "确定删除「{name}」？{count} 份文档及所有向量数据将丢失。",
+      "target": "Delete “{name}”? {count} documents and all their vectors will be lost."
+    },
     {
       "source": "共 {count} 条",
       "target": "{count} records"

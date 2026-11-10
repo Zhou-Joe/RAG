@@ -4,7 +4,7 @@
 <header class="page-head">
   <div class="page-head-main">
     <a class="page-back" href="/kb/manage/">资料上传中心</a>
-    <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge" id="kbAccessBadge">{{ kb.access_label }}</span>{% if kb.embedding_label %} <span class="emb-badge">🧬 {{ kb.embedding_label }}</span>{% endif %}</h1>
+    <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge" id="kbAccessBadge">{{ kb.access_label }}</span>{% if not can_manage %} <span class="ro-badge" title="通用库对所有部门开放：可浏览、可检索、可问答；上传与修改由全局管理员维护">只读</span>{% endif %}{% if kb.embedding_label %} <span class="emb-badge">🧬 {{ kb.embedding_label }}</span>{% endif %}</h1>
     <p class="page-desc"><span id="kbDescText">{% if kb.description %}{{ kb.description }}{% else %}（无描述）{% endif %}</span>
       · 文档 <span id="kbDocCount">{{ docs_total }}</span>
       · 向量块 <span id="kbChunkCount">{{ chunks_total }}</span></p>
@@ -13,11 +13,13 @@
     <a class="btn outline" href="/kb/inspection/">检查项提取</a>
     {% if kb.is_folder %}<a class="btn outline" href="{% url 'kb:feeds' %}?kb={{ kb.slug|urlencode }}">自动更新数据源</a>{% endif %}
     {% if kb.tracker.enabled %}<a class="btn outline" id="trkEntry" href="/kb/manage/{{ kb.slug }}/tracker/">追踪表</a>{% endif %}
-    <button type="button" id="descEditBtn" class="btn outline">编辑知识库</button>
+    {% if can_manage %}<button type="button" id="descEditBtn" class="btn outline">编辑知识库</button>{% endif %}
   </div>
 </header>
 <style>
 .doc-desc{margin-left:8px;color:var(--mute);font-size:11px}
+.ro-badge{font:500 11px/1.6 var(--fb);padding:1px 8px;border-radius:999px;background:var(--surface-2,var(--brand-soft));color:var(--mute);border:1px solid var(--rule);vertical-align:middle}
+.readonly-note{display:flex;gap:8px;align-items:center;padding:12px 16px;border:1px dashed var(--rule);border-radius:var(--radius-lg);color:var(--mute);font-size:12.5px;background:var(--surface)}
 /* 药丸开关（编辑知识库弹窗 · 启用追踪表） */
 .trk-switch{position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;vertical-align:middle}
 .trk-switch input{opacity:0;width:0;height:0;position:absolute}
@@ -51,6 +53,7 @@
 </dialog>
 
 
+{% if can_manage %}
 <div class="section-bar">
   <div><h2>上传</h2><p>多选文件或拖入整个文件夹，入库进度会实时显示在下方列表。</p></div>
 </div>
@@ -73,6 +76,9 @@
     <button class="btn primary" type="submit" id="uploadBtn" style="margin-top:10px;display:none">开始上传</button>
   </form>
 </div>
+{% else %}
+<div class="readonly-note">此库为只读（通用库由全局管理员维护）：可正常查看文档、检索与问答；需上传或修改请联系全局管理员。</div>
+{% endif %}
 
 <div class="section-bar">
   <div><h2>文档列表</h2></div>
@@ -110,7 +116,7 @@
         {% if doc.status == 'pending' %}0%{% elif doc.status == 'ocr' %}25%{% elif doc.status == 'indexing' %}75%{% else %}0%{% endif %}"></div></div>
       {% endif %}
     </div>
-    <div class="doc-actions">
+    {% if can_manage %}<div class="doc-actions">
       <form method="post" action="{% url 'kb:doc_retry' kb.slug doc.id %}" class="doc-retry-form" {% if doc.status != 'failed' %}hidden{% endif %}>
         {% csrf_token %}<button type="submit" class="btn sm primary">重试（继续进度）</button>
       </form>
@@ -125,10 +131,10 @@
       {% endif %}
       <button type="button" class="btn sm danger doc-del-btn" title="删除此文档及其向量"
               data-doc-id="{{ doc.id }}" data-name="{{ doc.original_name }}">删除</button>
-    </div>
+    </div>{% endif %}
   </div>
   {% empty %}
-  <div class="empty">还没有文档，上传第一份吧。</div>
+  <div class="empty">{% if can_manage %}还没有文档，上传第一份吧。{% else %}此库暂无文档。{% endif %}</div>
   {% endfor %}
 </div>
 {% endblock %}
@@ -287,6 +293,8 @@ function ftypeBadge(name, fileType){
 }
 
 const KB_SLUG = '{{ kb.slug }}';
+// 只读库（其它部门看到的「通用」库）：前端也不生成写操作入口，与模板保持一致。
+const CAN_MANAGE = {% if can_manage %}true{% else %}false{% endif %};
 const fileInput = document.getElementById('fileInput');
 const dirInput = document.getElementById('dirInput');
 const fileName = document.getElementById('fileName');
@@ -384,6 +392,8 @@ function scanEntry(entry){
   });
 })();
 
+// 只读库不渲染上传区（模板里按 can_manage 条件输出），相应在事件绑定处短路。
+if (fileInput && uploadBtn && pickDirBtn && document.getElementById('uploadForm')) {
 fileInput.addEventListener('change', () => addFiles(fileInput.files));
 pickDirBtn.addEventListener('click', () => dirInput.click());
 dirInput.addEventListener('change', () => addFiles(dirInput.files));
@@ -435,6 +445,7 @@ uploadForm.addEventListener('submit', async (e) => {
   uploadBtn.style.display = 'none';
   setTimeout(poll, 1200);  // 触发现有轮询：新文档入列表
 });
+}
 
 /* ---------- 无刷新删除文档（AJAX） ---------- */
 // 从 cookie 取 CSRF token（Django 默认 csrftoken cookie 对 JS 可见）
@@ -521,11 +532,13 @@ function renderDocRow(d) {
     row.className = 'doc-item';
     row.dataset.docId = d.id;
     row.innerHTML = '<div class="doc-main"><div class="doc-name"></div><div class="doc-detail"></div></div>'
-      + '<div class="doc-actions"><button type="button" class="btn sm danger doc-del-btn"></button></div>';
+      + (CAN_MANAGE ? '<div class="doc-actions"><button type="button" class="btn sm danger doc-del-btn"></button></div>' : '');
     const btn = row.querySelector('.doc-del-btn');
-    btn.title = '删除此文档及其向量';
-    btn.dataset.docId = d.id; btn.dataset.name = d.name; btn.textContent = '删除';
-    bindDelete(btn);
+    if (btn) {   // 只读库无删除按钮
+      btn.title = '删除此文档及其向量';
+      btn.dataset.docId = d.id; btn.dataset.name = d.name; btn.textContent = '删除';
+      bindDelete(btn);
+    }
     // 插到列表最前面（并清掉可能残留的空态提示）
     const emptyHint = docList.querySelector('.empty');
     if (emptyHint) emptyHint.remove();

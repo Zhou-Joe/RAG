@@ -308,11 +308,12 @@ def _direct_lookup_query(normalized: str, partial: bool = False) -> Q:
     return query
 
 
-def lookup_related(query_text: str, department: str = "", *, user=None) -> dict[str, Any]:
+def lookup_related(query_text: str, department="", *, user=None) -> dict[str, Any]:
     """统一搜索业务键，并沿关联键进行最多三轮确定性跨表关联。
 
     department：手册全文搜索按部门过滤（空 = 不过滤，仅内部/兼容用途；
-    页面调用时传当前用户部门，可见 通用 ∪ 该部门 的文档）。
+    页面调用时传当前用户的部门列表（一个账号可属多个部门），旧调用传单个名字也照用，
+    可见 通用 ∪ 这些部门 的文档）。
     """
     normalized = normalize_key(query_text)
     if not normalized:
@@ -325,7 +326,9 @@ def lookup_related(query_text: str, department: str = "", *, user=None) -> dict[
     from . import access
     from .models import KnowledgeBase,DEPARTMENT_GENERAL
     allowed=KnowledgeBase.objects.filter(access.kb_q(user) if user is not None else access.shared_q())
-    if user is None and department:allowed=allowed.filter(department__in=[DEPARTMENT_GENERAL,department])
+    if user is None and department:
+        names=[department] if isinstance(department,str) else list(department)
+        allowed=allowed.filter(department__in=[DEPARTMENT_GENERAL,*(n for n in names if n)])
     base=base.filter(Q(dataset__kb__isnull=True)|Q(dataset__kb__in=allowed))
     records = list(base.filter(_direct_lookup_query(normalized))[:500])
     match_mode = "exact"

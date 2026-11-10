@@ -46,6 +46,7 @@ db.sqlite3-shm
 
 # ── 运行时/本地工具（不进仓库）──
 blobs/
+.runtime/
 .mineru-service.lock
 tools/
 watch_doc.py

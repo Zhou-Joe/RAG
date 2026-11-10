@@ -5,7 +5,11 @@ from django.urls import reverse
 
 from kb.models import KnowledgeBase
 
-from .models import DEPARTMENT_GENERAL, UserProfile
+from django.contrib import admin
+
+from .models import (DEPARTMENT_GENERAL, Department, UserDepartment, UserProfile,
+                     assign_departments, department_members, profile_departments,
+                     profile_roles, user_departments, user_role)
 
 
 class RegistrationDepartmentPolicyTests(TestCase):
@@ -242,3 +246,213 @@ class PersonalInfoTests(TestCase):
         strict.force_login(self.user)
         self.assertEqual(strict.post(self.url, self.values()).status_code, 403)
         self.assertEqual(self.client.delete(self.url).status_code, 405)
+
+
+class MultiDepartmentUserManagementTests(TestCase):
+    """用户管理页：一个账号可挂多个部门，「通用」人人默认且有而不可撤。"""
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.gadmin = User.objects.create_user("dept-gadmin", password="pw", is_staff=True)
+        assign_departments(cls.gadmin, [DEPARTMENT_GENERAL])
+        cls.dept_admin = User.objects.create_user("mech-admin", password="pw")
+        UserProfile.objects.create(user=cls.dept_admin, department="机械",
+                                   role=UserProfile.Role.DEPT_ADMIN)
+        assign_departments(cls.dept_admin, ["机械", "电气"])
+        cls.mech_member = User.objects.create_user("mech-user", password="pw")
+        UserProfile.objects.create(user=cls.mech_member, department="机械")
+        assign_departments(cls.mech_member, ["机械"])
+        cls.elec_member = User.objects.create_user("elec-user", password="pw")
+        UserProfile.objects.create(user=cls.elec_member, department="电气")
+        assign_departments(cls.elec_member, ["电气"])
+        cls.general_user = User.objects.create_user("general-only", password="pw")
+        UserProfile.objects.create(user=cls.general_user, department=DEPARTMENT_GENERAL)
+        assign_departments(cls.general_user, [DEPARTMENT_GENERAL])
+        cls.url = reverse("accounts:user_list")
+
+    def _save(self, target, department, extras=(), role=None):
+        """POST 用户行的「保存」表单：主部门走 select，附加部门走 checkbox。"""
+        return self.client.post(self.url, {
+            "action": "save", "user_id": target.pk,
+            "role": role or UserProfile.Role.USER,
+            "department": department, "departments": list(extras),
+        }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+
+    def test_admin_assigns_several_departments(self):
+        self.client.force_login(self.gadmin)
+        self._save(self.mech_member, "机械", ["机械", "电气", "工艺"])
+        profile = self.mech_member.profile
+        profile.refresh_from_db()
+        self.assertEqual(profile.department, "机械")
+        self.assertEqual(profile_departments(self.mech_member),
+                         [DEPARTMENT_GENERAL, "机械", "电气"])
+        self.assertFalse(Department.objects.filter(name="工艺").exists())
+
+    def test_unchecked_department_is_removed_but_general_stays(self):
+        self.client.force_login(self.gadmin)
+        self._save(self.dept_admin, "机械", ["机械"], role=UserProfile.Role.DEPT_ADMIN)  # 取消「电气」
+        self.assertEqual(profile_departments(self.dept_admin), [DEPARTMENT_GENERAL, "机械"])
+
+    def test_admin_can_assign_departments_they_are_not_in(self):
+        """全局管理员不限自己的部门（只要部门已登记）；未登记的名字不会从表单冒出来。"""
+        self.client.force_login(self.gadmin)
+        self._save(self.mech_member, "机械", ["机械", "电气"])
+        self.assertIn("电气", profile_departments(self.mech_member))
+        self._save(self.mech_member, "机械", ["机械", "保密部"])
+        self.assertNotIn("保密部", profile_departments(self.mech_member))
+        self.assertFalse(Department.objects.filter(name="保密部").exists())
+
+    def test_page_lists_every_department_as_a_badge(self):
+        self.client.force_login(self.gadmin)
+        r = self.client.get(self.url)
+        self.assertContains(r, "电气")
+        self.assertContains(r, 'name="departments" value="电气"')
+        # 「通用」是默认部门：勾选、禁用、标「默认」
+        self.assertContains(r, "默认")
+
+    def test_dept_admin_sees_members_of_all_his_departments(self):
+        self.client.force_login(self.dept_admin)
+        rows = {r["username"] for r in self.client.get(self.url).context["rows"]}
+        # 两个部门的人都算「本部门」，包括他自己那一行
+        self.assertEqual(rows, {"mech-admin", "mech-user", "elec-user"})
+
+    def test_dept_admin_cannot_grant_departments_he_does_not_own(self):
+        self.client.force_login(self.dept_admin)
+        # 添加账号：勾上自己不属于的部门 + 伪造「通用」，都应当被丢掉
+        r = self.client.post(self.url, {
+            "action": "user_add", "username": "newbie", "password": "pw12345",
+            "role": UserProfile.Role.USER, "department": "保密部",
+            "departments": ["电气", "保密部", DEPARTMENT_GENERAL],
+        }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertTrue(r.json()["ok"], r.json())
+        newbie = get_user_model().objects.get(username="newbie")
+        self.assertEqual(profile_departments(newbie), [DEPARTMENT_GENERAL, "电气"])
+        self.assertEqual(newbie.profile.department, "电气")
+
+    def test_dept_admin_cannot_edit_members_of_other_departments(self):
+        self.client.force_login(self.dept_admin)
+        r = self.client.post(self.url, {
+            "action": "save", "user_id": self.general_user.pk,
+            "role": UserProfile.Role.DEPT_ADMIN, "department": "电气",
+            "departments": ["电气"],
+        })
+        self.assertEqual(r.status_code, 302)
+        self.general_user.profile.refresh_from_db()
+        self.assertEqual(self.general_user.profile.role, UserProfile.Role.USER)
+        self.assertEqual(self.general_user.profile.department, DEPARTMENT_GENERAL)
+
+    def test_deleting_a_member_with_departments_cleans_the_links(self):
+        """删账号必须连带清掉多选部门关联：残留行会让 SQLite 报 FOREIGN KEY（500）。"""
+        self.client.force_login(self.gadmin)
+        r = self.client.post(self.url, {"action": "delete", "user_id": self.elec_member.pk})
+        self.assertEqual(r.status_code, 302)
+        self.assertFalse(UserProfile.objects.filter(user__username="elec-user").exists())
+        self.assertEqual([u.user.username for u in department_members("电气")], ["mech-admin"])
+
+    def test_department_used_only_in_multi_select_cannot_be_deleted(self):
+        self.client.force_login(self.gadmin)
+        r = self.client.post(self.url, {"action": "dept_delete", "name": "电气"},
+                             HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertFalse(r.json()["ok"])
+        self.assertIn("电气", r.json()["message"])
+        self.assertTrue(Department.objects.filter(name="电气").exists())
+
+    def test_rename_updates_membership_and_primary(self):
+        self.client.force_login(self.gadmin)
+        r = self.client.post(self.url, {"action": "dept_rename", "old": "电气", "new": "电气维修"},
+                             HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertTrue(r.json()["ok"], r.json())
+        self.assertIn("电气维修", profile_departments(self.elec_member))
+        self.elec_member.profile.refresh_from_db()
+        self.assertEqual(self.elec_member.profile.department, "电气维修")
+        self.assertFalse(Department.objects.filter(name="电气").exists())
+
+    def test_general_department_is_locked_in_registry(self):
+        self.client.force_login(self.gadmin)
+        for action in ("dept_rename", "dept_delete"):
+            payload = {"action": action, "name": DEPARTMENT_GENERAL}
+            if action == "dept_rename":
+                payload["old"] = DEPARTMENT_GENERAL
+                payload["new"] = "全部"
+            r = self.client.post(self.url, payload, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+            self.assertFalse(r.json()["ok"], r.json())
+        self.assertTrue(Department.objects.filter(name=DEPARTMENT_GENERAL).exists())
+
+
+class DepartmentMigrationTests(TestCase):
+    """旧库只有主部门：迁移/首次访问都要拿到「通用」，不因缺多选行而丢权限。"""
+
+    def test_profile_without_rows_still_visible_general(self):
+        user = get_user_model().objects.create_user("legacy-no-profile")
+        self.assertEqual(user_departments(user), [DEPARTMENT_GENERAL])
+
+    def test_profile_created_without_m2m_still_sees_its_department(self):
+        user = get_user_model().objects.create_user("legacy-with-dept")
+        UserProfile.objects.create(user=user, department="机械")
+        self.assertEqual(user_departments(user), [DEPARTMENT_GENERAL, "机械"])
+
+
+class DjangoAdminDepartmentTests(TestCase):
+    """Django 后台：逐部门级别能改、「通用」拿不掉也删不掉。"""
+
+    def setUp(self):
+        self.superuser = get_user_model().objects.create_superuser(
+            "dept-super", "s@example.test", "pw")
+        self.client.force_login(self.superuser)
+        self.user = get_user_model().objects.create_user("admin-target", password="pw")
+        self.profile = UserProfile.objects.create(user=self.user, department="机械")
+        assign_departments(self.user, ["机械", "电气"])
+
+    def _membership_post(self, roles=None, delete=()):
+        """按「部门身份」inline 的表单结构提交（roles = {部门名: 级别}，delete = 勾删除的部门）。"""
+        rows = list(self.profile.memberships.order_by("pk"))
+        data = {"user": self.user.pk, "department": self.profile.department,
+                "memberships-TOTAL_FORMS": str(len(rows)),
+                "memberships-INITIAL_FORMS": str(len(rows)),
+                "memberships-MIN_NUM_FORMS": "0", "memberships-MAX_NUM_FORMS": "1000"}
+        for i, m in enumerate(rows):
+            data[f"memberships-{i}-id"] = str(m.pk)
+            data[f"memberships-{i}-department"] = str(m.department_id)
+            data[f"memberships-{i}-role"] = (roles or {}).get(m.department.name, m.role)
+            if m.department.name in delete:
+                data[f"memberships-{i}-DELETE"] = "on"
+        return self.client.post(f"/admin/accounts/userprofile/{self.profile.pk}/change/", data)
+
+    def test_changelists_render_departments(self):
+        for url in ("/admin/accounts/userprofile/", "/admin/accounts/department/"):
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        r = self.client.get("/admin/accounts/userprofile/")
+        self.assertContains(r, "机械、电气")  # 「通用」只用于权限，不刷屏
+        self.assertContains(r, "当管理员的部门")
+        form = self.client.get(f"/admin/accounts/userprofile/{self.profile.pk}/change/")
+        self.assertContains(form, "部门身份")     # inline：逐部门级别
+
+    def test_inline_sets_role_per_department(self):
+        """在 RSE 当管理员、在其它部门只是成员：逐部门级别各存各的。"""
+        r = self._membership_post({"电气": UserProfile.Role.DEPT_ADMIN})
+        self.assertEqual(r.status_code, 302, getattr(r, "content", b"")[:600])
+        roles = profile_roles(self.user)
+        self.assertEqual(roles["电气"], UserProfile.Role.DEPT_ADMIN)
+        self.assertEqual(roles["机械"], UserProfile.Role.USER)
+        self.assertEqual(user_role(self.user), UserProfile.Role.DEPT_ADMIN)  # 汇总同步
+
+    def test_saving_without_general_row_puts_it_back(self):
+        """漏了「通用」那行也会被补回（可见范围不能被人删没）。"""
+        self.profile.memberships.filter(department__name=DEPARTMENT_GENERAL).delete()
+        self._membership_post()
+        self.assertIn(DEPARTMENT_GENERAL, profile_departments(self.user))
+
+    def test_general_department_cannot_be_deleted(self):
+        general = Department.objects.get(name=DEPARTMENT_GENERAL)
+        self.assertEqual(
+            self.client.get(f"/admin/accounts/department/{general.pk}/delete/").status_code, 403)
+        self.assertTrue(Department.objects.filter(pk=general.pk).exists())
+        # inline 里「通用」那一行勾删除也会被表单挡下，别的部门能删
+        row = self.profile.memberships.get(department__name=DEPARTMENT_GENERAL)
+        r = self._membership_post(delete={DEPARTMENT_GENERAL})
+        self.assertEqual(r.status_code, 200)          # 回渲染报错，不落库
+        self.assertContains(r, "不能删")
+        self.assertTrue(UserDepartment.objects.filter(pk=row.pk).exists())
+        self._membership_post(delete={"电气"})
+        self.assertNotIn("电气", profile_departments(self.user))

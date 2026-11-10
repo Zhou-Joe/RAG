@@ -1,4 +1,7 @@
 # Additional dependency for the original Maximo job plan and work order PDF layouts.
 reportlab>=4.2.5,<6
-# Optional native Oracle driver. Existing JDBC installations use their private JRE and JAR.
-# oracledb>=4.0.2,<5
+# Oracle Thin driver used by the Downtime / Maximo read-only queries (default driver).
+# Deployments that already ship a private JRE + ojdbc jar may keep DOWNTIME_DB_DRIVER=jdbc
+# and skip this package; without either the workbench reports
+# 「此连接需要 Oracle Python 驱动或 JDBC 运行组件。」
+oracledb>=4.0.2,<5
