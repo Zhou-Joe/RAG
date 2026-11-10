@@ -65,6 +65,24 @@
     "部门管理员": "Department administrator",
     "普通用户": "Member",
     "普通成员": "Member",
+    "全局管理": "Site admin",
+    "管理员": "Administrator",
+    "我": "Me",
+    "全部": "All",
+    "搜索用户名或部门": "Search users or departments",
+    "编辑权限": "Edit access",
+    "保存更改": "Save changes",
+    "部门与级别": "Departments and roles",
+    "加入": "Assigned",
+    "加入部门可查看资料；设为管理员可管理该部门的知识库。": "Membership grants access to knowledge; administrator role grants management rights.",
+    "新建知识库的默认归属；选择后会自动加入该部门。": "Default department for new knowledge bases; selecting it also assigns membership.",
+    "「通用」人人可见，只有全局管理员能调整其管理级别。": "General is visible to everyone; only a site administrator can change its management role.",
+    "没有符合条件的账号。": "No matching accounts.",
+    "暂无账号。": "No accounts yet.",
+    "逐部门选择级别；未选中的部门不会分配给新账号。": "Set a role for each department; unchecked departments are not assigned.",
+    "至少 6 位": "At least 6 characters",
+    "移除用户": "Remove user",
+    "关联记录阻止彻底删除；账号已停用，无法再登录。历史记录仍保留。": "Linked records prevented deletion. The account has been disabled and can no longer sign in; historical records remain.",
     "账号级别": "Account role",
     "级别（可编辑）": "Role (editable)",
     "部门 / 级别（可编辑）": "Department / role (editable)",
@@ -277,6 +295,26 @@
     {
       "source": "共 {count} 人",
       "target": "{count} users"
+    },
+    {
+      "source": "共 {count} 人 · 部门决定可见范围，管理员级别决定管理权限",
+      "target": "{count} users · Departments control visibility; administrator roles control management"
+    },
+    {
+      "source": "显示 {count} 人",
+      "target": "Showing {count} users"
+    },
+    {
+      "source": "加入于 {date}",
+      "target": "Joined {date}"
+    },
+    {
+      "source": "编辑权限 · {username}",
+      "target": "Edit access · {username}"
+    },
+    {
+      "source": "确定移除用户「{username}」？若关联记录阻止删除，账号将被停用且历史记录保留。",
+      "target": "Remove user \"{username}\"? If linked records block deletion, the account will be disabled and its history retained."
     },
     {
       "source": "{count} 人 · {libraries} 库",

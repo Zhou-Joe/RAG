@@ -157,8 +157,9 @@ def creation_fields(user,level=None,department=None):
     if level not in ('general','department'):raise ValueError('请选择有效的访问范围。')
     if not is_manager(user):raise ValueError('普通用户只能创建个人知识库。')
     if level=='general':
-        # 「通用」人人可见，但只有全局管理员或主部门就是「通用」的账号能建通用库。
-        if not is_global_admin(user) and own!=DEPARTMENT_GENERAL:raise ValueError('无权创建通用知识库。')
+        # 管理权必须来自「通用」本身的部门级别；主部门不能代替授权。
+        if not is_global_admin(user) and DEPARTMENT_GENERAL not in write_departments(user):
+            raise ValueError('无权创建通用知识库。')
         return {'visibility':'shared','department':DEPARTMENT_GENERAL}
     if is_global_admin(user):department=department or own
     # 部门管理员只能落到自己所辖的部门；越权或留空时退回自己的主部门

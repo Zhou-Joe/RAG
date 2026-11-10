@@ -144,6 +144,16 @@ class CreateLibraryTests(MultiDepartmentFixture):
         self.assertFalse(KnowledgeBase.objects.filter(name='越权通用库').exists())
         self.assertTrue(self._create(self.keeper, '公共新库', 'general', DEPARTMENT_GENERAL).json()['ok'])
 
+    def test_general_primary_does_not_grant_general_write_without_general_role(self):
+        # An account can have 通用 as its primary and admin rights only in RSE.
+        user = get_user_model().objects.create_user('general-primary-rse-admin')
+        UserProfile.objects.create(user=user, department=DEPARTMENT_GENERAL)
+        assign_departments(user, [DEPARTMENT_GENERAL, RSE],
+                           roles={DEPARTMENT_GENERAL: UserProfile.Role.USER,
+                                  RSE: UserProfile.Role.DEPT_ADMIN})
+        self.assertFalse(self._create(user, 'Unauthorized public library',
+                                      'general', DEPARTMENT_GENERAL).json()['ok'])
+
     def test_individual_library_uses_primary_department(self):
         r = self._create(self.both, '我的草稿', 'individual', '')
         self.assertTrue(r.json()['ok'], r.json())

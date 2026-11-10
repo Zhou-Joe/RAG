@@ -190,3 +190,10 @@ class UnifiedFeedNameTests(TestCase):
         feed=approve(user=self.user,job=proposal,run_now=False)
         proposal.refresh_from_db();self.assertEqual(proposal.spec['name'],'Ride operations')
         self.assertEqual(feed.name,'Ride operations')
+
+
+    def test_already_open_legacy_editor_with_hidden_empty_kb_name_still_saves(self):
+        response=self.action(kb_name='',name='Legacy editor name')
+        self.assertEqual(response.status_code,200,response.content)
+        self.kb.refresh_from_db();self.assertEqual(self.kb.name,'Legacy editor name')
+        self.assertEqual(response.json()['feed']['report']['title'],self.kb.name)

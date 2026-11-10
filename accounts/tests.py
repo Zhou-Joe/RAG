@@ -1,4 +1,7 @@
 """accounts：注册部门策略测试（安全回归）。"""
+from unittest.mock import patch
+
+from django.db import IntegrityError
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -115,9 +118,9 @@ class UserPageLayoutTests(TestCase):
         self.assertContains(r, 'id="openUserAdd"')
         self.assertContains(r, '<h2>部门</h2>')
         self.assertContains(r, 'id="openDeptAdd"')
-        # 用户表格在部门板块之前（板块顺序）
+        # 用户卡片列表在部门板块之前（板块顺序）
         body = r.content.decode()
-        self.assertLess(body.index("user-table-wrap"), body.index("dept-mgr"))
+        self.assertLess(body.index('id="userList"'), body.index("dept-mgr"))
         # 通用部门锁定：无改名按钮、带固定徽章
         self.assertContains(r, "固定")
         self.assertNotContains(r, 'data-old="通用"')
@@ -342,6 +345,57 @@ class MultiDepartmentUserManagementTests(TestCase):
         self.assertEqual(self.general_user.profile.role, UserProfile.Role.USER)
         self.assertEqual(self.general_user.profile.department, DEPARTMENT_GENERAL)
 
+    def test_new_account_can_have_different_roles_by_department(self):
+        self.client.force_login(self.gadmin)
+        page = self.client.get(self.url)
+        self.assertContains(page, 'name="dept_role__机械"')
+        self.assertContains(page, 'name="dept_role__电气"')
+        response = self.client.post(self.url, {
+            "action": "user_add", "username": "mixed-role", "password": "pw12345",
+            "department": "机械", "departments": ["机械", "电气"],
+            "dept_role__通用": UserProfile.Role.USER,
+            "dept_role__机械": UserProfile.Role.DEPT_ADMIN,
+            "dept_role__电气": UserProfile.Role.USER,
+        }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertTrue(response.json()["ok"], response.json())
+        member = get_user_model().objects.get(username="mixed-role")
+        self.assertEqual(profile_roles(member), {
+            DEPARTMENT_GENERAL: UserProfile.Role.USER,
+            "机械": UserProfile.Role.DEPT_ADMIN,
+            "电气": UserProfile.Role.USER,
+        })
+
+    def test_department_manager_cannot_edit_or_delete_another_manager(self):
+        peer = get_user_model().objects.create_user("peer-manager", password="pw")
+        UserProfile.objects.create(user=peer, department="机械",
+                                   role=UserProfile.Role.DEPT_ADMIN)
+        assign_departments(peer, ["机械"])
+        self.client.force_login(self.dept_admin)
+        row = next(r for r in self.client.get(self.url).context["rows"]
+                   if r["username"] == "peer-manager")
+        self.assertFalse(row["can_edit"])
+        self.assertFalse(row["can_delete"])
+        self.client.post(self.url, {"action": "save", "user_id": peer.pk,
+                                    "departments": ["机械"],
+                                    "dept_role__机械": UserProfile.Role.USER})
+        self.assertEqual(profile_roles(peer)["机械"], UserProfile.Role.DEPT_ADMIN)
+        self.client.post(self.url, {"action": "delete", "user_id": peer.pk})
+        self.assertTrue(get_user_model().objects.filter(pk=peer.pk).exists())
+
+    def test_adding_a_department_does_not_copy_summary_admin_role(self):
+        self.assertEqual(profile_roles(self.dept_admin)["机械"], UserProfile.Role.DEPT_ADMIN)
+        assign_departments(self.dept_admin, ["机械", "电气", "财务"])
+        self.assertEqual(profile_roles(self.dept_admin)["财务"], UserProfile.Role.USER)
+
+    def test_stale_summary_role_does_not_restore_admin_access(self):
+        profile = self.dept_admin.profile
+        profile.memberships.update(role=UserProfile.Role.USER)
+        profile.role = UserProfile.Role.DEPT_ADMIN  # stale aggregate from an older save
+        profile.save(update_fields=["role"])
+        self.assertEqual(user_role(self.dept_admin), UserProfile.Role.USER)
+        self.assertEqual(profile_roles(self.dept_admin)[DEPARTMENT_GENERAL],
+                         UserProfile.Role.USER)
+
     def test_deleting_a_member_with_departments_cleans_the_links(self):
         """删账号必须连带清掉多选部门关联：残留行会让 SQLite 报 FOREIGN KEY（500）。"""
         self.client.force_login(self.gadmin)
@@ -349,6 +403,18 @@ class MultiDepartmentUserManagementTests(TestCase):
         self.assertEqual(r.status_code, 302)
         self.assertFalse(UserProfile.objects.filter(user__username="elec-user").exists())
         self.assertEqual([u.user.username for u in department_members("电气")], ["mech-admin"])
+
+    def test_delete_fk_failure_disables_account_and_shows_message(self):
+        self.client.force_login(self.gadmin)
+        with patch("accounts.views.connection.check_constraints",
+                   side_effect=IntegrityError("FOREIGN KEY constraint failed")):
+            response = self.client.post(self.url, {
+                "action": "delete", "user_id": self.elec_member.pk,
+            }, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.elec_member.refresh_from_db()
+        self.assertFalse(self.elec_member.is_active)
+        self.assertContains(response, "账号已停用")
 
     def test_department_used_only_in_multi_select_cannot_be_deleted(self):
         self.client.force_login(self.gadmin)
@@ -456,3 +522,30 @@ class DjangoAdminDepartmentTests(TestCase):
         self.assertTrue(UserDepartment.objects.filter(pk=row.pk).exists())
         self._membership_post(delete={"电气"})
         self.assertNotIn("电气", profile_departments(self.user))
+
+    def test_admin_department_rename_updates_primary_and_knowledge_base(self):
+        dept = Department.objects.get(name="机械")
+        kb = KnowledgeBase.objects.create(
+            name="机械手册", slug="admin-mechanical-manual", is_folder=True,
+            department="机械", created_by=self.superuser)
+        response = self.client.post(f"/admin/accounts/department/{dept.pk}/change/", {
+            "name": "机械维修", "_save": "Save",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.profile.refresh_from_db()
+        kb.refresh_from_db()
+        self.assertEqual(self.profile.department, "机械维修")
+        self.assertEqual(kb.department, "机械维修")
+        self.assertIn("机械维修", profile_departments(self.user))
+
+    def test_admin_cannot_delete_used_department_or_rename_general(self):
+        used = Department.objects.get(name="机械")
+        self.assertEqual(self.client.get(
+            f"/admin/accounts/department/{used.pk}/delete/").status_code, 403)
+        general = Department.objects.get(name=DEPARTMENT_GENERAL)
+        response = self.client.post(f"/admin/accounts/department/{general.pk}/change/", {
+            "name": "Everyone", "_save": "Save",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Department.objects.filter(pk=general.pk,
+                                                   name=DEPARTMENT_GENERAL).exists())

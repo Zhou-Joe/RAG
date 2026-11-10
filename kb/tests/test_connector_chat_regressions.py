@@ -65,7 +65,7 @@ class ConversationTests(TestCase):
             response=self.client.post(reverse('kb:connector_enable',args=[child.pk]),'{}',content_type='application/json')
         self.assertEqual(response.status_code,200,response.content);self.assertEqual(response.json()['feed_id'],str(feed.pk))
         self.assertEqual(KnowledgeFeed.objects.count(),1);self.assertEqual(KnowledgeBase.objects.count(),1)
-        feed.refresh_from_db();self.assertEqual(feed.name,'Updated');parent.refresh_from_db();self.assertEqual(parent.status,'enabled')
+        feed.refresh_from_db();self.assertEqual(feed.name,'Existing');self.assertEqual(feed.adapter_spec['name'],feed.kb.name);parent.refresh_from_db();self.assertEqual(parent.status,'enabled')
 
     def test_structured_updates_never_create_documents_and_preserve_other_columns(self):
         kb=KnowledgeBase.objects.create(name='Operating hours',slug='chat-regression',is_folder=True,created_by=self.user)

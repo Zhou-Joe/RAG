@@ -1,14 +1,19 @@
 """accounts views: 注册（登录/登出用 Django 内建）+ 用户部门管理（staff）+ 自助改密"""
+import logging
+
+from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.forms import UserCreationForm
 from django.http import JsonResponse
+from django.db import IntegrityError, connection, transaction
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
 from .models import (DEPARTMENT_GENERAL, UserProfile, assign_departments,
                      profile_departments, profile_roles)
 
+logger = logging.getLogger(__name__)
 
 def _department_pool() -> list[str]:
     """可选部门池（登记行 ∪ 用户 ∪ 知识库；新部门只能由管理员在用户管理页创建）。"""
@@ -34,13 +39,15 @@ def _requested_roles(request, allowed: list[str]) -> dict[str, str]:
     prefix = "dept_role__"
     sent = {(k[len(prefix):]).strip(): (v or "").strip()
             for k, v in request.POST.items() if k.startswith(prefix)}
-    pool = set(allowed) | {DEPARTMENT_GENERAL}
     out = {}
     for name in _requested_departments(request, allowed):
         out[name] = sent.get(name) if sent.get(name) in UserProfile.Role.values else UserProfile.Role.USER
     general = sent.get(DEPARTMENT_GENERAL)
     if general:
         out[DEPARTMENT_GENERAL] = general if general in UserProfile.Role.values else UserProfile.Role.USER
+    if not sent and request.POST.get("role") in UserProfile.Role.values:
+        # Accept older account forms while the new form sends one role per row.
+        out = {name: request.POST["role"] for name in _requested_departments(request, allowed)}
     return out
 
 
@@ -266,11 +273,26 @@ def user_list(request):
             else:
                 user = User.objects.create_user(username=username, password=password)
                 UserProfile.objects.update_or_create(
-                    user=user, defaults={"department": department, "role": role})
-                # 弹窗里的「账号级别」对勾到的每个部门生效（要逐部门区分建完再改）
+                    user=user, defaults={"department": department, "role": UserProfile.Role.USER})
+                allowed_roles = all_departments() if viewer_global else sorted(viewer_depts)
+                requested_roles = _requested_roles(request, allowed_roles)
+                if department != DEPARTMENT_GENERAL and department in allowed_roles:
+                    value = (request.POST.get(f"dept_role__{department}") or "").strip()
+                    requested_roles[department] = (value if value in UserProfile.Role.values
+                                                   else role if value == "" else UserProfile.Role.USER)
+                if viewer_global:
+                    value = (request.POST.get(f"dept_role__{DEPARTMENT_GENERAL}") or "").strip()
+                    if value:
+                        requested_roles[DEPARTMENT_GENERAL] = (value if value in UserProfile.Role.values
+                                                               else UserProfile.Role.USER)
+                    elif department == DEPARTMENT_GENERAL and not any(
+                            k.startswith("dept_role__") for k in request.POST):
+                        requested_roles[DEPARTMENT_GENERAL] = role
+                else:
+                    requested_roles.pop(DEPARTMENT_GENERAL, None)
                 names = assign_departments(
                     user, [department, *extra], primary=department,
-                    roles={d: role for d in [department, *extra] if d != DEPARTMENT_GENERAL})
+                    roles=requested_roles)
                 ok, msg = True, (f"账号「{username}」已创建（部门："
                                  f"{'、'.join(names)}，初始密码已生效）。")
             if request.headers.get("x-requested-with") == "XMLHttpRequest":
@@ -291,9 +313,26 @@ def user_list(request):
                         can = True
                     else:  # 部门管理员：仅所辖部门的非管理员成员
                         can = (not target.is_staff
-                               and _same_dept_member(target))
+                               and _same_dept_member(target)
+                               and not any(r == UserProfile.Role.DEPT_ADMIN
+                                           for r in profile_roles(target).values()))
                 if can:
-                    target.delete()  # CASCADE：其会话/消息一并清理
+                    target_id = target.pk
+                    try:
+                        with transaction.atomic():
+                            target.delete()  # CASCADE：其会话/消息一并清理
+                            # SQLite defers some FK checks until COMMIT. Check
+                            # before leaving this savepoint so the fallback can
+                            # catch the exact failure even with request-wide
+                            # transactions enabled.
+                            connection.check_constraints()
+                    except IntegrityError:
+                        # Some deployed databases have older linked rows whose
+                        # FK prevents hard deletion. Revoke login first, while
+                        # retaining the records needed to diagnose that link.
+                        User.objects.filter(pk=target_id).update(is_active=False)
+                        logger.exception("User %s could not be hard-deleted; account disabled", target_id)
+                        messages.warning(request, "关联记录阻止彻底删除；账号已停用，无法再登录。历史记录仍保留。")
             else:  # save：编辑
                 if viewer_global:
                     if not target.is_superuser:
@@ -310,7 +349,9 @@ def user_list(request):
                                            roles=_requested_roles(request, pool))
                 else:  # 部门管理员：仅所辖部门非管理员成员，且只能改那些部门里的级别
                     if (not target.is_staff and not target.is_superuser
-                            and _same_dept_member(target)):
+                            and _same_dept_member(target)
+                            and not any(r == UserProfile.Role.DEPT_ADMIN
+                                        for r in profile_roles(target).values())):
                         member = ensure_profile(target)
                         allowed = sorted(viewer_depts)
                         shared = viewer_depts & set(profile_departments(target))
@@ -340,7 +381,9 @@ def user_list(request):
             can_delete = (not u.is_superuser) and u.pk != request.user.pk
         else:
             member_ok = (not u.is_staff and not u.is_superuser
-                         and bool(viewer_depts & set(depts)))
+                         and bool(viewer_depts & set(depts))
+                         and not any(r == UserProfile.Role.DEPT_ADMIN
+                                     for r in roles.values()))
             can_edit = member_ok
             can_delete = member_ok and u.pk != request.user.pk
         # 逐部门一行（勾选框 + 该部门级别）：全局管理员看全部部门，

@@ -99,6 +99,9 @@ def action(request):
         command=data.get('action','')
         if command in ('create','update'):
             requested_name=data.get('kb_name',data.get('name'))
+            # Older editor forms submitted an empty hidden kb_name beside name.
+            if isinstance(requested_name,str) and not requested_name.strip() and 'name' in data:
+                requested_name=data['name']
             if requested_name is not None:
                 if not isinstance(requested_name,str) or not requested_name.strip() or len(requested_name.strip())>100:
                     raise ValueError('请填写不超过100字符的知识库名称。')

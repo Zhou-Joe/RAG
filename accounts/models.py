@@ -47,7 +47,7 @@ class UserProfile(models.Model):
     )
     department = models.CharField(
         "主部门", max_length=50, default=DEPARTMENT_GENERAL,
-        help_text="默认归属部门：新建知识库与个人库落在它身上，也是「通用」之外新挂部门的默认级别；"
+        help_text="默认归属部门：新建知识库与个人库落在它身上；"
                   "可见范围看部门集合，管理权看逐部门级别。",
     )
     departments = models.ManyToManyField(
@@ -58,7 +58,7 @@ class UserProfile(models.Model):
     )
     role = models.CharField(
         "账号级别", max_length=20, choices=Role.choices, default=Role.USER,
-        help_text="汇总值：任一部门是部门管理员即部门管理员，也是新挂部门的默认级别。"
+        help_text="汇总值：任一部门是部门管理员即部门管理员。新挂部门默认普通用户。"
                   "逐部门的级别在「部门身份」里设置；所有用户都可管理仅本人可见的个人知识库。",
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -158,7 +158,7 @@ def profile_roles(owner) -> dict[str, str]:
     roles = {r.department.name: r.role for r in rows}
     if not rows:  # 旧数据兜底：没有关联行就按「一个主部门 + 通用」推断
         roles[profile.department or DEPARTMENT_GENERAL] = profile.role or Role.USER
-    roles.setdefault(DEPARTMENT_GENERAL, _general_role(profile))
+    roles.setdefault(DEPARTMENT_GENERAL, _general_role(profile) if not rows else Role.USER)
     return roles
 
 
@@ -231,8 +231,8 @@ def assign_departments(user, names, primary=None, roles=None, *, register=True,
                        sync_role=True) -> list[str]:
     """写入用户的部门与逐部门级别：自动补「通用」、按需登记新部门名，并同步主部门。
 
-    `roles` = {部门名: role}；没给的部门保留它原有的级别（新挂的继承档案级别，
-    「通用」按 `_general_role`）。返回最终生效的部门列表（「通用」在最前）。
+    `roles` = {部门名: role}；没给的部门保留它原有的级别。首次转换旧档案时
+    沿用原级别；之后新挂部门默认普通用户。返回最终生效的部门列表（「通用」在最前）。
     `register=False` 时不创建 Department 登记行（用于部门池之外的临时值）。
     """
     profile = ensure_profile(user)
@@ -247,6 +247,7 @@ def assign_departments(user, names, primary=None, roles=None, *, register=True,
             Department.objects.get_or_create(name=name)
     rows = {d.name: d for d in Department.objects.filter(name__in=wanted)}
     current = profile_roles(profile)
+    had_memberships = profile.memberships.exists()
     UserDepartment.objects.filter(profile=profile).exclude(
         department__in=[d.pk for d in rows.values()]).delete()
     for name in wanted:
@@ -257,8 +258,12 @@ def assign_departments(user, names, primary=None, roles=None, *, register=True,
             role = roles[name] if roles[name] in Role.values else Role.USER
         elif name in current:
             role = current[name]
-        else:
+        elif not had_memberships:
+            # Preserve the legacy account role when converting an old profile
+            # for the first time. Subsequent additions default to a member.
             role = profile.role if profile.role in Role.values else Role.USER
+        else:
+            role = Role.USER
         UserDepartment.objects.update_or_create(
             profile=profile, department=row, defaults={"role": role},
         )
@@ -295,4 +300,6 @@ def user_role(user) -> str:
         return Role.USER
     if profile.memberships.filter(role=Role.DEPT_ADMIN).exists():
         return Role.DEPT_ADMIN
-    return profile.role if profile.role in Role.values else Role.USER
+    if not profile.memberships.exists():
+        return profile.role if profile.role in Role.values else Role.USER
+    return Role.USER

@@ -65,7 +65,7 @@ class SavedContextTests(TestCase):
         feed=KnowledgeFeed.objects.create(kb=kb,name='Daily report',url=spec()['url'],adapter_spec=spec(),created_by=self.user)
         response=self.client.post(reverse('kb:connector_resume'),json.dumps({'feed':str(feed.pk)}),content_type='application/json')
         self.assertEqual(response.status_code,200,response.content);first=response.json()['thread'][0]
-        self.assertEqual(first['status'],'enabled');self.assertEqual(first['spec'],spec(write_mode='append'))
+        self.assertEqual(first['status'],'enabled');self.assertEqual(first['spec'],spec(name=kb.name,write_mode='append'))
         again=self.client.post(reverse('kb:connector_resume'),json.dumps({'feed':str(feed.pk)}),content_type='application/json')
         self.assertEqual(again.json()['thread'][0]['id'],first['id']);self.assertEqual(ConnectorDraft.objects.count(),1)
         state=self.client.get(reverse('kb:feed_state')).json()['feeds'][0]

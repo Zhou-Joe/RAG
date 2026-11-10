@@ -2,6 +2,8 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.core.exceptions import ValidationError
+from django.forms.models import BaseInlineFormSet
 
 from .models import (DEPARTMENT_GENERAL, Department, Role, UserDepartment, UserProfile,
                      department_admins, department_members, profile_departments,
@@ -24,19 +26,55 @@ class UserDepartmentForm(forms.ModelForm):
         return data
 
 
+class UserDepartmentFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        for form in self.forms:
+            if (form.cleaned_data.get("DELETE") and form.instance.pk
+                    and form.instance.department.name == DEPARTMENT_GENERAL):
+                raise ValidationError("「通用」是人人默认的可见范围，不能删。")
+
+
+class DepartmentForm(forms.ModelForm):
+    class Meta:
+        model = Department
+        fields = "__all__"
+
+    def clean_name(self):
+        name = (self.cleaned_data["name"] or "").strip()
+        if self.instance.pk and self.instance.name == DEPARTMENT_GENERAL and name != DEPARTMENT_GENERAL:
+            raise ValidationError("「通用」部门不能重命名。")
+        return name
+
+
 class UserDepartmentInline(admin.TabularInline):
     """一个账号在各部门里的级别（管理权就按这一行一行的级别算）。"""
 
     model = UserDepartment
     form = UserDepartmentForm
+    formset = UserDepartmentFormSet
     extra = 1
     autocomplete_fields = ("department",)
 
 
 @admin.register(Department)
 class DepartmentAdmin(admin.ModelAdmin):
+    form = DepartmentForm
     list_display = ("name", "user_count", "admin_count", "kb_count", "created_at")
     search_fields = ("name",)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
+
+    def save_model(self, request, obj, form, change):
+        old = Department.objects.get(pk=obj.pk).name if change else None
+        super().save_model(request, obj, form, change)
+        if old and old != obj.name:
+            from kb.models import KnowledgeBase
+            UserProfile.objects.filter(department=old).update(department=obj.name)
+            KnowledgeBase.objects.filter(department=old).update(department=obj.name)
 
     @admin.display(description="用户数")
     def user_count(self, obj):
@@ -52,9 +90,14 @@ class DepartmentAdmin(admin.ModelAdmin):
         return KnowledgeBase.objects.filter(department=obj.name).count()
 
     def has_delete_permission(self, request, obj=None):
-        # 「通用」是人人默认的可见范围，删掉它等于把公共库从全站摘掉
-        return bool(super().has_delete_permission(request, obj)
-                    and getattr(obj, "name", None) != DEPARTMENT_GENERAL)
+        if not super().has_delete_permission(request, obj):
+            return False
+        if obj is None:
+            return True
+        if obj.name == DEPARTMENT_GENERAL or department_members(obj.name).exists():
+            return False
+        from kb.models import KnowledgeBase
+        return not KnowledgeBase.objects.filter(department=obj.name).exists()
 
 
 class UserProfileForm(forms.ModelForm):
@@ -121,7 +164,8 @@ class UserProfileAdmin(admin.ModelAdmin):
         profile = form.instance
         # 兜底：任何路径存进来的档案都至少挂着「通用」（成员级别），并且汇总级别同步
         from .models import assign_departments
-        if not profile.memberships.filter(department__name=DEPARTMENT_GENERAL).exists():
+        if (not profile.memberships.filter(department__name=DEPARTMENT_GENERAL).exists()
+                or not profile.memberships.filter(department__name=profile.department).exists()):
             assign_departments(profile.user, profile_departments(profile),
                                primary=profile.department)
         else:

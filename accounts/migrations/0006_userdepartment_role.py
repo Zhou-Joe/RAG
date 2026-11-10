@@ -119,8 +119,7 @@ class Migration(migrations.Migration):
             model_name="userprofile",
             name="department",
             field=models.CharField(
-                default=GENERAL, help_text="默认归属部门：新建知识库与个人库落在它身上，"
-                                           "也是「通用」之外新挂部门的默认级别；"
+                default=GENERAL, help_text="默认归属部门：新建知识库与个人库落在它身上；"
                                            "可见范围看部门集合，管理权看逐部门级别。",
                 max_length=50, verbose_name="主部门",
             ),
@@ -131,7 +130,7 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 choices=[("user", "普通用户"), ("dept_admin", "部门管理员")],
                 default="user",
-                help_text="汇总值：任一部门是部门管理员即部门管理员，也是新挂部门的默认级别。"
+                help_text="汇总值：任一部门是部门管理员即部门管理员。新挂部门默认普通用户。"
                           "逐部门的级别在「部门身份」里设置；所有用户都可管理仅本人可见的个人知识库。",
                 max_length=20, verbose_name="账号级别",
             ),
