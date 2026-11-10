@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """数据源执行：有期限的互斥锁、版本暂存、整批发布及成功后的游标提交。"""
 
+import logging
 import secrets
 import re
 import threading
@@ -126,6 +127,182 @@ def _markdown(item):
     return '# '+item['title'].strip()+'\n\n'+body
 
 
+def _document_markdown(item,feed):
+    """Keep generated collection dates out of the versioned source text."""
+    body=item['content']
+    for field in (feed.adapter_spec or {}).get('body_fields',[]):
+        if field.get('source') not in ('today','now'):continue
+        label=field.get('label','')
+        value=(item.get('fields') or {}).get(label)
+        if not label or value is None:continue
+        section=r'(?:\A|\n\n)## '+re.escape(label)+r'\n\n'+re.escape(str(value))+r'(?=\n\n## |\Z)'
+        body=re.sub(section,'',body,count=1).strip()
+    return _markdown({**item,'content':body})
+
+
+def _document_digest(item,feed):
+    """Deduplicate source text, including in append mode."""
+    return digest(_document_markdown(item,feed))
+
+
+def _document_name(item, doc_id):
+    title=re.sub(r'[\\/:*?"<>|\x00-\x1f]+',' ',item['title']).strip(' .') or 'record'
+    # FileField defaults to max_length=100. Leave room for "documents/" and
+    # a storage collision suffix while keeping Windows path segments short.
+    return f'{title[:40]}-{doc_id.hex}.md'
+
+
+def _queue_document(doc_id):
+    try:
+        doc=Document.objects.get(pk=doc_id)
+        if doc.status==Document.Status.COMPLETED:
+            # Recover a worker interrupted between marking the document
+            # complete and publishing its pending FeedRecord version.
+            if finalize_feed_document(doc):
+                from .tracker import run_extraction_async
+                run_extraction_async(doc.id)
+            return
+        if doc.status!=Document.Status.PENDING:return
+        from .pipeline import process_document_async
+        process_document_async(str(doc_id))
+    except Exception:
+        # The persisted pending status is the durable queue. A later queue
+        # startup can recover this document even if the wake-up fails here.
+        logging.getLogger(__name__).exception('Could not wake document ingestion for %s',doc_id)
+
+
+def _retire_document(doc, removed):
+    if doc is None:return
+    Document.objects.filter(pk=doc.pk).update(status=Document.Status.SUPERSEDED,
+                                                 stage_detail='已由更新版本替代')
+    removed.append(doc)
+
+
+def _publish_document(feed, record, item, fingerprint, removed, created_files, queued):
+    """Stage one real Markdown Document while retaining the current version."""
+    record=FeedRecord.objects.select_for_update().select_related('kb','document','pending_document').get(pk=record.pk)
+    was_created=record.document_id is None and record.pending_document_id is None
+    if record.kb_id is None:
+        record.kb=KnowledgeBase.objects.create(
+            name=item['title'][:100],slug='feed-'+uuid.uuid4().hex,
+            parent=feed.kb,is_folder=False,category=feed.kb.category,
+            department=feed.kb.department,visibility=feed.kb.visibility,
+            created_by=feed.created_by)
+    elif record.kb.name!=item['title'][:100]:
+        record.kb.name=item['title'][:100]
+        record.kb.save(update_fields=['name','updated_at'])
+
+    if record.document_id and record.content_digest==fingerprint and not record.deleted:
+        if record.pending_document_id:
+            _retire_document(record.pending_document,removed)
+            record.pending_document=None;record.pending_digest=''
+        return record,False,was_created
+
+    if (record.pending_document_id and record.pending_digest==fingerprint and not record.deleted
+            and record.pending_document.status!=Document.Status.SUPERSEDED):
+        if record.pending_document.status==Document.Status.FAILED:
+            Document.objects.filter(pk=record.pending_document_id).update(
+                status=Document.Status.PENDING,error_msg='',stage_detail='等待重试')
+            queued.append(record.pending_document_id)
+        elif record.pending_document.status==Document.Status.COMPLETED:
+            queued.append(record.pending_document_id)
+        return record,False,was_created
+
+    if record.pending_document_id:
+        _retire_document(record.pending_document,removed)
+
+    doc=Document(id=uuid.uuid4(),kb=record.kb,file_type='md',status=Document.Status.PENDING,
+                 description=item.get('source_url','')[:2000])
+    doc.original_name=_document_name(item,doc.id)
+    doc.file.save(doc.original_name,ContentFile(_document_markdown(item,feed).encode('utf-8')),save=False)
+    created_files.append((doc.file.storage,doc.file.name))
+    doc.save()
+    record.pending_document=doc;record.pending_digest=fingerprint
+    queued.append(doc.id)
+    return record,True,was_created
+
+
+def _delete_document_record(record,removed):
+    record=FeedRecord.objects.select_for_update().select_related('document','pending_document').get(pk=record.pk)
+    if record.document_id:_retire_document(record.document,removed)
+    if record.pending_document_id:_retire_document(record.pending_document,removed)
+    TrackerRow.objects.filter(document_id__in=[pk for pk in (record.document_id,record.pending_document_id) if pk]).delete()
+    record.document=None;record.pending_document=None
+    record.content_digest='';record.pending_digest='';record.deleted=True
+    record.save(update_fields=['document','pending_document','content_digest','pending_digest','deleted','updated_at'])
+    if record.kb_id:
+        KnowledgeBase.objects.filter(pk=record.kb_id).update(doc_count=0,chunk_count=0)
+
+
+def _is_managed_feed_document(doc):
+    # A user can still upload an ordinary document into a feed's child KB.
+    return doc.original_name.endswith(f'-{doc.id.hex}.md')
+
+
+def is_nonembedded_feed_document(doc):
+    """Only cron-generated document-mode files bypass vector indexing.
+
+    Ordinary uploads into the same child library still use the normal OCR and
+    embedding pipeline. The FeedRecord pointer ties this exact file version to
+    its source, instead of trusting the child library or filename alone.
+    """
+    if not _is_managed_feed_document(doc):return False
+    record=(FeedRecord.objects.select_related('feed').filter(kb_id=doc.kb_id).first())
+    return bool(record and record.feed.adapter_spec.get('ingest_mode')=='documents'
+                and doc.id in (record.document_id,record.pending_document_id))
+
+
+def is_current_feed_document(doc):
+    """Queued historical versions must never be processed on a later retry."""
+    if not _is_managed_feed_document(doc):return True
+    record=FeedRecord.objects.filter(kb_id=doc.kb_id).only('document_id','pending_document_id','deleted').first()
+    return bool(record and not record.deleted and doc.id in (record.document_id,record.pending_document_id))
+
+
+def finalize_feed_document(doc):
+    """Publish a staged version only after document processing succeeds.
+
+    Returns False for a stale version so pipeline skips tracksheet extraction.
+    """
+    if not _is_managed_feed_document(doc):return True
+    removed=[]
+    with transaction.atomic():
+        record=(FeedRecord.objects.select_for_update().select_related('document')
+                .filter(kb_id=doc.kb_id).first())
+        if record is None or record.deleted or doc.id not in (record.document_id,record.pending_document_id):
+            _retire_document(doc,removed)
+            active=False
+        elif record.pending_document_id==doc.id:
+            old=record.document if record.document_id!=doc.id else None
+            record.document=doc;record.content_digest=record.pending_digest
+            record.pending_document=None;record.pending_digest=''
+            record.save(update_fields=['document','content_digest','pending_document','pending_digest','updated_at'])
+            if old:
+                _retire_document(old,removed)
+                if record.feed.write_mode=='upsert':TrackerRow.objects.filter(document_id=old.id).delete()
+            active=True
+        else:
+            active=True
+        kb=doc.kb
+        kb.doc_count=kb.documents.filter(status=Document.Status.COMPLETED).count()
+        kb.chunk_count=sum(kb.documents.filter(status=Document.Status.COMPLETED).values_list('chunk_count',flat=True))
+        kb.save(update_fields=['doc_count','chunk_count','updated_at'])
+        for old in removed:
+            transaction.on_commit(lambda old=old:_delete_vectors(old))
+    return active
+
+
+def _delete_vectors(doc):
+    if not doc.chunk_count and not doc.kb.embedding_model:
+        # Newly fetched text-only files never entered either search index.
+        return
+    try:
+        from .retriever import delete_doc_vectors
+        delete_doc_vectors(doc.kb.slug,doc.original_name)
+    except Exception:
+        logging.getLogger(__name__).exception('Could not remove superseded vectors for %s',doc.pk)
+
+
 def _publish_row(feed,tracker,record,item,run):
     """结构化记录直接写追踪行，既不创建文档，也不落盘MD文件。"""
     legacy=TrackerRow.objects.filter(tracker=tracker,document_id=record.document_id).first() if record.document_id else None
@@ -154,12 +331,14 @@ def _delete_row(record,*,preserve_history=False):
 
 
 def execute(run_id):
-    """记录直接发布进知识库追踪表；整批一个事务，任何失败不提交游标。"""
+    """Publish a complete batch, then commit the cursor and queue documents."""
     run=FeedRun.objects.select_related('feed__kb','feed__created_by').get(pk=run_id)
     if run.status!='running':return run
     started=time.monotonic();counts={'created':0,'updated':0,'deleted':0,'unchanged':0,'stale':0};removed=[]
+    created_files=[];published=False
     try:
         feed=_check(run,started);etag=''
+        document_mode=(feed.adapter_spec or {}).get('ingest_mode','tracker')=='documents'
         if run.trigger in ('push','import'):payload=validate_batch(run.payload)
         else:
             from .feed_http import fetch_batch
@@ -171,13 +350,15 @@ def execute(run_id):
             if warned:counts['warnings']=warned
             for item in payload['items']:
                 feed=_check(run,started)
-                record,_=FeedRecord.objects.get_or_create(feed=feed,external_id=item['id'])
+                record=(FeedRecord.objects.filter(feed=feed,external_id=item['id']).first() if document_mode
+                        else FeedRecord.objects.get_or_create(feed=feed,external_id=item['id'])[0])
                 stamp=parse_datetime(item['updated_at']) if item.get('updated_at') else None
-                fingerprint=digest(canonical({key:item.get(key,{} if key in ('metadata','fields') else 'markdown' if key=='format' else '')
-                    for key in ('title','content','format','source_url','metadata','fields')}))
-                if feed.write_mode=='upsert' and stamp and record.upstream_updated_at and stamp<record.upstream_updated_at:
+                fingerprint=(_document_digest(item,feed) if document_mode else
+                    digest(canonical({key:item.get(key,{} if key in ('metadata','fields') else 'markdown' if key=='format' else '')
+                        for key in ('title','content','format','source_url','metadata','fields')})))
+                if feed.write_mode=='upsert' and record and stamp and record.upstream_updated_at and stamp<record.upstream_updated_at:
                     counts['stale']+=1;counts['unchanged']+=1;continue
-                if feed.write_mode=='upsert' and not record.deleted and record.content_digest==fingerprint and TrackerRow.objects.filter(feed=feed,external_id=record.external_id,feed_run__isnull=True,status=TrackerRow.Status.DONE).exists():
+                if not document_mode and feed.write_mode=='upsert' and not record.deleted and record.content_digest==fingerprint and TrackerRow.objects.filter(feed=feed,external_id=record.external_id,feed_run__isnull=True,status=TrackerRow.Status.DONE).exists():
                     counts['unchanged']+=1;actions.append((record,item,None,stamp));continue
                 actions.append((record,item,fingerprint,stamp))
             _check(run,started)
@@ -185,35 +366,71 @@ def execute(run_id):
             current=_check(run,started)
             # Fencing update acquires a database write lock before publishing.
             if not KnowledgeFeed.objects.filter(pk=feed.pk,lease_token=run.lease_token,lease_until__gt=timezone.now()).update(updated_at=timezone.now()):raise ValueError('执行锁已失效。')
-            tracker=_ensure_tracker(feed,_tracker_labels(feed,payload))
+            tracker=None if document_mode else _ensure_tracker(feed,_tracker_labels(feed,payload))
+            queued=[]
             for record,item,fingerprint,stamp in actions:
-                if fingerprint is not None:
+                if document_mode:
+                    if record is None:record=FeedRecord.objects.create(feed=current,external_id=item['id'])
+                    record,staged,new_record=_publish_document(
+                        current,record,item,fingerprint,removed,created_files,queued)
+                    counts['created' if new_record else 'updated']+=1 if staged else 0
+                    if not staged:counts['unchanged']+=1
+                    record.deleted=False
+                elif fingerprint is not None:
                     counts['created' if _publish_row(current,tracker,record,item,run) else 'updated']+=1
                     record.content_digest=fingerprint;record.deleted=False
                 record.title=item['title'];record.source_url=item.get('source_url','');record.metadata=item.get('metadata',{})
                 if stamp:record.upstream_updated_at=stamp
-                record.save(update_fields=['document','content_digest','deleted','title','source_url','metadata','upstream_updated_at','updated_at'])
+                if document_mode:
+                    record.save(update_fields=['kb','pending_document','pending_digest','deleted','title','source_url','metadata','upstream_updated_at','updated_at'])
+                else:
+                    record.save(update_fields=['document','content_digest','deleted','title','source_url','metadata','upstream_updated_at','updated_at'])
             for external_id in payload.get('deleted',[]) if payload is not None else []:
                 record,new=FeedRecord.objects.get_or_create(feed=feed,external_id=external_id,defaults={'deleted':True})
                 if not new and record.deleted:counts['unchanged']+=1;continue
-                if not new:removed.extend(_delete_row(record,preserve_history=current.write_mode=='append'))
+                if not new:
+                    if document_mode:_delete_document_record(record,removed)
+                    else:removed.extend(_delete_row(record,preserve_history=current.write_mode=='append'))
                 counts['deleted']+=1
+            if document_mode:
+                # A 304/empty incremental response may omit a document whose
+                # earlier indexing failed or finished just before a crash.
+                # Retry/finalize it without requiring the upstream to resend.
+                stranded=(FeedRecord.objects.select_for_update().select_related('pending_document')
+                          .filter(feed=current,deleted=False,pending_document__status__in=[
+                              Document.Status.FAILED,Document.Status.COMPLETED]))
+                for record in stranded:
+                    pending=record.pending_document
+                    if pending.status==Document.Status.FAILED:
+                        Document.objects.filter(pk=pending.pk,status=Document.Status.FAILED).update(
+                            status=Document.Status.PENDING,error_msg='',stage_detail='等待重试')
+                    queued.append(pending.pk)
             fields={'lease_token':'','lease_until':None}
             if payload is not None and 'cursor' in payload:fields['cursor']=payload['cursor']
             if feed.mode=='pull':fields['etag']=etag
             KnowledgeFeed.objects.filter(pk=feed.pk,lease_token=run.lease_token).update(**fields)
             KnowledgeBase.objects.filter(pk=current.kb_id).update(
                 doc_count=Document.objects.filter(kb=current.kb_id,status=Document.Status.COMPLETED).count())
+            counts['write_mode']=current.write_mode
             run.status='completed';run.counts=counts;run.finished_at=timezone.now();run.payload={}
             run.save(update_fields=['status','counts','finished_at','payload'])
+            if document_mode:
+                for doc_id in dict.fromkeys(queued):transaction.on_commit(lambda doc_id=doc_id:_queue_document(doc_id))
+                for old in removed:transaction.on_commit(lambda old=old:_delete_vectors(old))
+        published=True
         # 删除的记录可能残留历史向量；清理尽力而为。
-        try:
-            from .retriever import delete_doc_vectors
-            for old in removed:
-                try:delete_doc_vectors(old.kb.slug,old.original_name)
-                except Exception:pass
-        except Exception:pass
+        if not document_mode:
+            try:
+                from .retriever import delete_doc_vectors
+                for old in removed:
+                    try:delete_doc_vectors(old.kb.slug,old.original_name)
+                    except Exception:pass
+            except Exception:pass
     except Exception as exc:
+        if not published:
+            for storage,name in created_files:
+                try:storage.delete(name)
+                except Exception:logging.getLogger(__name__).exception('Could not clean rolled-back document file %s',name)
         run.status='failed';run.error=(str(exc) if isinstance(exc,ValueError) else '更新失败（'+type(exc).__name__+'），原有版本与游标保留。')[:1000]
         run.finished_at=timezone.now();run.payload={};run.counts={}
         run.save(update_fields=['status','error','finished_at','payload','counts'])

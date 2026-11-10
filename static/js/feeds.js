@@ -27,20 +27,21 @@
   for(const feed of feeds){
    const card=node('section',undefined,'feed-card');card.dataset.feedId=feed.id;
    const title=node('h2',feed.kb_name);title.translate='no';card.append(title);const link=node('a','打开知识库');link.href='/kb/manage/'+encodeURIComponent(feed.kb)+'/';card.append(link);
-   card.append(node('p',(feed.mode==='pull'?'定时采集 · '+feed.cron+' · '+feed.timezone:'外部脚本推送')+' · '+(feed.enabled?'已启用':'已暂停')+' · '+(feed.write_mode==='upsert'?'覆盖相同 ID':'追加保留历史')+' · '+feed.items+' 条记录','feed-meta'));
+   const documents=feed.ingest_mode==='documents';
+   card.append(node('p',(feed.mode==='pull'?'定时采集 · '+feed.cron+' · '+feed.timezone:'外部脚本推送')+' · '+(feed.enabled?'已启用':'已暂停')+' · '+(documents?'每条记录作为文档 · '+feed.items+' 份文档':(feed.write_mode==='upsert'?'覆盖相同 ID':'追加保留历史')+' · '+feed.items+' 条记录'),'feed-meta'));
    if(feed.mode==='pull')card.append(node('p','下次运行：'+date(feed.next_run_at,feed.timezone),'feed-meta'));
    const actions=node('div',undefined,'feed-actions');
    if(feed.ai_edit_url&&feed.can_edit){const ai=node('a','与 EnGenie 调整任务','btn sm primary');ai.href=feed.ai_edit_url;actions.append(ai);}
    if(feed.mode==='pull')actions.append(button('立即更新','run',feed.id));else if(feed.can_edit)actions.append(button('生成／轮换推送令牌','rotate_token',feed.id));
    if(feed.can_edit){actions.append(button('编辑配置','edit',feed.id),button(feed.enabled?'暂停后续更新':'启用更新',feed.enabled?'pause':'resume',feed.id));}
    else actions.append(node('span','仅创建者可编辑','feed-meta'));
-   const tracker=node('a','查看追踪表','btn sm outline');tracker.href='/kb/manage/'+encodeURIComponent(feed.kb)+'/tracker/';actions.append(tracker);card.append(actions);
+   const view=node('a',documents?'查看文档与 AI 提炼':'查看追踪表','btn sm outline');view.href=documents?feed.kb_url:feed.tracker_url;actions.append(view);card.append(actions);
    const report=window.FeedReportControls?.render(feed);if(report)card.append(report);
    const latest=feed.runs[0];if(latest?.error)card.append(node('p',latest.error,'feed-error'));
    const details=node('details');details.open=opened.has(feed.id);details.append(node('summary','运行记录（最近10次）'));
    const wrap=node('div',undefined,'feed-runs'),table=node('table'),head=node('tr');
    for(const text of ['开始时间','触发','状态','新增／更新／删除／未变化','错误'])head.append(node('th',text));table.append(head);
-   for(const run of feed.runs){const row=node('tr');for(const text of [date(run.started_at),labels[run.trigger]||run.trigger,labels[run.status]||run.status,[run.counts.created||0,run.counts.updated||0,run.counts.deleted||0,run.counts.unchanged||0].join(' / '),run.error||(run.counts.warnings?run.counts.warnings+'条记录格式变化，已保留原文，请查看追踪表的采集提示。':'—')])row.append(node('td',text));table.append(row);}
+   for(const run of feed.runs){const row=node('tr');for(const text of [date(run.started_at),labels[run.trigger]||run.trigger,labels[run.status]||run.status,[run.counts.created||0,run.counts.updated||0,run.counts.deleted||0,run.counts.unchanged||0].join(' / '),run.error||(run.counts.warnings?run.counts.warnings+'条记录格式变化，已保留原文，请查看'+(documents?'文档':'追踪表')+'的采集提示。':'—')])row.append(node('td',text));table.append(row);}
    wrap.append(table);details.append(wrap);card.append(details);list.append(card);
   }
  }
@@ -64,7 +65,7 @@
   auth.load(feed?.authentication);
   for(const kind of ['email','teams']){const saved=feed?.workflow_settings?.saved_workflow_types?.includes(kind);document.getElementById(kind==='email'?'feedEmailWorkflowStatus':'feedTeamsWorkflowStatus').textContent=saved?'已保存，留空保留；填写新链接可替换。':'尚未配置；需要此发送方式时填写。';}
   document.getElementById('feedUrlLabel').textContent=feed?.source_type==='browser'?'网页来源地址':'标准数据 API 地址';
-  document.getElementById('feedSourceHint').textContent=feed?.source_type==='browser'?'此来源使用 EnGenie 已试采的网页操作步骤。要调整采集内容，请与 EnGenie 对话并查看新样例。':'API 返回 fos-rag-feed/v1 JSON。网页或其他接口格式可通过 EnGenie 创建自动采集任务。';
+  document.getElementById('feedSourceHint').textContent=(feed?.source_type==='browser'?'此来源使用 EnGenie 已试采的网页操作步骤。要调整采集内容，请与 EnGenie 对话并查看新样例。':'API 返回 fos-rag-feed/v1 JSON。网页或其他接口格式可通过 EnGenie 创建自动采集任务。')+(feed?.ingest_mode==='documents'?' 每条采集记录作为文档；入库方式已固定，其他设置仍可修改。':'');
   document.getElementById('feedEditorTitle').textContent=feed?'编辑数据源':'新建自动更新知识库';
   document.getElementById('feedLibraryFields').hidden=!!feed;
   if(feed){form.elements.kb_name.value=feed.kb_name;for(const key of ['mode','url','cron','timezone','write_mode'])form.elements[key].value=feed[key];if(form.elements.header_env)form.elements.header_env.value=JSON.stringify(feed.header_env,null,2);if(form.elements.allow_private)form.elements.allow_private.checked=feed.allow_private;}

@@ -189,16 +189,14 @@ class TrackerAnalysisTests(TestCase):
         self.assertEqual(response.json()['items'][0]['title'], '项目201')
         self.assertEqual(len(response.json()['items']), 1)
 
-    def test_raw_table_is_folded_by_default_and_row_has_analysis_entry(self):
+    def test_auto_feed_tracker_keeps_records_without_duplicate_analysis_panel(self):
         row = self.row()
         response = self.client.get(reverse('kb:tracker', args=[self.kb.slug]))
-        self.assertContains(response, '<details class="trk-raw" id="trkRawRecords">')
-        self.assertNotContains(response, '<details class="trk-raw" id="trkRawRecords" open')
-        self.assertContains(response, f'data-row-id="{row.pk}"')
-        self.assertContains(response, 'type="datetime-local"')
-        self.assertContains(response, '周期分析表')
-        self.assertContains(response, 'data-ta-view="table" aria-pressed="true"')
-        self.assertContains(response, '<div id="taChartWrap" hidden>')
+        self.assertNotContains(response, 'id="trackerAnalysis"')
+        self.assertNotContains(response, 'id="trkRawRecords"')
+        self.assertNotContains(response, '<button type="button" class="trk-analyze"')
+        self.assertContains(response, '海盗演出')
+        self.assertContains(response, '?xlsx=1')
 
     def test_cross_kb_row_and_department_access_is_denied(self):
         row = self.row()

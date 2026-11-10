@@ -1,0 +1,37 @@
+<section class="fkd-panel" id="feedKbData" data-url="{% url 'kb:tracker_kb_data' kb.slug %}" data-mode="tracker" aria-labelledby="feedKbRowsHeading">
+  <div class="section-bar"><div><h2 id="feedKbRowsHeading">追踪记录</h2><p>浏览已完成的追踪表记录，点击记录可展开全部字段{% if can_manage %}、编辑字段或删除记录{% endif %}。</p></div><span class="count-chip" id="feedKbMatchCount">{{ tracker_rows_count }} 条</span></div>
+  <form class="fkd-filters" id="feedKbFilters">
+    <input type="hidden" id="feedKbFeed" value="">
+    <input type="hidden" id="feedKbScope" value="history">
+    <label class="fkd-search">搜索记录<input id="feedKbSearch" type="search" maxlength="300" placeholder="文档名或字段内容"></label>
+    <label>筛选字段<select id="feedKbFilterField"><option value="">不限字段</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
+    <label>包含<input id="feedKbFilterValue" type="text" maxlength="500" placeholder="输入筛选值"></label>
+    <label>开始日期<input id="feedKbFrom" type="date"></label>
+    <label>结束日期<input id="feedKbTo" type="date"></label>
+    <div class="fkd-filter-actions"><button class="btn primary" type="submit">应用筛选</button><button class="btn outline" type="button" id="feedKbReset">重置</button></div>
+  </form>
+  <p class="fkd-message" id="feedKbError" role="alert" hidden></p>
+  <p class="fkd-subnote" id="feedKbScopeNote">仅展示已完成的记录；待确认、失败和抽取中的记录请到追踪表处理。</p>
+  <label class="fkd-column-picker" id="feedKbColumnWrap" hidden>显示字段<select id="feedKbColumns"></select></label>
+  {% if can_manage %}<div class="fkd-record-actions" id="feedKbRecordActions"><label><input type="checkbox" id="feedKbSelectLoaded"> 选择已加载记录</label><span id="feedKbSelectedCount" aria-live="polite">已选 0 条</span><button type="button" class="btn sm danger" id="feedKbDeleteSelected" disabled>删除选中记录</button></div>{% endif %}
+  <div class="fkd-table-scroll" tabindex="0" aria-label="追踪记录表，可横向滚动"><table class="fkd-table"><thead id="feedKbRowsHead"></thead><tbody id="feedKbRowsBody"></tbody></table></div>
+  <div class="fkd-footer"><span id="feedKbPageInfo"></span><button type="button" class="btn sm outline" id="feedKbMore" hidden>显示更多记录</button></div>
+</section>
+{% include "kb/_tracker_record_editor.html" %}
+
+<section class="fkd-panel" id="feedKbAggregate" aria-labelledby="feedKbAggregateHeading">
+  <div class="section-bar"><div><h2 id="feedKbAggregateHeading">汇总与周期对比</h2><p>选择字段或时间周期分组，在同一结果表查看统计值与变化。</p></div></div>
+  <div class="fkd-aggregate-controls">
+    <label>分组维度<select id="feedKbGroup"><option value="">不分组（总体）</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}<optgroup label="按时间周期"><option value="$period:10min">每 10 分钟</option><option value="$period:hour">每小时</option><option value="$period:day">每天</option><option value="$period:week">每周</option><option value="$period:month">每月</option></optgroup></select></label>
+    <label id="feedKbTrendFieldWrap" hidden>对象字段<select id="feedKbTrendField"><option value="$document_name">文档名</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
+    <label id="feedKbTrendValueWrap" hidden>对象值<input id="feedKbTrendValue" type="text" list="feedKbTrendSuggestions" maxlength="200" placeholder="输入要比较的对象"><datalist id="feedKbTrendSuggestions"></datalist></label>
+    <label>统计方式<select id="feedKbOperation"><option value="count">记录数</option><option value="sum">合计</option><option value="avg">平均值</option><option value="min">最小值</option><option value="max">最大值</option></select></label>
+    <label id="feedKbMeasureWrap" hidden>数值字段<select id="feedKbMeasure">{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
+    <button class="btn primary" type="button" id="feedKbApply">应用分析</button>
+    <div class="fkd-view-switch" role="group" aria-label="汇总视图"><button type="button" data-fkd-view="table" aria-pressed="true">表格</button><button type="button" data-fkd-view="chart" aria-pressed="false">图表</button></div>
+  </div>
+  <p class="fkd-subnote" id="feedKbAggregateNote"></p>
+  <div class="fkd-table-scroll" id="feedKbSummaryTableWrap" tabindex="0" aria-label="分析表，可横向滚动"><table class="fkd-table"><thead id="feedKbSummaryHead"></thead><tbody id="feedKbSummaryBody"></tbody></table></div>
+  <div class="fkd-chart" id="feedKbChart" role="img" aria-label="汇总与周期趋势图" hidden></div>
+  <div class="fkd-footer"><span id="feedKbSummaryInfo"></span><button type="button" class="btn sm outline" id="feedKbSummaryMore" hidden>显示更多分组</button></div>
+</section>

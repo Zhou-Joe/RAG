@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from kb.models import Document, KbTracker, KnowledgeBase, TrackerRow
+from kb.models import Document, FeedRecord, KbTracker, KnowledgeBase, KnowledgeFeed, TrackerRow
 from kb.tracker import (build_extraction_prompt, parse_llm_json, run_extraction)
 
 
@@ -67,6 +67,55 @@ class TrackerServiceTests(TestCase):
         row = TrackerRow.objects.get(tracker=tr, document=doc)
         self.assertEqual(row.status, "done")
         self.assertEqual(row.values, {"设备编号": "SDLSPDRTP0003", "结论": "合格"})
+
+    def test_upsert_feed_discards_extraction_replaced_during_model_call(self):
+        folder = KnowledgeBase.objects.create(name="自动库", slug="extract-race-folder",
+                                               is_folder=True, created_by=self.user)
+        child = KnowledgeBase.objects.create(name="报告", slug="extract-race-child",
+                                              parent=folder, created_by=self.user)
+        feed = KnowledgeFeed.objects.create(kb=folder, name=folder.name,
+                                            write_mode="upsert", created_by=self.user,
+                                            adapter_spec={"ingest_mode": "documents"})
+        tracker = KbTracker.objects.create(kb=folder, enabled=True, fields=[{"label": "摘要"}])
+        first = Document.objects.create(kb=child, original_name="first.md", file_type="md",
+                                        status=Document.Status.COMPLETED, md_content="first")
+        next_doc = Document.objects.create(kb=child, original_name="next.md", file_type="md",
+                                           status=Document.Status.COMPLETED, md_content="next")
+        record = FeedRecord.objects.create(feed=feed, kb=child, external_id="article-1", document=first)
+
+        def replace_while_extracting(_prompt):
+            Document.objects.filter(pk=first.pk).update(status=Document.Status.SUPERSEDED)
+            FeedRecord.objects.filter(pk=record.pk).update(document=next_doc)
+            return '{"摘要":"old result"}'
+
+        with patch("kb.tracker._llm_invoke", side_effect=replace_while_extracting):
+            self.assertFalse(run_extraction(first.pk))
+        self.assertFalse(TrackerRow.objects.filter(tracker=tracker, document=first).exists())
+
+    def test_append_feed_retains_extraction_of_previous_active_version(self):
+        folder = KnowledgeBase.objects.create(name="自动库", slug="extract-history-folder",
+                                               is_folder=True, created_by=self.user)
+        child = KnowledgeBase.objects.create(name="报告", slug="extract-history-child",
+                                              parent=folder, created_by=self.user)
+        feed = KnowledgeFeed.objects.create(kb=folder, name=folder.name,
+                                            write_mode="append", created_by=self.user,
+                                            adapter_spec={"ingest_mode": "documents"})
+        tracker = KbTracker.objects.create(kb=folder, enabled=True, fields=[{"label": "摘要"}])
+        first = Document.objects.create(kb=child, original_name="first.md", file_type="md",
+                                        status=Document.Status.COMPLETED, md_content="first")
+        next_doc = Document.objects.create(kb=child, original_name="next.md", file_type="md",
+                                           status=Document.Status.COMPLETED, md_content="next")
+        record = FeedRecord.objects.create(feed=feed, kb=child, external_id="article-1", document=first)
+
+        def replace_while_extracting(_prompt):
+            Document.objects.filter(pk=first.pk).update(status=Document.Status.SUPERSEDED)
+            FeedRecord.objects.filter(pk=record.pk).update(document=next_doc)
+            return '{"摘要":"historical result"}'
+
+        with patch("kb.tracker._llm_invoke", side_effect=replace_while_extracting):
+            self.assertTrue(run_extraction(first.pk))
+        self.assertEqual(TrackerRow.objects.get(tracker=tracker, document=first).values["摘要"],
+                         "historical result")
 
     def test_long_extracted_cells_keep_up_to_2000_characters(self):
         import json
@@ -240,6 +289,11 @@ class TrackerViewTests(TestCase):
                                  HTTP_X_REQUESTED_WITH="XMLHttpRequest")
             self.assertTrue(r.json()["ok"])
             m.assert_called_once()
+        pending_delete = self.client.post(self.url, {"action": "row_delete", "row_id": row.id},
+                                          HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        self.assertEqual(pending_delete.status_code, 409)
+        self.assertTrue(TrackerRow.objects.filter(id=row.id).exists())
+        TrackerRow.objects.filter(id=row.id).update(status="done")
         r2 = self.client.post(self.url, {"action": "row_delete", "row_id": row.id},
                               HTTP_X_REQUESTED_WITH="XMLHttpRequest")
         self.assertTrue(r2.json()["ok"])

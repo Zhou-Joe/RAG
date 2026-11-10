@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from kb.agent import run_agent_stream
 from kb.qa_steps import _parse_verdict, verify_answer
 from kb.publication import bind_evidence, validate_sources
-from kb.models import Document, KnowledgeBase
+from kb.models import Document, FeedRecord, KnowledgeBase, KnowledgeFeed
 
 
 class PublicationStreamTests(SimpleTestCase):
@@ -133,6 +133,86 @@ class SourceSnapshotTests(TestCase):
     def test_chunk_change_is_rejected(self):
         with patch('kb.keyword_index.get_chunks', return_value=[dict(self.row, text='different')]):
             self.assertFalse(validate_sources(self.evidence, self.user.pk))
+
+
+class UnembeddedFeedSourceSnapshotTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user('feed-source-reader')
+        self.kb = KnowledgeBase.objects.create(
+            name='Fetched document', slug='feed-source-snapshot', category='business',
+        )
+        self.feed = KnowledgeFeed.objects.create(
+            kb=self.kb, name='Fetched source', created_by=self.user,
+            adapter_spec={'ingest_mode': 'documents'},
+        )
+        self.doc = Document.objects.create(
+            kb=self.kb, original_name='generated.md', status=Document.Status.COMPLETED,
+            md_content='# Report\n\nA verified source paragraph.',
+        )
+        self.record = FeedRecord.objects.create(
+            feed=self.feed, kb=self.kb, external_id='report', document=self.doc,
+        )
+        self.evidence = bind_evidence([{
+            'source': self.doc.original_name, 'doc_id': str(self.doc.pk),
+            'kb_slug': self.kb.slug, 'chunk_id': '',
+            'text': 'A verified source paragraph.',
+        }], self.kb.slug)
+
+    def test_current_raw_source_is_verified_without_keyword_chunks(self):
+        with patch('kb.keyword_index.get_chunks') as keyword:
+            self.assertTrue(validate_sources(self.evidence, self.user.pk))
+        keyword.assert_not_called()
+
+    def test_raw_source_survives_candidate_read_and_selection(self):
+        import json
+        from kb.rag_selection import RagSelection
+
+        evidence, citations = [], []
+        selection = RagSelection(lambda library: library.pk == self.kb.pk,
+                                 evidence, citations)
+        row = {'source': self.doc.original_name, 'doc_id': str(self.doc.pk),
+               'kb_slug': self.kb.slug, 'chunk_id': '',
+               'text': 'A verified source paragraph.'}
+        candidates = json.loads(selection.discover([row], [self.kb.slug]))
+        selected = candidates['candidates'][0]['candidate_id']
+        self.assertIn('A verified source paragraph.',
+                      json.loads(selection.read([selected]))['chunks'][0]['text'])
+        self.assertEqual(json.loads(selection.select([selected]))['selected_chunks'], 1)
+        self.assertTrue(validate_sources(evidence, self.user.pk))
+
+    def test_tampered_raw_text_or_digest_is_rejected(self):
+        original = self.evidence[0]
+        for changed in (
+            {'text': 'An invented source paragraph.'},
+            {'text': 'A verified source paragraph.', 'chunk_digest': 'wrong'},
+            {'source': 'other.md'},
+            {'kb_slug': 'other-library'},
+        ):
+            self.assertFalse(validate_sources([{**original, **changed}], self.user.pk))
+
+    def test_replaced_or_deleted_feed_source_is_rejected(self):
+        replacement = Document.objects.create(
+            kb=self.kb, original_name='replacement.md', status=Document.Status.COMPLETED,
+            md_content='Replacement source',
+        )
+        self.record.document = replacement
+        self.record.save(update_fields=['document'])
+        self.assertFalse(validate_sources(self.evidence, self.user.pk))
+        self.record.document = self.doc
+        self.record.deleted = True
+        self.record.save(update_fields=['document', 'deleted'])
+        self.assertFalse(validate_sources(self.evidence, self.user.pk))
+
+    def test_manual_upload_without_chunk_id_is_rejected(self):
+        manual = Document.objects.create(
+            kb=self.kb, original_name='manual.md', status=Document.Status.COMPLETED,
+            md_content='Manual upload body',
+        )
+        evidence = bind_evidence([{
+            'source': manual.original_name, 'doc_id': str(manual.pk),
+            'kb_slug': self.kb.slug, 'chunk_id': '', 'text': 'Manual upload body',
+        }], self.kb.slug)
+        self.assertFalse(validate_sources(evidence, self.user.pk))
 
 
 class PublishedHistoryTests(TransactionTestCase):

@@ -9,11 +9,13 @@
   const clearContext = document.getElementById('connectorClearContext');
   let thread = [], timer = null, generation = 0, submitting=false, stopping=false, confirming=false, clearing=false;
   const detailStates=new Map(),toolDisclosures=new Map();
-  const writeModes=new Map();
+  const writeModes=new Map(),ingestModes=new Map();
   const fieldSelections=new Map();
   const availableFields=job=>[...new Set([...(job.spec.body_fields||[]).map(field=>field.label),'采集日期'])];
-  const selectedFields=job=>fieldSelections.get(job.id)||new Set(availableFields(job));
+  const ingestMode=job=>ingestModes.get(job.id)||thread.find(turn=>turn.feed_id)?.ingest_mode||job.spec?.ingest_mode||job.ingest_mode||'tracker';
+  const selectedFields=job=>ingestMode(job)==='documents'?new Set(availableFields(job)):fieldSelections.get(job.id)||new Set(availableFields(job));
   messages.addEventListener('change',event=>{if(event.target.matches('[data-cx-write-mode]'))writeModes.set(event.target.dataset.cxWriteMode,event.target.value);});
+  messages.addEventListener('change',event=>{if(event.target.matches('[data-cx-ingest-mode]')){ingestModes.set(event.target.dataset.cxIngestMode,event.target.value);render();}});
   messages.addEventListener('change',event=>{
     const input=event.target;if(!input.matches('[data-cx-field]'))return;
     const job=thread.find(turn=>turn.id===input.dataset.cxField);if(!job||job.status!=='ready')return;
@@ -84,7 +86,8 @@
       line.dataset.nodeKey='tool:'+row.id;
       const icon=el('span','cx-tool-icon');icon.setAttribute('aria-hidden','true');
       if(row.state==='done')icon.innerHTML='<svg viewBox="0 0 20 20" fill="none"><path d="m4 10 4 4 8-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      else if(row.state==='error')icon.textContent='×';else if(row.state==='warning')icon.textContent='!';
+      else if(row.state==='error')icon.innerHTML='<svg viewBox="0 0 20 20" fill="none"><path d="M6 6l8 8m0-8-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+      else if(row.state==='warning')icon.innerHTML='<svg viewBox="0 0 20 20" fill="none"><path d="M10 5v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="10" cy="15" r="1.2" fill="currentColor"/></svg>';
       const title=el('span','cx-tool-name',row.name);title.title=row.name;
       line.append(icon,title,el('span','cx-tool-note',row.note||'执行完成'),el('span','cx-tool-time',row.seconds!=null?row.seconds+'s':row.state==='running'?'进行中':'已结束'));
       list.append(line);
@@ -117,19 +120,29 @@
     }
     if (job.status === 'enabled' || job.first_run) {
       const run = job.first_run;
-      card.append(el('p', 'cx-meta', run?.status === 'completed' ? '✓ 数据已入库到知识库追踪表，后续按计划自动更新。'
+      const documentMode=ingestMode(job)==='documents';
+      card.append(el('p', 'cx-meta', run?.status === 'completed' ? (documentMode?'采集完成，文档已排队处理；后续按计划自动更新。':'✓ 数据已入库到知识库追踪表，后续按计划自动更新。')
         : run?.status === 'running' ? '已确认，正在首次入库…'
         : run?.status === 'failed' ? '已启用，但首次入库失败：' + (run.error || '') + ' 可在数据源页面重试。' : '已启用自动更新。'));
-      if(run?.counts?.warnings)card.append(el('p','cx-badge is-warning',`${run.counts.warnings} 条记录已保留原文，请在追踪表查看采集提示。`));
+      if(run?.counts?.warnings)card.append(el('p','cx-badge is-warning',`${run.counts.warnings} 条记录已保留原文，请在${documentMode?'文档':'追踪表'}查看采集提示。`));
       const actions = el('div', 'cx-actions');
       const again=el('button','btn primary','继续与 EnGenie 调整任务');again.type='button';again.dataset.cxContinue=job.id;actions.append(again);
       const link = el('a', 'btn outline', '查看数据源'); link.href = '/kb/feeds/'; actions.append(link); card.append(actions);
-      if(job.tracker_url){const table=el('a','btn outline','打开追踪表');table.href=job.tracker_url;actions.prepend(table);}
+      if(ingestMode(job)==='documents'&&job.kb_url){const library=el('a','btn outline','查看文档与 AI 提炼');library.href=job.kb_url;actions.prepend(library);}
+      else if(job.tracker_url){const table=el('a','btn outline','打开追踪表');table.href=job.tracker_url;actions.prepend(table);}
       card.append(el('p','cx-note','此任务的对话与 AI 上下文会保留。以后可从「自动更新」页面继续修改；新方案经你确认后才替换当前脚本。'));
       return card;
     }
     if (!job.preview?.valid) return card;
-    card.append(el('h3', null, job.spec.name), el('p', 'cx-meta', `${job.spec.url} · ${schedule(job.spec)} · 试采 ${job.preview.items} 条`));
+    const outputMode=ingestMode(job),updating=thread.some(turn=>turn.feed_id);
+    card.append(el('h3', null, job.spec.name), el('p', 'cx-meta', `${job.spec.url} · ${schedule(job.spec)} · 试采 ${job.preview.items} 条${outputMode==='documents'?'（拟生成文档）':''}`));
+    const ingestField=el('div','field');ingestField.dataset.nodeKey='ingest-mode';
+    const ingestLabel=el('label',null,'采集结果入库方式');ingestLabel.htmlFor='cx-ingest-mode-'+job.id;
+    const ingestSelect=el('select');ingestSelect.id=ingestLabel.htmlFor;ingestSelect.dataset.cxIngestMode=job.id;
+    for(const [value,label] of [['tracker','直接写入追踪表 · 结构化数据'],['documents','每条记录作为文档 · 长文本 AI 提炼']]){const option=el('option',null,label);option.value=value;if(value===outputMode)option.selected=true;ingestSelect.append(option);}
+    ingestSelect.disabled=job.status!=='ready'||updating;
+    ingestField.append(ingestLabel,ingestSelect,el('small',null,updating?'已启用任务的入库方式保持不变；新方式请新建任务。':outputMode==='documents'?'每条记录会保存成一份文档，保留全部采集字段。随后可在知识库配置追踪表字段，让 AI 提炼摘要。':'每条记录直接写入追踪表，适合字段已经明确的数据。'));
+    card.append(ingestField);
     const modeField=el('div','field');modeField.dataset.nodeKey='write-mode';
     const modeLabel=el('label',null,'数据写入方式');modeLabel.htmlFor='cx-write-mode-'+job.id;
     const modeSelect=el('select');modeSelect.id=modeLabel.htmlFor;modeSelect.dataset.cxWriteMode=job.id;
@@ -137,12 +150,12 @@
     for(const [value,label] of [['append','追加新记录，保留全部历史（推荐）'],['upsert','按相同 ID 覆盖当前记录']]){const option=el('option',null,label);option.value=value;if(value===selectedMode)option.setAttribute('selected','');modeSelect.append(option);}
     modeSelect.disabled=job.status!=='ready';modeField.append(modeLabel,modeSelect,el('small',null,'AI 已按需求选择，可直接调整。每次采集自动记录时间和来源 ID；切换方式保留已有历史。'));card.append(modeField);
     const selection=el('fieldset','cx-field-selection');selection.dataset.nodeKey='field-selection';
-    selection.append(el('legend',null,'选择要保留的字段'),el('p','cx-note','默认全部保留，可多选。采集日期按任务时区自动生成，始终保留；名称、来源 ID 等系统信息仍会保留。'));
+    selection.append(el('legend',null,'选择要保留的字段'),el('p','cx-note',outputMode==='documents'?'文档模式保留全部已采集字段与原文，以便后续 AI 提炼。':'默认全部保留，可多选。采集日期按任务时区自动生成，始终保留；名称、来源 ID 等系统信息仍会保留。'));
     const choices=el('div','cx-field-choices'),selected=selectedFields(job);
     for(const label of availableFields(job)){
       const choice=el('label','cx-field-choice'),input=el('input');input.type='checkbox';input.value=label;input.dataset.cxField=job.id;
       if(selected.has(label))input.setAttribute('checked','');
-      input.disabled=job.status!=='ready'||label==='采集日期';
+      input.disabled=job.status!=='ready'||outputMode==='documents'||label==='采集日期';
       choice.append(input,el('span',null,label+(label==='采集日期'?' · 必留':'')));choices.append(choice);
     }
     selection.append(choices);card.append(selection);
@@ -166,11 +179,10 @@
     info.append(el('p', null, '更新计划：' + schedule(job.spec)));
     config.append(info); card.append(config);
     const actions = el('div', 'cx-actions');
-    const updating=thread.some(turn=>turn.feed_id);
     const enable = el('button', 'btn primary', updating?'确认修改并更新原脚本':'确认数据并开始自动更新'); enable.type = 'button'; enable.dataset.cxEnable = job.id; enable.disabled = job.status !== 'ready';
     const download = el('a', 'btn outline', '下载采集脚本'); download.href = job.download_url; download.setAttribute('download', '');
     actions.append(enable, download);
-    card.append(actions, el('p', 'cx-note', updating?'确认后更新原脚本，按所选方式写入追踪表；已有历史保留。':'确认后在「业务数据」建立采集库与追踪表，并按所选方式定时写入。'));
+    card.append(actions, el('p', 'cx-note', outputMode==='documents'?'确认后每条采集记录成为知识库文档；文档处理完成后，可用追踪表 AI 按你配置的字段提炼。':updating?'确认后更新原脚本，按所选方式写入追踪表；已有历史保留。':'确认后在「业务数据」建立采集库与追踪表，并按所选方式定时写入。'));
     return card;
   }
 
@@ -261,7 +273,7 @@
     if(page.dataset.feedId&&named){const title=page.querySelector('.cx-heading h1');if(title){title.dataset.i18nIgnore='';title.textContent='EnGenie · '+named.kb_name;}}
     for(const detail of messages.querySelectorAll('details[data-detail-key]'))detailStates.set(detail.dataset.detailKey,detail.open);
     if (!thread.length) { messages.replaceChildren(welcome); welcome.querySelectorAll('.cx-prompt').forEach(b => { b.hidden = false; }); return; }
-    const nodes=thread.map((job,index)=>{const signature=JSON.stringify([job.status,job.event_cursor,job.first_run,job.error,job.metrics,job.report_delivery,job.kb_name,job.spec?.name,job.spec?.title,job.preview?.source_feed,window.FOSI18n?.language,[...selectedFields(job)]]);const previous=[...messages.children].find(node=>node.dataset.jobId===job.id);if(previous?.dataset.signature===signature)return previous;const node=turn(job,index);node.dataset.signature=signature;return node;});
+    const nodes=thread.map((job,index)=>{const signature=JSON.stringify([job.status,job.event_cursor,job.first_run,job.error,job.metrics,job.report_delivery,job.kb_name,job.spec?.name,job.spec?.title,job.preview?.source_feed,window.FOSI18n?.language,ingestMode(job),[...selectedFields(job)]]);const previous=[...messages.children].find(node=>node.dataset.jobId===job.id);if(previous?.dataset.signature===signature)return previous;const node=turn(job,index);node.dataset.signature=signature;return node;});
     const old=[...messages.children];
     nodes.forEach((node,index)=>{const previous=old.find(item=>item.dataset.jobId===node.dataset.jobId);if(previous&&previous!==node)patchNode(previous,node);const current=previous||node;if(messages.children[index]!==current)messages.insertBefore(current,messages.children[index]||null);});
     for(const node of old)if(!thread.some(job=>job.id===node.dataset.jobId))node.remove();
@@ -335,7 +347,7 @@
     if(confirming)return;
     const confirmedGeneration=generation;let failure='';confirming=true;clearTimeout(timer);enable.disabled=true;enable.textContent='正在确认…';syncComposer(job);
     try {
-      await request(job.enable_url, {write_mode:writeModes.get(job.id)||job.spec.write_mode||'append',selected_fields:[...selectedFields(job)]});
+      await request(job.enable_url, {write_mode:writeModes.get(job.id)||job.spec.write_mode||'append',ingest_mode:ingestMode(job),selected_fields:[...selectedFields(job)]});
       if(confirmedGeneration===generation)await poll(job,confirmedGeneration);
     } catch (error) { failure=error.message;enable.disabled=false;enable.textContent='重新确认'; }
     finally{confirming=false;syncComposer(thread.at(-1));if(failure)hint.textContent=failure;}

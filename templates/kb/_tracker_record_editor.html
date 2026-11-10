@@ -1,0 +1,15 @@
+{% if can_manage %}
+<dialog id="trackerCellDialog" class="fos-dialog" data-url="{% url 'kb:tracker' kb.slug %}">
+  <form id="trackerCellForm" method="dialog">
+    {% csrf_token %}
+    <div class="dialog-title">编辑追踪表字段</div>
+    <p class="dialog-hint" id="trackerCellRecord" translate="no"></p>
+    <div class="field"><label for="trackerCellField">字段</label><select id="trackerCellField" required></select></div>
+    <div class="field"><label for="trackerCellValue">字段值</label><textarea id="trackerCellValue" rows="5" maxlength="2000"></textarea></div>
+    <p class="dialog-hint" id="trackerCellWarning" hidden>原值超过 2000 字，输入框仅显示前 2000 字；保存会替换整个字段。</p>
+    <p class="dialog-hint">一次只修改一个字段，最多 2000 字。保存后分析结果会更新。</p>
+    <p class="dialog-err" id="trackerCellError" role="alert" hidden></p>
+    <div class="dialog-actions"><button type="button" class="btn outline" id="trackerCellCancel">取消</button><button type="submit" class="btn primary" id="trackerCellSave">保存字段</button></div>
+  </form>
+</dialog>
+{% endif %}

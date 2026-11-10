@@ -135,6 +135,19 @@ class KnowledgeBase(models.Model):
         return list(self.children.filter(is_folder=False).values_list("slug", flat=True))
 
 
+class KnowledgeBasePin(models.Model):
+    """A user's private shortcut to a visible top-level knowledge base."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="knowledge_base_pins")
+    kb = models.ForeignKey(
+        KnowledgeBase, on_delete=models.CASCADE, related_name="user_pins")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user", "kb"], name="unique_user_kb_pin")]
+
+
 class Document(models.Model):
     """用户上传到某个知识库的一份文档。"""
 

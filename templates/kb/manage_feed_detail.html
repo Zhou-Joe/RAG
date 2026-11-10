@@ -1,0 +1,80 @@
+{% extends "kb/_base.html" %}{% load static %}
+{% block title %}{{ kb.name }} · 自动采集知识库{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=5">{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div class="page-head-main">
+    <a class="page-back" href="{% url 'kb:manage_list' %}">资料上传中心</a>
+    <span class="fkd-kicker">自主数据引擎 · 自动采集知识库</span>
+    <h1 data-i18n-preserve-text><span id="feedKbName">{{ kb.name }}</span> <span class="dept-badge" id="feedKbAccess">{{ kb.access_label }}</span>{% if not can_manage %} <span class="ro-badge">只读</span>{% endif %}</h1>
+    <p class="page-desc"><span id="feedKbDescription"{% if kb.description %} translate="no"{% endif %}>{{ kb.description|default:"自动采集的数据会在这里持续更新。" }}</span> · <span id="feedKbTotal">{{ total_rows }}</span> 条采集记录</p>
+  </div>
+  <div class="page-actions">
+    {% if can_manage %}<a class="btn outline" href="{% url 'kb:feeds' %}?kb={{ kb.slug|urlencode }}">管理采集任务</a><button type="button" class="btn outline" id="feedKbEdit">编辑知识库</button>{% endif %}
+    {% if tracker_enabled or can_manage %}<a class="btn outline" href="{% url 'kb:tracker' kb.slug %}">追踪表</a>{% endif %}
+  </div>
+</header>
+
+{% if can_manage %}
+<dialog id="feedKbEditDialog" class="fos-dialog">
+  <form id="feedKbEditForm">
+    {% csrf_token %}
+    <div class="dialog-title">编辑知识库</div>
+    <div class="field"><label for="feedKbEditName">名称</label><input id="feedKbEditName" name="name" value="{{ kb.name }}" required maxlength="100"></div>
+    {% include "kb/_access_fields.html" with scope_edit=True %}
+    <div class="field"><label for="feedKbEditDescription">描述（可选）</label><textarea id="feedKbEditDescription" name="description" maxlength="200" rows="3">{{ kb.description }}</textarea></div>
+    <p class="dialog-err" id="feedKbEditError" role="alert" hidden></p>
+    <div class="dialog-actions"><button type="button" class="btn outline" id="feedKbEditCancel">取消</button><button type="submit" class="btn primary" id="feedKbEditSave">保存</button></div>
+  </form>
+</dialog>
+{% endif %}
+
+<section class="fkd-status" aria-labelledby="feedKbStatusHeading">
+  <div><span class="fkd-label">最近一次运行</span><h2 id="feedKbStatusHeading">正在读取采集状态…</h2><p id="feedKbRunMeta"></p></div>
+  <div class="fkd-status-side"><span id="feedKbRunCount"></span><button type="button" class="btn sm outline" id="feedKbRefresh">刷新</button></div>
+</section>
+<p class="fkd-last-success" id="feedKbLastSuccess" hidden></p>
+
+<section class="fkd-panel" id="feedKbData" data-url="{% url 'kb:feed_kb_data' kb.slug %}" aria-labelledby="feedKbRowsHeading">
+  <div class="section-bar"><div><h2 id="feedKbRowsHeading">采集结果</h2><p>先看最新一次成功采集的数据，也可切换到全部历史记录{% if can_manage %}；展开记录可编辑字段或删除记录{% endif %}。</p></div><span class="count-chip" id="feedKbMatchCount">—</span></div>
+  <form class="fkd-filters" id="feedKbFilters">
+    <label>数据源<select id="feedKbFeed"><option value="">全部数据源</option>{% for feed in feeds %}<option value="{{ feed.pk }}" translate="no">{{ feed.name }}</option>{% endfor %}</select></label>
+    <label>查看范围<select id="feedKbScope"><option value="latest">最新成功采集</option><option value="history">全部历史</option></select></label>
+    <label class="fkd-search">搜索记录<input id="feedKbSearch" type="search" maxlength="300" placeholder="名称、来源 ID 或字段内容"></label>
+    <label>筛选字段<select id="feedKbFilterField"><option value="">不限字段</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
+    <label>包含<input id="feedKbFilterValue" type="text" maxlength="500" placeholder="输入筛选值"></label>
+    <label>开始日期<input id="feedKbFrom" type="date"></label>
+    <label>结束日期<input id="feedKbTo" type="date"></label>
+    <div class="fkd-filter-actions"><button class="btn primary" type="submit">应用筛选</button><button class="btn outline" type="button" id="feedKbReset">重置</button></div>
+  </form>
+  <p class="fkd-message" id="feedKbError" role="alert" hidden></p>
+  <p class="fkd-subnote" id="feedKbScopeNote"></p>
+  <label class="fkd-column-picker" id="feedKbColumnWrap" hidden>显示字段<select id="feedKbColumns"></select></label>
+  {% if can_manage %}<div class="fkd-record-actions" id="feedKbRecordActions"><label><input type="checkbox" id="feedKbSelectLoaded"> 选择已加载记录</label><span id="feedKbSelectedCount" aria-live="polite">已选 0 条</span><button type="button" class="btn sm danger" id="feedKbDeleteSelected" disabled>删除选中记录</button></div>{% endif %}
+  <div class="fkd-table-scroll" tabindex="0" aria-label="采集记录表，可横向滚动"><table class="fkd-table"><thead id="feedKbRowsHead"></thead><tbody id="feedKbRowsBody"></tbody></table></div>
+  <div class="fkd-footer"><span id="feedKbPageInfo"></span><button type="button" class="btn sm outline" id="feedKbMore" hidden>显示更多记录</button></div>
+</section>
+{% include "kb/_tracker_record_editor.html" %}
+
+<section class="fkd-panel" id="feedKbAggregate" aria-labelledby="feedKbAggregateHeading">
+  <div class="section-bar"><div><h2 id="feedKbAggregateHeading">汇总与周期对比</h2><p>选择字段或时间周期分组，在同一结果表查看统计值与变化。</p></div></div>
+  <div class="fkd-aggregate-controls">
+    <label>分组维度<select id="feedKbGroup"><option value="">不分组（总体）</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}<optgroup label="按时间周期"><option value="$period:10min">每 10 分钟</option><option value="$period:hour">每小时</option><option value="$period:day">每天</option><option value="$period:week">每周</option><option value="$period:month">每月</option></optgroup></select></label>
+    <label id="feedKbTrendFieldWrap" hidden>对象字段<select id="feedKbTrendField"><option value="$source_id">来源 ID</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
+    <label id="feedKbTrendValueWrap" hidden>对象值<input id="feedKbTrendValue" type="text" list="feedKbTrendSuggestions" maxlength="200" placeholder="输入要比较的对象"><datalist id="feedKbTrendSuggestions"></datalist></label>
+    <label>统计方式<select id="feedKbOperation"><option value="count">记录数</option><option value="sum">合计</option><option value="avg">平均值</option><option value="min">最小值</option><option value="max">最大值</option></select></label>
+    <label id="feedKbMeasureWrap" hidden>数值字段<select id="feedKbMeasure">{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
+    <button class="btn primary" type="button" id="feedKbApply">应用分析</button>
+    <div class="fkd-view-switch" role="group" aria-label="汇总视图"><button type="button" data-fkd-view="table" aria-pressed="true">表格</button><button type="button" data-fkd-view="chart" aria-pressed="false">图表</button></div>
+  </div>
+  <p class="fkd-subnote" id="feedKbAggregateNote"></p>
+  <div class="fkd-table-scroll" id="feedKbSummaryTableWrap" tabindex="0" aria-label="分析表，可横向滚动"><table class="fkd-table"><thead id="feedKbSummaryHead"></thead><tbody id="feedKbSummaryBody"></tbody></table></div>
+  <div class="fkd-chart" id="feedKbChart" role="img" aria-label="汇总与周期趋势图" hidden></div>
+  <div class="fkd-footer"><span id="feedKbSummaryInfo"></span><button type="button" class="btn sm outline" id="feedKbSummaryMore" hidden>显示更多分组</button></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
+{% if can_manage %}<script src="{% static 'js/tracker_record_editor.js' %}?v=1" defer></script>{% endif %}
+<script src="{% static 'js/feed_kb_detail.js' %}?v=5" defer></script>
+{% endblock %}

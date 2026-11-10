@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -95,7 +96,7 @@ def reset_kb_collection(kb_slug: str) -> None:
         _VS_CACHE.pop(kb_slug, None)
 
 
-def delete_doc_vectors(kb_slug: str, source: str) -> None:
+def delete_doc_vectors(kb_slug: str, source: str) -> bool:
     """删除某文档在 Chroma 中的全部向量（按 source=文件名 过滤）。
 
     刻意使用**原生 chromadb 客户端**而非 langchain Chroma：
@@ -105,21 +106,30 @@ def delete_doc_vectors(kb_slug: str, source: str) -> None:
     """
     from chromadb import PersistentClient
     from chromadb.config import Settings
+    from chromadb.errors import NotFoundError
     from . import keyword_index
 
     persist_dir = str(_kb_persist_dir(kb_slug))
     coll_name = _chroma_collection_name(kb_slug)
     # 整体兜底：任何阶段失败（含 PersistentClient 构造期，如目录损坏）
     # 都不放过关键词清理——否则已删文档在关键词路"复活"
+    vectors_removed = True
     try:
         client = PersistentClient(path=persist_dir, settings=Settings(anonymized_telemetry=False))
-        col = client.get_collection(coll_name)
-        col.delete(where={"source": source})
+        try:
+            col = client.get_collection(coll_name)
+        except NotFoundError:
+            # An unindexed source has no collection to clean.
+            pass
+        else:
+            col.delete(where={"source": source})
     except Exception:
+        vectors_removed = False
         logging.getLogger(__name__).exception(
             "Chroma 向量删除失败（继续清理关键词索引）kb=%s source=%s", kb_slug, source)
     # 两路清理互相独立：任一路失败不拖累另一路（否则残留孤儿行）
-    keyword_index.delete_doc(kb_slug, source)
+    keywords_removed = keyword_index.delete_doc(kb_slug, source)
+    return vectors_removed and keywords_removed is not False
 
 
 def _fuse_key(text: str) -> str:
@@ -162,9 +172,61 @@ def _feed_current_sources(kb_slug):
     """自动数据子库只检索当前已发布指针，排除暂存、历史和已删除版本。"""
     if not kb_slug.startswith('syncitem-'):return None
     from .models import FeedRecord,Document
-    record=FeedRecord.objects.select_related('document').filter(kb__slug=kb_slug).first()
+    record=FeedRecord.objects.select_related('document','feed').filter(kb__slug=kb_slug).first()
+    if record and record.feed.adapter_spec.get('ingest_mode') == 'documents':
+        # Document-mode feed children may also contain ordinary uploads.
+        return None
     if not record or record.deleted or not record.document_id or record.document.status!=Document.Status.COMPLETED:return {}
     return {record.document.original_name:str(record.document_id)}
+
+
+def _feed_document_search_scope(kb_slug: str) -> tuple[set[str], set[str]] | None:
+    """Return searchable manual sources and generated sources for a feed child.
+
+    The current FeedRecord pointer identifies the source document even for old
+    names. The generated filename pattern also covers superseded versions.
+    """
+    from .models import Document, FeedRecord
+    from .feeds import _is_managed_feed_document
+
+    record = (FeedRecord.objects.select_related('feed').filter(kb__slug=kb_slug,
+              feed__adapter_spec__ingest_mode='documents').first())
+    if record is None:
+        return None
+    generated_ids = {pk for pk in (record.document_id, record.pending_document_id) if pk}
+    manual_sources: set[str] = set()
+    generated_sources: set[str] = set()
+    for doc in Document.objects.filter(kb_id=record.kb_id).only('id', 'original_name', 'status'):
+        if doc.pk in generated_ids or _is_managed_feed_document(doc):
+            generated_sources.add(doc.original_name)
+        elif doc.status == Document.Status.COMPLETED:
+            manual_sources.add(doc.original_name)
+    return manual_sources, generated_sources
+
+
+def _without_generated_feed_documents(slugs: list[str]) -> list[str]:
+    """Skip only child libraries that have no searchable manual upload."""
+    if not slugs:
+        return []
+    from .models import Document, FeedRecord
+    from .feeds import _is_managed_feed_document
+
+    records = list(FeedRecord.objects.filter(
+        kb__slug__in=slugs, feed__adapter_spec__ingest_mode='documents',
+    ).values('kb_id', 'kb__slug', 'document_id', 'pending_document_id'))
+    if not records:
+        return slugs
+    generated = {row['kb__slug']: row for row in records}
+    manual: set[str] = set()
+    for doc in Document.objects.filter(
+            kb_id__in=[row['kb_id'] for row in records],
+            status=Document.Status.COMPLETED).select_related('kb').only(
+                'id', 'kb_id', 'kb__slug', 'original_name', 'status'):
+        row = generated[doc.kb.slug]
+        if doc.pk not in (row['document_id'], row['pending_document_id']) \
+                and not _is_managed_feed_document(doc):
+            manual.add(doc.kb.slug)
+    return [slug for slug in slugs if slug not in generated or slug in manual]
 
 
 def search(kb_slug: str, query: str, k: int | None = None,
@@ -180,6 +242,10 @@ def search(kb_slug: str, query: str, k: int | None = None,
     - rerank_enabled=False：跳过精排（search_folder 合并后做一次全局 rerank，
       替代此前每库各一次）
     """
+    feed_scope = _feed_document_search_scope(kb_slug)
+    if feed_scope is not None and not feed_scope[0]:
+        return []
+    manual_sources = feed_scope[0] if feed_scope is not None else None
     k = k or retrieval_settings()["top_k"]
     recall = max(k * 3, 15)
     published=_feed_current_sources(kb_slug)
@@ -195,7 +261,9 @@ def search(kb_slug: str, query: str, k: int | None = None,
             # include 不收 "ids"（chromadb 校验拒绝），但 query 结果恒带 ids
             res = vs._collection.query(  # noqa: SLF001 同 fetch_doc 的原生查询模式
                 query_embeddings=[query_embedding], n_results=recall,
-                **({'where':{'source':next(iter(published))}} if published is not None else {}),
+                **({'where': {'source': next(iter(published))}} if published is not None
+                   else {'where': {'source': {'$in': sorted(manual_sources)}}}
+                   if manual_sources is not None else {}),
                 include=["documents", "metadatas"])
             from langchain_core.documents import Document as _Doc
             for d, m, cid in zip((res.get("documents") or [[]])[0] or [],
@@ -211,13 +279,17 @@ def search(kb_slug: str, query: str, k: int | None = None,
 
     # ---- 关键词路 ----
     from . import keyword_index
-    kw_rows = keyword_index.search(kb_slug, query, limit=recall,**({'source':next(iter(published))} if published is not None else {}))
+    kw_rows = keyword_index.search(
+        kb_slug, query, limit=recall,
+        **({'source': next(iter(published))} if published is not None else
+           {'sources': sorted(manual_sources)} if manual_sources is not None else {}))
 
     # ---- RRF 融合（同一路内重复文本只计首次——语料里存在内容相同的 chunk） ----
     fused: dict[str, dict[str, Any]] = {}
     seen_vec: set[str] = set()
     for rank, (doc, meta) in enumerate(vec_docs, start=1):
         if published is not None and meta.get('source') not in published:continue
+        if manual_sources is not None and meta.get('source') not in manual_sources:continue
         # 图片块以「图+上下文」独立身份参与融合（同名图的上下文与文本块不同，
         # 但 page_content 可能与章节文本块相同 → 融合键必须带上图片名防撞）
         key = _result_key({**meta, "text": doc.page_content, "kb_slug": kb_slug})
@@ -239,6 +311,7 @@ def search(kb_slug: str, query: str, k: int | None = None,
     seen_kw: set[str] = set()
     for rank, row in enumerate(kw_rows, start=1):
         if published is not None and row.get('source') not in published:continue
+        if manual_sources is not None and row.get('source') not in manual_sources:continue
         key = _result_key({**row, "kb_slug": kb_slug})
         if key in seen_kw:
             continue
@@ -252,6 +325,9 @@ def search(kb_slug: str, query: str, k: int | None = None,
         item["via"].add("kw")
 
     _merge_graph(fused, [kb_slug], [kb_slug], query, recall)
+    if manual_sources is not None:
+        fused = {key: row for key, row in fused.items()
+                 if row.get('source') in manual_sources}
     results = sorted(fused.values(), key=lambda r: r["score"], reverse=True)[:k]
 
     # ---- 重排序（可选）：RRF 融合序取前若干 → cross-encoder 精排 → 取 top_k。
@@ -333,14 +409,20 @@ def _image_lane(slugs: list[str], query_embedding: list[float] | None,
     """
     if query_embedding is None:
         return []
+    slugs = _without_generated_feed_documents(slugs)
     ranked: list[tuple[float, dict[str, Any]]] = []
     for slug in slugs:
-        if slug.startswith('syncitem-'):continue  # v1 feed only accepts text/Markdown.
+        feed_scope = _feed_document_search_scope(slug)
+        manual_sources = feed_scope[0] if feed_scope is not None else None
         try:
             col = get_kb_vectorstore(slug)._collection  # noqa: SLF001
+            image_where: dict = {'type': 'image'}
+            if manual_sources is not None:
+                image_where = {'$and': [image_where,
+                                       {'source': {'$in': sorted(manual_sources)}}]}
             res = col.query(
                 query_embeddings=[query_embedding], n_results=limit,
-                where={"type": "image"},
+                where=image_where,
                 include=["documents", "metadatas", "distances"],
             )
             docs = (res.get("documents") or [[]])[0] or []
@@ -349,6 +431,8 @@ def _image_lane(slugs: list[str], query_embedding: list[float] | None,
             cids = (res.get("ids") or [[]])[0] or []
             for d, m, dist, cid in zip(docs, metas, dists, cids):
                 m = m or {}
+                if manual_sources is not None and m.get('source') not in manual_sources:
+                    continue
                 distance = _image_distance(dist, max_distance)
                 if not m.get("image") or distance is None:
                     continue
@@ -415,6 +499,7 @@ def search_folder(child_slugs: list[str], query: str, k: int | None = None,
     include_images=True：额外跑图片专用召回道并把图片块并入结果尾部
     （文本 rerank 只看占位文本「文档插图」必弃图片，故在精排后并入）。
     """
+    child_slugs = _without_generated_feed_documents(child_slugs)
     k = k or retrieval_settings()["top_k"]
     if not child_slugs:
         return []
@@ -504,6 +589,47 @@ def fetch_doc(
 
     返回: [{"text","source","section"}, ...]，按入库顺序。
     """
+    from .models import Document, FeedRecord
+    generated = (FeedRecord.objects.select_related('document')
+                 .filter(kb__slug=kb_slug,
+                         feed__adapter_spec__ingest_mode='documents').first())
+    feed_scope = _feed_document_search_scope(kb_slug) if generated is not None else None
+    manual_sources = feed_scope[0] if feed_scope is not None else None
+    generated_sources = feed_scope[1] if feed_scope is not None else set()
+    raw_out: list[dict[str, Any]] = []
+    if generated is not None and (not source or source == getattr(generated.document, 'original_name', None)):
+        # These source files are deliberately not embedded or keyword-indexed.
+        # Read the current saved Markdown directly for an explicit document
+        # request, using bounded in-memory chunks for normal evidence selection.
+        doc = generated.document
+        if not generated.deleted and doc is not None and doc.status == Document.Status.COMPLETED:
+            markdown = doc.md_content or ''
+            headings = list(re.finditer(r'(?m)^#{1,6}\s+(.+?)\s*$', markdown))
+            sections = ([('', markdown[:headings[0].start()])] if headings and headings[0].start() else [])
+            sections.extend((match.group(1).strip(), markdown[match.start():
+                             headings[index + 1].start() if index + 1 < len(headings) else len(markdown)])
+                            for index, match in enumerate(headings))
+            if not headings:
+                sections = [('', markdown)]
+            for name, content in sections:
+                if section and section != name:
+                    continue
+                for start in range(0, len(content), 4000):
+                    text = content[start:start + 4000]
+                    if contains and contains not in text:
+                        continue
+                    raw_out.append({'text': text, 'source': doc.original_name,
+                                    'section': name, 'chunk_id': '', 'doc_id': str(doc.pk)})
+                    if len(raw_out) >= limit:
+                        return raw_out
+    if source and source in generated_sources:
+        return raw_out
+    if source and manual_sources is not None and source not in manual_sources:
+        return []
+    if manual_sources is not None and not manual_sources:
+        return raw_out
+    if len(raw_out) >= limit:
+        return raw_out
     vs = get_kb_vectorstore(kb_slug)
     where: dict[str, str] = {}
     if source:
@@ -528,6 +654,8 @@ def fetch_doc(
         if contains and contains not in text:
             continue
         m = meta or {}
+        if manual_sources is not None and m.get('source') not in manual_sources:
+            continue
         out.append({
             "text": text,
             "source": m.get("source", ""),
@@ -535,4 +663,4 @@ def fetch_doc(
             "section": m.get("section") or m.get("drug_name") or "",
             "chunk_id": cid or "",
         })
-    return out[:limit]
+    return (raw_out + out)[:limit]

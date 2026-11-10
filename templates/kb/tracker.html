@@ -46,13 +46,13 @@
       {% for f in tracker.fields %}<th class="c-field">{{ f.label }}</th>{% endfor %}
       <th class="c-status">状态</th>
       <th class="c-time">时间</th>
-      {% if can_manage and tracker.enabled %}<th class="c-acts">操作</th>{% endif %}
+    {% if can_manage %}<th class="c-acts">操作</th>{% endif %}
     </tr>
   </thead>
   <tbody>
     {% for r in rows %}
     <tr class="trk-row" data-status="{{ r.status }}" title="点击展开 / 收起完整字段值">
-      <td class="c-doc" title="{{ r.doc_name }}">{{ r.doc_name }}{% if r.is_feed and r.status == 'done' %}<button type="button" class="trk-analyze" data-row-id="{{ r.id }}">趋势分析 ↗</button>{% endif %}</td>
+      <td class="c-doc" title="{{ r.doc_name }}">{% if can_manage and r.status != 'running' and r.status != 'pending' %}<input type="checkbox" class="trk-row-select" value="{{ r.id }}" aria-label="选择记录：{{ r.doc_name }}">{% endif %}{{ r.doc_name }}{% if show_analysis and r.is_feed and r.status == 'done' %}<button type="button" class="trk-analyze" data-row-id="{{ r.id }}">趋势分析 ↗</button>{% endif %}</td>
       {% for p in r.pairs %}
       <td class="c-val{% if p.changed %} chg{% endif %}" title="{{ p.label }}：{{ p.value }}">{{ p.value }}</td>
       {% endfor %}
@@ -72,8 +72,11 @@
           title="追踪字段在该文档登记后有过变更，可点「重试」按新字段补齐">字段已变更</span>{% endif %}
       </td>
       <td class="c-time">{{ r.updated_at|date:"m-d H:i" }}</td>
-      {% if can_manage and tracker.enabled %}
+      {% if can_manage %}
       <td class="c-acts">
+        {% if r.status == 'done' %}<button type="button" class="btn sm outline trk-edit" data-payload="{{ r.payload }}" data-updated-at="{{ r.updated_at.isoformat }}">编辑字段</button>{% endif %}
+        {% if r.status != 'running' and r.status != 'pending' %}<button type="button" class="btn sm danger trk-delete" data-row="{{ r.id }}" data-name="{{ r.doc_name }}">删除</button>{% endif %}
+        {% if tracker.enabled %}
         {% if r.status == 'proposed' %}
         <button type="button" class="btn sm primary trk-confirm" data-payload="{{ r.payload }}">确认变更</button>
         {% endif %}
@@ -82,14 +85,7 @@
         {% elif r.status != 'running' and r.status != 'pending' %}
         <button type="button" class="btn sm outline trk-retry" data-row="{{ r.id }}">重试</button>
         {% endif %}
-        <form method="post" action="/kb/manage/{{ kb.slug }}/tracker/" style="display:inline"
-              data-confirm-title="删除追踪记录"
-              data-confirm="删除「{{ r.doc_name }}」的这条追踪记录？">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="row_delete">
-          <input type="hidden" name="row_id" value="{{ r.id }}">
-          <button class="btn sm danger" type="submit">删除</button>
-        </form>
+        {% endif %}
       </td>
       {% endif %}
     </tr>
@@ -107,6 +103,13 @@
   </tbody>
 </table>
 </div>
+{% if can_manage %}
+<div class="trk-bulk" id="trkBulkActions">
+  <label><input type="checkbox" id="trkSelectPage"> 选择本页记录</label>
+  <span id="trkSelectedCount" aria-live="polite">已选 0 条</span>
+  <button type="button" class="btn sm danger" id="trkDeleteSelected" disabled>删除选中记录</button>
+</div>
+{% endif %}
 {% if paginator.num_pages > 1 %}
 {# 分页：默认每页 50 行，避开上千行整表渲染的卡顿；?per= 可改档位 #}
 <nav class="trk-pager" aria-label="追踪表分页">
@@ -195,8 +198,11 @@
 .trk-table .c-field{width:120px}
 .trk-table .c-status{width:96px}
 .trk-table .c-time{width:64px;font:500 11px var(--fm);color:var(--mute)}
-.trk-table .c-acts{width:172px;white-space:nowrap}
+.trk-table .c-acts{width:240px;white-space:nowrap}
 .trk-table .c-acts form{display:inline}
+.trk-table .c-doc .trk-row-select{margin:0 9px 0 0;vertical-align:-2px;cursor:pointer}
+.trk-bulk{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:10px 0;color:var(--dim);font-size:12px}
+.trk-bulk label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .trk-table tr.trk-row{cursor:pointer}
 .trk-table tr.trk-row:hover td{background:var(--paper)}
 .trk-table td.chg{background:var(--warn-soft)}
@@ -243,6 +249,8 @@
     </div>
   </form>
 </dialog>
+{% include "kb/_tracker_record_editor.html" %}
+{% load static %}<script src="{% static 'js/tracker_record_editor.js' %}?v=1" defer></script>
 <script>
 /* 确认变更弹窗：从按钮 data-payload 读改前/改后值，逐字段勾选后 POST row_confirm */
 (function(){
@@ -316,7 +324,7 @@ document.addEventListener('click', (e) => {
   const detail = row.nextElementSibling;
   if (detail && detail.classList.contains('trk-detail')) detail.hidden = !detail.hidden;
 });
-/* 追踪表动作：补录 / 重试（AJAX + 刷新），删除走 data-confirm 表单直提 */
+/* 追踪表动作：补录 / 重试 / 编辑字段 / 单条及批量删除。 */
 function getCSRFToken(){
   const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : '';
@@ -338,6 +346,24 @@ async function trkPost(params){
   return data;
 }
 document.addEventListener('click', async (e) => {
+  const edit = e.target.closest('.trk-edit');
+  if (edit) {
+    let payload;
+    try { payload = JSON.parse(edit.dataset.payload); }
+    catch (ex) { fosToast('记录数据解析失败，请刷新页面', 'err'); return; }
+    const fields = payload.fields.map((name, index) => ({name, value: payload.old[index]}));
+    const data = await window.trackerRecordEditor.open({rowId: payload.row, recordName: payload.doc, fields, expectedUpdatedAt: edit.dataset.updatedAt});
+    if (data) location.reload();
+    return;
+  }
+  const remove = e.target.closest('.trk-delete');
+  if (remove) {
+    remove.disabled = true;
+    const data = await window.trackerRecordEditor.remove([remove.dataset.row], remove.dataset.name);
+    if (data) location.reload();
+    else remove.disabled = false;
+    return;
+  }
   const tg = e.target.closest('#trkEnable') || e.target.closest('#trkDisable');
   if (tg) {
     tg.disabled = true;
@@ -359,6 +385,30 @@ document.addEventListener('click', async (e) => {
     if (!d.ok) { rt.disabled = false; return; }
     rt.textContent = '已排队…';
   }
+});
+const trkSelection = document.querySelectorAll('.trk-row-select');
+const trkSelectPage = document.getElementById('trkSelectPage');
+const trkSelectedCount = document.getElementById('trkSelectedCount');
+const trkDeleteSelected = document.getElementById('trkDeleteSelected');
+function trkUpdateSelection(){
+  if (!trkSelectPage) return;
+  const count = [...trkSelection].filter(item => item.checked).length;
+  trkSelectedCount.textContent = window.FOSI18n?.t(`已选 ${count} 条`) || `已选 ${count} 条`;
+  trkDeleteSelected.disabled = count === 0;
+  trkSelectPage.checked = count > 0 && count === trkSelection.length;
+  trkSelectPage.indeterminate = count > 0 && count < trkSelection.length;
+}
+trkSelectPage?.addEventListener('change', () => {
+  trkSelection.forEach(item => { item.checked = trkSelectPage.checked; });
+  trkUpdateSelection();
+});
+trkSelection.forEach(item => item.addEventListener('change', trkUpdateSelection));
+trkDeleteSelected?.addEventListener('click', async () => {
+  const ids = [...trkSelection].filter(item => item.checked).map(item => item.value);
+  trkDeleteSelected.disabled = true;
+  const data = await window.trackerRecordEditor.remove(ids);
+  if (data) location.reload();
+  else trkUpdateSelection();
 });
 /* 有抽取中的行 → 轮询刷新直到出结果。
    弹窗开着 / 正在编辑配置 / 标签页隐藏时跳过（防吃掉用户输入）；

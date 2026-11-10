@@ -1,0 +1,33 @@
+{% load static %}
+{% with counts=kb.aggregate_counts %}
+<article class="kb-list-card{% if kb.is_pinned %} is-pinned{% endif %}" data-slug="{{ kb.slug }}">
+  <div class="kb-list-card-head">
+    <span class="kb-list-glyph" aria-hidden="true">{{ kb.name|first|upper }}</span>
+    <div class="kb-list-identity">
+      <small>{% if kb.category == 'business' %}自动采集{% else %}手册库{% endif %} · {{ kb.access_label }}{% if not kb.can_manage %} · 只读{% endif %}</small>
+      <strong title="{{ kb.name }}" translate="no">{{ kb.name }}</strong>
+    </div>
+    <button type="button" class="kb-pin-toggle{% if kb.is_pinned %} is-active{% endif %}"
+            data-pin-url="{% url 'kb:kb_pin' kb.slug %}"
+            data-pin-state="{% if kb.is_pinned %}1{% else %}0{% endif %}"
+            aria-pressed="{% if kb.is_pinned %}true{% else %}false{% endif %}"
+            aria-label="{% if kb.is_pinned %}取消置顶{% else %}置顶{% endif %}"
+            title="{% if kb.is_pinned %}取消置顶{% else %}置顶{% endif %}">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M9 3h6l-.9 5.4 2.9 2.9v1.8H7v-1.8l2.9-2.9L9 3Z"/><path d="M12 13.1V21"/></svg>
+    </button>
+  </div>
+  {% if kb.is_pinned and kb.description %}<p class="kb-list-desc" title="{{ kb.description }}" translate="no">{{ kb.description }}</p>{% endif %}
+  <div class="kb-list-meta">
+    {% if kb.category == 'business' %}<span>{{ kb.business_row_count }} 条记录</span>
+    {% else %}<span>{{ counts.0 }} 份文档</span><span>{{ counts.1 }} 个向量块</span>{% if kb.embedding_label %}<span title="Embedding">{{ kb.embedding_label }}</span>{% endif %}{% endif %}
+  </div>
+  <div class="kb-list-actions">
+    <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>
+    {% if kb.can_manage %}<form method="post" action="{% url 'kb:manage_delete' kb.slug %}"
+          data-confirm-title="删除知识库"
+          data-confirm="确定删除「{{ kb.name }}」？{% if kb.category == 'business' %}{{ kb.business_row_count }} 条记录、追踪表及关联的自动更新任务将一并删除，不可恢复。{% else %}{{ counts.0 }} 份文档及所有向量数据将丢失。{% endif %}">
+      {% csrf_token %}<button class="btn sm danger" type="submit">删除</button>
+    </form>{% endif %}
+  </div>
+</article>
+{% endwith %}

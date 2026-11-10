@@ -1,13 +1,14 @@
 """
 OCR + 向量化流水线引擎。
 
-处理一份 Document：
+处理一份普通上传的 Document：
   1. MD/TXT → 直接读取
   2. PDF    → 调 MinerU API（submit→poll→fetch）→ Markdown
   3. 切块   → section-aware 分块（复用父项目逻辑）
   4. 向量化 → embedding → 写入该 KB 的 Chroma collection
 
 异步执行：process_document() 在后台线程中调用。
+自动采集生成的文档仅保存 Markdown 供追踪表 AI 提炼，不写入向量索引。
 """
 from __future__ import annotations
 
@@ -1590,6 +1591,46 @@ def build_doc_html(doc) -> None:
     doc.save(update_fields=["html_content", "html_built_at", "updated_at"])
 
 
+def _process_nonembedded_feed_document(doc) -> None:
+    """Store fetched Markdown for tracksheet AI without creating search vectors."""
+    from django.utils import timezone
+    from .feeds import finalize_feed_document, _delete_vectors
+    from .models import Document
+
+    if doc.md_content:
+        md = doc.md_content
+    else:
+        with doc.file.open("rb") as source:
+            md = source.read().decode("utf-8")
+    html_content = rewrite_img_srcs(md_to_html(md), doc.id)
+    if doc.chunk_count:
+        # A retry may encounter a generated file indexed by the older path.
+        _delete_vectors(doc)
+    doc.md_content = md
+    doc.html_content = html_content
+    doc.html_built_at = timezone.now()
+    doc.chunk_count = 0
+    doc.status = Document.Status.COMPLETED
+    doc.stage_detail = "已保存采集原文 · 未向量化"
+    doc.error_msg = ""
+    doc.save(update_fields=["md_content", "html_content", "html_built_at", "chunk_count",
+                            "status", "stage_detail", "error_msg", "updated_at"])
+
+    kb = doc.kb
+    kb.doc_count = kb.documents.filter(status=Document.Status.COMPLETED).count()
+    kb.chunk_count = sum(kb.documents.filter(status=Document.Status.COMPLETED)
+                         .values_list("chunk_count", flat=True))
+    kb.save(update_fields=["doc_count", "chunk_count", "updated_at"])
+    if not finalize_feed_document(doc):
+        return
+    try:
+        from .tracker import run_extraction_async
+        run_extraction_async(doc.id)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "追踪表抽取调度失败（不影响采集文档入库）doc=%s", doc.id)
+
+
 def process_document(doc_id: str) -> None:
     """处理一份 Document 的完整流水线（OCR → 切块 → 向量化）。
 
@@ -1602,6 +1643,15 @@ def process_document(doc_id: str) -> None:
 
     try:
         doc = Document.objects.get(id=doc_id)
+        from .feeds import is_current_feed_document, is_nonembedded_feed_document
+        if not is_current_feed_document(doc):
+            doc.status = Document.Status.SUPERSEDED
+            doc.stage_detail = "已由更新版本替代"
+            doc.save(update_fields=["status", "stage_detail", "updated_at"])
+            return
+        if is_nonembedded_feed_document(doc):
+            _process_nonembedded_feed_document(doc)
+            return
         file_path = Path(doc.file.path)
 
         # 进度回调：更新 stage_detail
@@ -1654,6 +1704,12 @@ def process_document(doc_id: str) -> None:
         kb.doc_count = kb.documents.filter(status=Document.Status.COMPLETED).count()
         kb.chunk_count = sum(d.chunk_count for d in kb.documents.filter(status=Document.Status.COMPLETED))
         kb.save(update_fields=["doc_count", "chunk_count", "updated_at"])
+
+        # Feed documents become active only after processing succeeds. A
+        # superseded in-flight version must not start AI extraction.
+        from .feeds import finalize_feed_document
+        if not finalize_feed_document(doc):
+            return
 
         # 追踪表：库（或其父文件夹）启用了追踪 → 后台抽取关键信息登记
         # 图谱提取由用户指定单一关注方面后启动，避免无方向的全书抽取。

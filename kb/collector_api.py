@@ -178,7 +178,8 @@ def refine_draft(*, user, job, requirement, api_url=_UNSET, credential=_UNSET, h
             raise ValueError("该预览已被更新或启用，请查看最新任务。")
         child = ConnectorDraft.objects.create(
             user=user, kb=job.kb, parent=job, feedback=feedback, prompt=job.prompt, api_url=url,
-            header_env=headers, credential=credential, allow_private=private, sample=job.sample,
+            header_env=headers, credential=credential, allow_private=private,
+            sample=job.sample if url==job.api_url and credential==job.credential and headers==job.header_env else None,
             retain_context=job.retain_context or bool(job.feed_id), created_via=job.created_via,
             response_language=normalize_response_language(response_language))
     start_async(child.pk)
@@ -199,7 +200,7 @@ def cancel(*, user, job) -> ConnectorDraft:
 # ---------------------------------------------------------------- 批准入库
 
 def approve(*, user, job, write_mode=None, department=None, run_now=True, trigger="manual",
-            first_run_async=True, selected_fields=None) -> KnowledgeFeed:
+            first_run_async=True, selected_fields=None, ingest_mode=None) -> KnowledgeFeed:
     """批准已验证方案；页面异步首跑，CLI 用 first_run_async=False 等待入库完成。
 
     selected_fields 只筛选正文字段，保留取数/计算依赖与系统生成的采集日期。
@@ -215,14 +216,31 @@ def approve(*, user, job, write_mode=None, department=None, run_now=True, trigge
         if not ConnectorDraft.objects.filter(pk=job.pk, status="ready", feed__isnull=True).update(status="enabling"):
             raise ValueError("连接器正在启用，请稍后查看。")
         spec = check_spec(job, job.spec)
+        existing, seen = None, set()
+        ancestor = job.parent if job.parent_id else None
+        while ancestor and ancestor.pk not in seen and len(seen) < 100:
+            seen.add(ancestor.pk)
+            if ancestor.user_id != user.pk:
+                raise ValueError("原任务不属于当前用户。")
+            if ancestor.feed_id:
+                existing = ancestor.feed
+                break
+            ancestor = ancestor.parent
+        output_mode = ingest_mode or spec.get('ingest_mode') or (existing.adapter_spec.get('ingest_mode','tracker') if existing else 'tracker')
+        if output_mode not in ('tracker','documents'):
+            raise ValueError('请选择追踪表记录或每条记录作为文档。')
+        if existing and existing.adapter_spec.get('ingest_mode','tracker') != output_mode:
+            raise ValueError('现有自动任务不能直接切换入库方式；请新建任务并选择文档或追踪表模式。')
+        spec={**spec,'ingest_mode':output_mode}
         if selected_fields is not None:
             available = {field['label'] for field in spec['body_fields']}
             if (not isinstance(selected_fields, list) or
                     any(not isinstance(label, str) or label not in available for label in selected_fields)):
                 raise ValueError('请选择预览中已有的保留字段。')
             # Only project the output. Browser capture, stable IDs and calculation inputs stay intact.
-            keep = set(selected_fields) | {'采集日期'}
-            spec = {**spec, 'body_fields': [field for field in spec['body_fields'] if field['label'] in keep]}
+            if output_mode=='tracker':
+                keep = set(selected_fields) | {'采集日期'}
+                spec = {**spec, 'body_fields': [field for field in spec['body_fields'] if field['label'] in keep]}
         if spec.get("source_type") == "browser" and (
                 not job.browser_state.get("tested") or job.browser_state.get("validation_scope") != "full_batch"):
             raise ValueError("网页脚本尚未通过完整批次验证，请继续对话重新验证后确认。")
@@ -243,16 +261,6 @@ def approve(*, user, job, write_mode=None, department=None, run_now=True, trigge
         cron = spec.get("cron", "0 * * * *")
         zone = spec.get("timezone", "Asia/Shanghai")
         schedule = CronSchedule(cron, zone)
-        existing, seen = None, set()
-        ancestor = job.parent if job.parent_id else None
-        while ancestor and ancestor.pk not in seen and len(seen) < 100:
-            seen.add(ancestor.pk)
-            if ancestor.user_id != user.pk:
-                raise ValueError("原任务不属于当前用户。")
-            if ancestor.feed_id:
-                existing = ancestor.feed
-                break
-            ancestor = ancestor.parent
         if existing:
             access.require_feed_builder(user,existing)
             if existing.kb_id != kb.pk or not access.can_manage_kb(user, kb):

@@ -64,7 +64,7 @@ class ImageFusionTests(SimpleTestCase):
         text={'text':'maintenance instructions','source':'manual.pdf','kb_slug':'manual','score':.01}
         unscored={'text':'photo caption','source':'photo.jpg','type':'image','image':'same.jpg','score':1.}
         scored={**unscored,'distance':.4,'via':'img'}
-        with patch('kb.retriever._embeddings') as embeddings, patch('kb.retriever.search',return_value=[unscored,text]), patch(
+        with patch('kb.retriever._without_generated_feed_documents',side_effect=lambda slugs:slugs), patch('kb.retriever._embeddings') as embeddings, patch('kb.retriever.search',return_value=[unscored,text]), patch(
             'kb.retriever._merge_graph',
         ), patch('kb.rerank.rerank_settings',return_value={'enabled':True}), patch('kb.rerank.rerank') as rerank, patch(
             'kb.retriever._image_lane',return_value=[scored],
@@ -77,7 +77,7 @@ class ImageFusionTests(SimpleTestCase):
 
     def test_normal_agent_candidate_search_keeps_its_existing_image_candidates(self):
         image={'text':'caption','source':'photo.jpg','type':'image','image':'a.jpg','score':.1}
-        with patch('kb.retriever._embeddings'),patch('kb.retriever.search',return_value=[image]),patch(
+        with patch('kb.retriever._without_generated_feed_documents',side_effect=lambda slugs:slugs),patch('kb.retriever._embeddings'),patch('kb.retriever.search',return_value=[image]),patch(
             'kb.retriever._merge_graph',
         ),patch('kb.rerank.rerank_settings',return_value={'enabled':False}),patch('kb.retriever._image_lane') as lane:
             self.assertEqual(search_folder(['manual'],'query',k=8,include_images=False),[image])

@@ -522,13 +522,14 @@ class TrendAnalysisReadAccessTests(TestCase):
         self.assertEqual(result.status_code, 200)
         self.assertTrue(result.json()['periods'])
 
-    def test_readonly_tracker_page_offers_the_panel_and_row_entry(self):
+    def test_readonly_auto_feed_tracker_page_keeps_records_without_duplicate_panel(self):
         self.client.force_login(self.rse)
         page = self.client.get(reverse('kb:tracker', args=[self.kb.slug]))
         self.assertEqual(page.status_code, 200)
-        self.assertTrue(page.context['show_analysis'])
-        self.assertContains(page, 'id="taItem"')
-        self.assertContains(page, 'class="trk-analyze"')      # 行内「趋势分析 ↗」
+        self.assertFalse(page.context['show_analysis'])
+        self.assertNotContains(page, 'id="taItem"')
+        self.assertNotContains(page, '<button type="button" class="trk-analyze"')
+        self.assertContains(page, '海盗演出')
         self.assertFalse(page.context['can_manage'])          # 但依旧不能写
 
     def test_disabled_tracker_closed_to_readers_open_to_admins(self):

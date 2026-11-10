@@ -71,6 +71,8 @@ def _json(job,*,after=None,before=None):
         'sources':job.sources,'questions':job.questions,'metrics':job.metrics,'error':job.error,
         'created_at':job.created_at.isoformat(),'updated_at':job.updated_at.isoformat(),
         'feed_id':str(job.feed_id) if job.feed_id else None,'kb':job.kb.slug if job.kb_id else '','kb_name':name,
+        'ingest_mode':spec.get('ingest_mode',job.feed.adapter_spec.get('ingest_mode','tracker') if job.feed_id else 'tracker'),
+        'kb_url':reverse('kb:manage_detail',args=[job.kb.slug]) if job.kb_id else None,
         'tracker_url':reverse('kb:tracker',args=[job.kb.slug]) if job.kb_id else None,
         'api_url':job.api_url,'allow_private':job.allow_private,'authentication':summary(job),
         'limits':{'model_calls':MAX_CALLS,'tool_calls':MAX_TOOLS,'seconds':MAX_SECONDS},
@@ -285,7 +287,7 @@ def enable(request,job_id):
             feed=approve(job,request.user)
             return JsonResponse({'ok':True,'feed_id':str(feed.pk)})
         feed=collector_api.approve(user=request.user,job=job,write_mode=data.get('write_mode'),
-            department=data.get('department'),selected_fields=data.get('selected_fields'))
+            department=data.get('department'),selected_fields=data.get('selected_fields'),ingest_mode=data.get('ingest_mode'))
         return JsonResponse({'ok':True,'feed_id':str(feed.pk),'url':reverse('kb:feeds')+'?kb='+feed.kb.slug})
     except (ValueError,TypeError,AttributeError) as exc: return JsonResponse({'ok':False,'error':str(exc)},status=400)
 

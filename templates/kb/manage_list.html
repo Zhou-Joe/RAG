@@ -14,9 +14,15 @@
 
 {% include "kb/_kb_connections.html" %}
 
-<div class="section-bar" data-kb-category>
-  <div><h2>手册库</h2><p>PDF / MD / TXT / 图片（JPG·PNG·WebP）· xlsx / csv 自动识别为业务数据</p></div>
-</div>
+<section id="kbFavoriteSection" data-kb-category {% if not pinned_kbs %}data-kb-empty="true" hidden{% endif %}>
+  <div class="section-bar kb-favorite-bar">
+    <div><h2>My Favorite</h2><p>你置顶的知识库集中在这里，方便快速打开。</p></div>
+    <span class="count-chip">{{ pinned_kbs|length }} 个</span>
+  </div>
+  <div class="kb-list-grid" id="kbFavoriteGrid">
+    {% for kb in pinned_kbs %}{% include "kb/_manage_library_card.html" %}{% endfor %}
+  </div>
+</section>
 
 <dialog id="kbCreateDialog" class="fos-dialog">
   <form id="kbCreateForm">
@@ -36,61 +42,26 @@
   </form>
 </dialog>
 
-<div class="kb-grid" data-kb-category>
-  {% for kb in kbs %}
-  <div class="kb-card" data-slug="{{ kb.slug }}">
-    <div class="pbody">
-      <div class="kb-top">
-        <span class="kb-mono" aria-hidden="true">{{ kb.name|first|upper }}</span>
-        <div class="kb-name" data-name>{{ kb.name }} <span class="dept-badge" data-dept-badge title="{{ kb.access_label }}">{{ kb.access_label }}</span>{% if kb.embedding_label %} <span class="emb-badge" title="该库向量所用的 embedding 模型（向量化时自动记录）">{{ kb.embedding_label }}</span>{% endif %}</div>
-      </div>
-      {% with counts=kb.aggregate_counts %}
-      <div class="kb-stats">
-        <span class="stat"><span class="v">{{ counts.0 }}</span><span class="k">文档</span></span>
-        <span class="stat"><span class="v">{{ counts.1 }}</span><span class="k">向量块</span></span>
-      </div>
-      {% endwith %}
-      <div class="kb-actions" data-actions>
-        <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>
-        {% if kb.can_manage %}<form method="post" action="/kb/manage/{{ kb.slug }}/delete/" style="display:inline"
-              data-confirm-title="删除知识库"
-              data-confirm="确定删除「{{ kb.name }}」？{{ kb.aggregate_counts.0 }} 份文档及所有向量数据将丢失。">
-          {% csrf_token %}
-          <button class="btn sm danger" type="submit">删除</button>
-        </form>{% endif %}
-      </div>
-    </div>
+<section id="kbManualSection" data-kb-category>
+  <div class="section-bar">
+    <div><h2>手册库</h2><p>PDF / MD / TXT / 图片（JPG·PNG·WebP）· xlsx / csv 自动识别为业务数据</p></div>
   </div>
-  {% empty %}
-  <div class="empty">{% if read_kbs %}你还没有可管理的手册库；下方「公共知识库」可以直接查阅。{% else %}还没有手册库{% endif %}</div>
-  {% endfor %}
-</div>
+  <div class="kb-list-grid" id="kbManualGrid">
+    {% for kb in kbs %}{% include "kb/_manage_library_card.html" %}
+    {% empty %}<div class="empty">{% if pinned_kbs %}其余手册库会显示在这里。{% elif read_kbs %}你还没有可管理的手册库；下方「公共知识库」可以直接查阅。{% else %}还没有手册库{% endif %}</div>{% endfor %}
+  </div>
+</section>
 
-<div class="section-bar dataset-bar" data-kb-category>
-  <div><h2>业务数据</h2><p>自动采集的数据与导入的 xlsx / csv 在这里管理。</p></div>
-  <span class="count-chip">{{ business_kbs|length }} 个采集库{% if is_global_admin %} · {{ datasets|length }} 个导入表{% endif %}</span>
-</div>
-<div data-kb-category>
+<section id="kbBusinessSection" data-kb-category>
+  <div class="section-bar dataset-bar">
+    <div><h2>业务数据</h2><p>自动采集的数据与导入的 xlsx / csv 在这里管理。</p></div>
+    <span class="count-chip">{{ business_kbs|length }} 个采集库{% if is_global_admin %} · {{ datasets|length }} 个导入表{% endif %}</span>
+  </div>
   {% if datasets and is_global_admin or business_kbs %}
-  <div class="dataset-grid">
-    {% for kb in business_kbs %}
-    <article data-business-slug="{{ kb.slug }}">
-      <span>自动采集 · {{ kb.access_label }}{% if not kb.can_manage %} · 只读{% endif %}</span>
-      <strong title="{{ kb.name }}">{{ kb.name }}</strong>
-      <small>{{ kb.business_row_count }} 条记录</small>
-      <div class="kb-actions">
-        <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>
-        {% if kb.can_manage %}<form method="post" action="{% url 'kb:manage_delete' kb.slug %}" style="display:inline"
-              data-confirm-title="删除采集库"
-              data-confirm="确定删除「{{ kb.name }}」？{{ kb.business_row_count }} 条记录、追踪表及关联的自动更新任务将一并删除，不可恢复。">
-          {% csrf_token %}
-          <button class="btn sm danger" type="submit">删除</button>
-        </form>{% endif %}
-      </div>
-    </article>
-    {% endfor %}
+  <div class="kb-list-grid" id="kbBusinessGrid">
+    {% for kb in business_kbs %}{% include "kb/_manage_library_card.html" %}{% endfor %}
     {% if is_global_admin %}{% for dataset in datasets %}
-    <article>
+    <article class="kb-list-card kb-import-card">
       <span>{{ dataset.get_kind_display }}</span>
       <strong title="{{ dataset.source_name }}">{{ dataset.source_name }}</strong>
       <small>{{ dataset.row_count }} 行 · {{ dataset.created_at|date:"Y-m-d H:i" }}</small>
@@ -98,42 +69,78 @@
     {% endfor %}{% endif %}
   </div>
   {% else %}
-  <div class="empty">尚未导入业务数据</div>
+  <div class="empty">{% if pinned_kbs %}其余业务数据会显示在这里。{% else %}尚未导入业务数据{% endif %}</div>
   {% endif %}
-</div>
+</section>
 
-{% if read_kbs %}
-<div class="section-bar public-bar">
-  <div><h2>公共知识库</h2><p>其它部门或「通用」范围开放给你的库：可查阅、可检索、可问答；上传与修改由所属部门或全局管理员维护。</p></div>
-  <span class="count-chip">{{ read_kbs|length }} 个只读库</span>
-</div>
-<ul class="public-list">
-  {% for kb in read_kbs %}
-  {% with counts=kb.aggregate_counts %}
-  <li>
-    <a href="{% url 'kb:manage_detail' kb.slug %}">{{ kb.name }}</a>
-    <span class="pl-meta">
-      <span>{{ kb.access_label }}</span>
-      · <span>{% if kb.category == 'business' %}业务数据{% else %}手册库{% endif %}</span>
-      {% if kb.category == 'business' %}
-      · <span class="pl-num">{{ kb.business_row_count }}</span> <span>条记录</span>
-      {% else %}
-      · <span class="pl-num">{{ counts.0 }}</span> <span>文档</span> · <span class="pl-num">{{ counts.1 }}</span> <span>向量块</span>
-      {% endif %}
-    </span>
-    <a class="pl-open" href="{% url 'kb:manage_detail' kb.slug %}">打开</a>
-  </li>
-  {% endwith %}
-  {% endfor %}
-</ul>
-{% endif %}
+<section id="kbReadSection" data-kb-category {% if not read_kbs %}data-kb-empty="true" hidden{% endif %}>
+  <div class="section-bar public-bar">
+    <div><h2>公共知识库</h2><p>其它部门或「通用」范围开放给你的库：可查阅、可检索、可问答；上传与修改由所属部门或全局管理员维护。</p></div>
+    <span class="count-chip">{{ read_kbs|length }} 个只读库</span>
+  </div>
+  <ul class="public-list">
+    {% for kb in read_kbs %}
+    {% with counts=kb.aggregate_counts %}
+    <li>
+      <button type="button" class="kb-pin-toggle kb-pin-inline" data-pin-url="{% url 'kb:kb_pin' kb.slug %}" data-pin-state="0" aria-pressed="false" aria-label="置顶" title="置顶">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M9 3h6l-.9 5.4 2.9 2.9v1.8H7v-1.8l2.9-2.9L9 3Z"/><path d="M12 13.1V21"/></svg>
+      </button>
+      <a href="{% url 'kb:manage_detail' kb.slug %}" translate="no">{{ kb.name }}</a>
+      <span class="pl-meta">
+        <span>{{ kb.access_label }}</span>
+        · <span>{% if kb.category == 'business' %}业务数据{% else %}手册库{% endif %}</span>
+        {% if kb.category == 'business' %}
+        · <span class="pl-num">{{ kb.business_row_count }}</span> <span>条记录</span>
+        {% else %}
+        · <span class="pl-num">{{ counts.0 }}</span> <span>文档</span> · <span class="pl-num">{{ counts.1 }}</span> <span>向量块</span>
+        {% endif %}
+      </span>
+      <a class="pl-open" href="{% url 'kb:manage_detail' kb.slug %}">打开</a>
+    </li>
+    {% endwith %}
+    {% endfor %}
+  </ul>
+</section>
 {% endblock %}
 
 {% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
 <style>
+#kbFavoriteSection[hidden],#kbReadSection[hidden]{display:none}
+.kb-favorite-bar{margin-top:8px}
+.kb-favorite-bar h2{color:var(--brand)}
+.kb-list-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+#kbFavoriteGrid{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:15px}
+.kb-list-card{display:flex;flex-direction:column;gap:9px;min-width:0;padding:13px 14px;border:1px solid var(--rule);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-sm);transition:transform .2s,border-color .2s,box-shadow .2s}
+.kb-list-card:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--brand) 32%,var(--rule));box-shadow:var(--shadow-md)}
+.kb-list-card.is-pinned{min-height:156px;padding:18px;gap:12px;border-color:color-mix(in srgb,var(--brand) 38%,var(--rule));background:linear-gradient(150deg,var(--brand-soft),var(--surface) 42%)}
+.kb-list-card.is-pinned .kb-list-glyph{width:44px;height:44px;border-radius:12px;font-size:19px}
+.kb-list-card.is-pinned .kb-list-identity strong{font-size:16px}
+.kb-list-card.is-pinned .kb-list-meta{font-size:12px}
+.kb-list-card-head{display:flex;align-items:center;gap:9px;min-width:0}
+.kb-list-glyph{display:grid;place-items:center;flex:none;width:34px;height:34px;border-radius:10px;background:var(--brand-soft);color:var(--brand);font:700 15px/1 var(--fb)}
+.kb-list-identity{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.kb-list-identity small{font-size:11px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kb-list-identity strong{font-size:13.5px;font-weight:650;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kb-list-meta{display:flex;flex-wrap:wrap;column-gap:10px;row-gap:3px;font-size:11.5px;color:var(--mute);min-height:17px}
+.kb-list-meta span+span::before{content:'·';margin-right:10px;color:var(--rule-strong)}
+.kb-list-desc{margin:0;color:var(--dim);font-size:12px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.kb-list-actions{display:flex;align-items:center;gap:7px;margin-top:auto;padding-top:2px}
+.kb-list-actions form{margin:0}
+.kb-pin-toggle{display:grid;place-items:center;flex:none;width:32px;height:32px;padding:5px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--mute);cursor:pointer;transition:color .15s,background .15s,border-color .15s,transform .15s}
+.kb-pin-toggle svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.kb-pin-toggle:hover,.kb-pin-toggle:focus-visible{color:var(--brand);border-color:var(--rule);background:var(--brand-soft)}
+.kb-pin-toggle.is-active{color:var(--brand);background:var(--brand-soft)}
+.kb-pin-toggle.is-active svg path:first-child{fill:color-mix(in srgb,var(--brand) 24%,transparent)}
+.kb-pin-toggle:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.kb-pin-toggle:disabled{opacity:.5;cursor:wait;transform:none}
+.kb-pin-inline{width:28px;height:28px;padding:4px}
+.kb-import-card{justify-content:center}
+.kb-import-card>span{align-self:flex-start;font-size:11px;color:var(--brand);background:var(--brand-soft);padding:1px 8px;border-radius:999px}
+.kb-import-card>strong{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kb-import-card>small{font-size:11.5px;color:var(--mute)}
 .public-bar{margin-top:28px}
 .public-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.public-list li{display:flex;align-items:baseline;gap:10px;padding:7px 2px;border-bottom:1px dashed var(--rule)}
+.public-list li{display:flex;align-items:center;gap:10px;padding:5px 2px;border-bottom:1px dashed var(--rule)}
 .public-list li:last-child{border-bottom:0}
 .public-list a{font-size:13px;font-weight:500;text-decoration:none}
 .public-list a:hover{color:var(--brand);text-decoration:underline}
@@ -142,11 +149,8 @@
 .pl-open{margin-left:auto;font-size:11.5px;color:var(--brand);text-decoration:none;white-space:nowrap}
 .pl-open:hover{text-decoration:underline}
 .ro-badge{font:500 11px/1.6 var(--fb);padding:1px 8px;border-radius:999px;background:var(--surface-2,var(--brand-soft));color:var(--mute);border:1px solid var(--rule)}
-.dataset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
-.dataset-grid article{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border:1px solid var(--rule);border-radius:var(--radius-lg);background:var(--surface);box-shadow:var(--shadow-sm)}
-.dataset-grid span{align-self:flex-start;font:500 11px/1.6 var(--fb);color:var(--brand);background:var(--brand-soft);padding:0 8px;border-radius:999px}
-.dataset-grid strong{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dataset-grid small{font-size:12px;color:var(--mute)}
+@media(max-width:520px){.kb-list-grid,#kbFavoriteGrid{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}.kb-list-card{padding:12px}.kb-list-card.is-pinned{min-height:0;padding:15px}.public-list li{flex-wrap:wrap}.public-list .pl-meta{width:100%;padding-left:38px}}
+@media(prefers-reduced-motion:reduce){.kb-list-card,.kb-pin-toggle{transition:none}.kb-list-card:hover{transform:none}}
 </style>
 <script>
 /* 新建手册库弹窗（AJAX）：创建成功后只替换卡片网格，页面无刷新 */
@@ -154,6 +158,47 @@ function getCSRFToken(){
   const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : '';
 }
+async function refreshLibrarySections(){
+  const response = await fetch(location.href, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+  if (!response.ok) throw new Error('刷新知识库列表失败');
+  const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+  const clusterActive = document.getElementById('klClusterView')?.hidden === false;
+  for (const id of ['kbFavoriteSection', 'kbManualSection', 'kbBusinessSection', 'kbReadSection']) {
+    const current = document.getElementById(id);
+    const fresh = doc.getElementById(id);
+    if (!current || !fresh) throw new Error('知识库列表不完整，请刷新页面');
+    fresh.hidden = clusterActive || fresh.dataset.kbEmpty === 'true';
+    current.replaceWith(fresh);
+    window.FOSI18n?.render(fresh);
+  }
+  document.dispatchEvent(new CustomEvent('kb-libraries-changed'));
+}
+let kbPinPending = false;
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('.kb-pin-toggle');
+  if (!button || kbPinPending) return;
+  kbPinPending = true;
+  button.disabled = true;
+  let saved = false;
+  try {
+    const response = await fetch(button.dataset.pinUrl, {
+      method: 'POST',
+      body: new URLSearchParams({pinned: button.dataset.pinState === '1' ? '0' : '1'}),
+      headers: {'X-CSRFToken': getCSRFToken(), 'X-Requested-With': 'XMLHttpRequest'},
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.message || '置顶操作失败');
+    saved = true;
+    await refreshLibrarySections();
+    if (window.fosToast) fosToast(data.pinned ? '已置顶知识库' : '已取消置顶', 'ok');
+  } catch (error) {
+    if (saved) location.reload();
+    else if (window.fosToast) fosToast(error.message || '置顶操作失败', 'err');
+  } finally {
+    kbPinPending = false;
+    if (button.isConnected) button.disabled = false;
+  }
+});
 (function(){
   const dlg = document.getElementById('kbCreateDialog');
   if (!dlg) return;
@@ -163,9 +208,9 @@ function getCSRFToken(){
 
   document.getElementById('openKbCreate').addEventListener('click', () => {
     err.hidden = true;
-    form.name.value = '';
+    form.elements.namedItem('name').value = '';
     dlg.showModal();
-    form.name.focus();
+    form.elements.namedItem('name').focus();
   });
   document.getElementById('kbCreateCancel').addEventListener('click', () => dlg.close());
 
@@ -173,6 +218,7 @@ function getCSRFToken(){
     e.preventDefault();
     err.hidden = true;
     submit.disabled = true; submit.textContent = '创建中…';
+    let created = false;
     try {
       const resp = await fetch(location.href, {
         method: 'POST',
@@ -180,17 +226,14 @@ function getCSRFToken(){
         headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCSRFToken()},
       });
       const data = await resp.json();
-      if (!data.ok) { err.textContent = data.message || '创建失败'; err.hidden = false; return; }
+      if (!resp.ok || !data.ok) { err.textContent = data.message || '创建失败'; err.hidden = false; return; }
+      created = true;
       dlg.close();
-      // 实时更新：重拉当前页，仅替换卡片网格（弹窗/事件绑定不受影响）
-      const page = await (await fetch(location.href)).text();
-      const doc = new DOMParser().parseFromString(page, 'text/html');
-      const fresh = doc.querySelector('.kb-grid');
-      if (fresh) document.querySelector('.kb-grid').innerHTML = fresh.innerHTML;
-      document.dispatchEvent(new CustomEvent('kb-libraries-changed'));
+      await refreshLibrarySections();
       if (window.fosToast) fosToast(data.message, 'ok');
     } catch(ex) {
-      err.textContent = '请求失败：' + ex; err.hidden = false;
+      if (created) location.reload();
+      else { err.textContent = '请求失败：' + ex; err.hidden = false; }
     } finally {
       submit.disabled = false; submit.textContent = '创建';
     }

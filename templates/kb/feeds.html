@@ -65,4 +65,4 @@
 <dialog class="fos-dialog feed-dialog" id="feedToken"><h2>脚本推送接入</h2><p>此令牌只显示一次；生成后旧令牌立即失效。</p><label>推送地址<input id="feedIngestUrl" readonly></label><label>Bearer 令牌<textarea id="feedTokenValue" readonly rows="2"></textarea></label><p>将令牌放入脚本运行环境，按接入包示例调用。暂停数据源或轮换令牌可停用旧接入。</p><button type="button" class="btn outline" data-close="feedToken">已保存，关闭</button></dialog>
 <link rel="stylesheet" href="{% static 'css/feeds.css' %}?v=3-report-controls">
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=1" defer></script><script src="{% static 'js/feeds.js' %}?v=9-unified-name" defer></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=1" defer></script><script src="{% static 'js/feeds.js' %}?v=10-document-mode" defer></script>{% endblock %}

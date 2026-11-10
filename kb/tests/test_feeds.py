@@ -16,6 +16,7 @@ from unittest.mock import Mock,patch
 import httpx
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase,TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -23,8 +24,8 @@ from django.utils import timezone
 from kb.feed_cron import CronSchedule
 from kb.feed_http import fetch_batch,resolve_target,validate_headers
 from kb.feed_protocol import SCHEMA,load_batch,validate_batch
-from kb.feeds import FeedBusy,claim,execute,rotate_token,run_due
-from kb.models import Document,FeedRecord,FeedRun,KnowledgeBase,KnowledgeFeed,KbTracker,TrackerRow
+from kb.feeds import FeedBusy,claim,execute,finalize_feed_document,rotate_token,run_due
+from kb.models import ChunkProvenance,Document,FeedRecord,FeedRun,KnowledgeBase,KnowledgeFeed,KbTracker,TrackerRow
 
 
 def batch(content='Operating report: pressure 12 MPa.',key='report-1',**fields):
@@ -154,6 +155,253 @@ class FeedExecutionTests(TestCase):
 
     def record(self,external_id='report-1'):
         return self.feed.records.get(external_id=external_id)
+
+    def document_mode(self,write_mode='upsert'):
+        self.feed.adapter_spec={'ingest_mode':'documents'}
+        self.feed.write_mode=write_mode
+        self.feed.save(update_fields=['adapter_spec','write_mode'])
+
+    def test_document_mode_stages_real_file_in_child_kb_and_queues_after_commit(self):
+        self.document_mode()
+        with patch('kb.pipeline.process_document_async') as enqueue:
+            with self.captureOnCommitCallbacks(execute=True) as callbacks:
+                run=self.run_batch(batch())
+            self.assertEqual(len(callbacks),1)
+            enqueue.assert_called_once()
+        self.assertEqual(run.status,'completed',run.error)
+        self.assertEqual(run.counts['created'],1)
+        record=self.record();doc=record.pending_document
+        self.assertIsNone(record.document_id)
+        self.assertEqual(record.kb.parent_id,self.folder.pk)
+        self.assertEqual(doc.kb_id,record.kb_id)
+        self.assertEqual(doc.file_type,'md')
+        self.assertEqual(doc.status,Document.Status.PENDING)
+        self.assertIn('Operating report: pressure 12 MPa.',doc.file.read().decode('utf-8'))
+        self.assertLessEqual(len(doc.file.name),100)
+        self.assertFalse(KbTracker.objects.filter(kb=self.folder).exists())
+        self.assertFalse(TrackerRow.objects.filter(feed=self.feed).exists())
+
+    def test_document_mode_ignores_generated_collection_date_rollover(self):
+        self.document_mode(write_mode='append')
+        self.feed.adapter_spec={'ingest_mode':'documents','body_fields':[
+            {'label':'正文','path':'$.body'}, {'label':'采集日期','source':'today'}]}
+        self.feed.save(update_fields=['adapter_spec'])
+        def dated(day):
+            payload=batch()
+            payload['items'][0]['content']=f'## 正文\n\nSame source\n\n## 采集日期\n\n{day}'
+            payload['items'][0]['fields']={'正文':'Same source','采集日期':day}
+            return payload
+        self.run_batch(dated('2026-11-11'))
+        doc=self.record().pending_document
+        self.assertNotIn('采集日期',doc.file.read().decode('utf-8'))
+        self.assertEqual(self.run_batch(dated('2026-11-12')).counts['unchanged'],1)
+        self.assertEqual(Document.objects.count(),1)
+
+    def test_document_filename_fits_cjk_and_filefield_limits(self):
+        self.document_mode()
+        payload=batch();payload['items'][0]['title']='上海迪士尼乐园设施运行记录'*10
+        self.run_batch(payload)
+        doc=self.record().pending_document
+        self.assertLessEqual(len(doc.file.name),100)
+        self.assertTrue(doc.file.name.endswith('.md'))
+
+    def test_document_pipeline_activates_file_then_runs_tracksheet_extraction(self):
+        from kb.pipeline import process_document
+        self.document_mode()
+        self.run_batch(batch())
+        doc=self.record().pending_document
+        with patch('kb.pipeline.run_indexing') as index,patch('kb.pipeline.run_ocr_with_images') as ocr,\
+                patch('kb.tracker.run_extraction_async') as extract:
+            process_document(str(doc.id))
+        doc.refresh_from_db();record=self.record()
+        self.assertEqual(doc.status,Document.Status.COMPLETED,doc.error_msg)
+        self.assertIn('Operating report: pressure 12 MPa.',doc.md_content)
+        self.assertIn('Operating report',doc.html_content)
+        self.assertEqual(doc.chunk_count,0)
+        self.assertEqual(record.document_id,doc.id)
+        self.assertIsNone(record.pending_document_id)
+        self.assertEqual(record.kb.doc_count,1)
+        self.assertEqual(record.kb.chunk_count,0)
+        index.assert_not_called();ocr.assert_not_called()
+        extract.assert_called_once_with(doc.id)
+
+    def test_manual_upload_inside_feed_child_keeps_normal_embedding_pipeline(self):
+        from kb.pipeline import process_document
+        self.document_mode()
+        self.run_batch(batch())
+        child=self.record().kb
+        manual=Document.objects.create(kb=child,original_name='uploaded.md',file_type='md',
+                                       file='documents/uploaded.md',md_content='# Uploaded',status=Document.Status.PENDING)
+        with patch('kb.pipeline.run_indexing',return_value=2) as index,\
+                patch('kb.tracker.run_extraction_async'):
+            process_document(str(manual.pk))
+        manual.refresh_from_db()
+        self.assertEqual(manual.status,Document.Status.COMPLETED,manual.error_msg)
+        self.assertEqual(manual.chunk_count,2)
+        index.assert_called_once()
+
+    def test_purge_old_generated_embeddings_preserves_manual_uploads(self):
+        self.document_mode(write_mode='append')
+        self.run_batch(batch())
+        first=self.record().pending_document
+        Document.objects.filter(pk=first.pk).update(status=Document.Status.COMPLETED,chunk_count=2)
+        finalize_feed_document(first)
+        self.run_batch(batch('updated text'))
+        second=self.record().pending_document
+        Document.objects.filter(pk=second.pk).update(status=Document.Status.COMPLETED,chunk_count=3)
+        finalize_feed_document(second)
+        child=self.record().kb
+        manual=Document.objects.create(kb=child,original_name='user-upload.md',
+            file='documents/user-upload.md',file_type='md',status=Document.Status.COMPLETED,chunk_count=4)
+        KnowledgeBase.objects.filter(pk=child.pk).update(chunk_count=7,embedding_model='old-model',embedding_dimensions=768)
+        ChunkProvenance.objects.create(chunk_id='old-feed-chunk',document=first,kb_slug=child.slug)
+        from kb.management.commands.purge_feed_document_embeddings import Command
+        with patch('kb.management.commands.purge_feed_document_embeddings.delete_doc_vectors') as delete:
+            call_command(Command(),dry_run=True,stdout=io.StringIO())
+            delete.assert_not_called()
+            call_command(Command(),stdout=io.StringIO())
+        self.assertEqual({call.args for call in delete.call_args_list},
+                         {(child.slug,first.original_name),(child.slug,second.original_name)})
+        first.refresh_from_db();second.refresh_from_db();manual.refresh_from_db();child.refresh_from_db()
+        self.assertEqual((first.chunk_count,second.chunk_count,manual.chunk_count),(0,0,4))
+        self.assertEqual(child.chunk_count,4)
+        self.assertEqual(child.embedding_model,'old-model')
+        self.assertFalse(ChunkProvenance.objects.filter(document=first).exists())
+
+        # The command can run again and never selects an ordinary upload.
+        with patch('kb.management.commands.purge_feed_document_embeddings.delete_doc_vectors') as again:
+            call_command(Command(),stdout=io.StringIO())
+        self.assertEqual(again.call_count,2)
+
+    def test_purge_reports_vector_failure_without_clearing_old_count(self):
+        self.document_mode()
+        self.run_batch(batch())
+        doc=self.record().pending_document
+        Document.objects.filter(pk=doc.pk).update(status=Document.Status.COMPLETED,chunk_count=2)
+        finalize_feed_document(doc)
+        child=self.record().kb
+        KnowledgeBase.objects.filter(pk=child.pk).update(chunk_count=2,embedding_model='old-model')
+        ChunkProvenance.objects.create(chunk_id='failed-feed-chunk',document=doc,kb_slug=child.slug)
+        output=io.StringIO()
+        with patch('kb.management.commands.purge_feed_document_embeddings.delete_doc_vectors',return_value=False):
+            with self.assertRaises(CommandError):
+                call_command('purge_feed_document_embeddings',stdout=output)
+        doc.refresh_from_db();child.refresh_from_db()
+        self.assertEqual(doc.chunk_count,2)
+        self.assertEqual(child.chunk_count,2)
+        self.assertTrue(ChunkProvenance.objects.filter(document=doc).exists())
+        self.assertIn('Cleaned 0 of 1',output.getvalue())
+
+    def test_purge_reports_keyword_failure_without_claiming_source_clean(self):
+        self.document_mode()
+        self.run_batch(batch())
+        doc=self.record().pending_document
+        Document.objects.filter(pk=doc.pk).update(status=Document.Status.COMPLETED,
+                                                  stage_detail='legacy indexed text')
+        finalize_feed_document(doc)
+        ChunkProvenance.objects.create(chunk_id='legacy-keyword-chunk',document=doc,
+                                       kb_slug=self.record().kb.slug)
+        with patch('kb.management.commands.purge_feed_document_embeddings.keyword_index.delete_doc',
+                   return_value=False), patch(
+                'kb.management.commands.purge_feed_document_embeddings.Path.exists',return_value=False):
+            with self.assertRaises(CommandError):
+                call_command('purge_feed_document_embeddings',stdout=io.StringIO())
+        doc.refresh_from_db()
+        self.assertEqual(doc.stage_detail,'legacy indexed text')
+        self.assertTrue(ChunkProvenance.objects.filter(document=doc).exists())
+
+    def test_document_pipeline_skips_superseded_queued_version(self):
+        from kb.pipeline import process_document
+        self.document_mode()
+        self.run_batch(batch())
+        stale=self.record().pending_document
+        self.run_batch(batch('newer content'))
+        with patch('kb.pipeline.run_indexing') as index:
+            process_document(str(stale.id))
+        stale.refresh_from_db()
+        self.assertEqual(stale.status,Document.Status.SUPERSEDED)
+        index.assert_not_called()
+
+    def test_completed_pending_document_is_published_on_next_fetch(self):
+        self.document_mode()
+        self.run_batch(batch())
+        doc=self.record().pending_document
+        Document.objects.filter(pk=doc.pk).update(status=Document.Status.COMPLETED)
+        with patch('kb.tracker.run_extraction_async') as extract:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.run_batch({'schema':SCHEMA,'items':[]})
+        self.assertEqual(self.record().document_id,doc.pk)
+        extract.assert_called_once_with(doc.pk)
+
+    def test_failed_pending_document_retries_when_next_fetch_is_empty(self):
+        self.document_mode()
+        self.run_batch(batch())
+        doc=self.record().pending_document
+        Document.objects.filter(pk=doc.pk).update(status=Document.Status.FAILED)
+        with patch('kb.pipeline.process_document_async') as enqueue:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.run_batch({'schema':SCHEMA,'items':[]})
+            enqueue.assert_called_once_with(str(doc.pk))
+        doc.refresh_from_db();self.assertEqual(doc.status,Document.Status.PENDING)
+
+    def test_document_mode_deduplicates_append_and_swaps_only_after_processing(self):
+        self.document_mode(write_mode='append')
+        self.run_batch(batch())
+        first=self.record().pending_document
+        self.assertEqual(self.run_batch(batch()).counts['unchanged'],1)
+        self.assertEqual(Document.objects.count(),1)
+        Document.objects.filter(pk=first.pk).update(status=Document.Status.COMPLETED)
+        self.assertTrue(finalize_feed_document(first))
+        self.assertEqual(self.record().document_id,first.pk)
+        self.assertEqual(self.run_batch(batch('Pressure 18 MPa')).counts['updated'],1)
+        record=self.record();second=record.pending_document
+        self.assertEqual(record.document_id,first.pk)
+        self.assertEqual(first.kb_id,second.kb_id)
+        self.assertNotEqual(first.original_name,second.original_name)
+        Document.objects.filter(pk=second.pk).update(status=Document.Status.COMPLETED)
+        self.assertTrue(finalize_feed_document(second))
+        first.refresh_from_db();record.refresh_from_db();record.kb.refresh_from_db()
+        self.assertEqual(first.status,Document.Status.SUPERSEDED)
+        self.assertEqual(record.document_id,second.pk)
+        self.assertIsNone(record.pending_document_id)
+        self.assertEqual(record.kb.doc_count,1)
+        self.assertEqual(record.kb.chunk_count,0)
+
+    def test_document_mode_deletion_retires_active_and_pending_versions(self):
+        self.document_mode()
+        self.run_batch(batch())
+        first=self.record().pending_document
+        Document.objects.filter(pk=first.pk).update(status=Document.Status.COMPLETED)
+        finalize_feed_document(first)
+        self.run_batch(batch('changed'))
+        pending=self.record().pending_document
+        self.run_batch({'schema':SCHEMA,'items':[],'deleted':['report-1']})
+        record=self.record();first.refresh_from_db();pending.refresh_from_db()
+        self.assertTrue(record.deleted)
+        self.assertIsNone(record.document_id)
+        self.assertIsNone(record.pending_document_id)
+        self.assertEqual(first.status,Document.Status.SUPERSEDED)
+        self.assertEqual(pending.status,Document.Status.SUPERSEDED)
+        self.assertEqual(self.run_batch(batch('returned')).counts['created'],1)
+        self.assertEqual(self.record().kb_id,record.kb_id)
+
+    def test_document_mode_failed_batch_keeps_cursor_and_cleans_files(self):
+        self.document_mode()
+        payload=batch(cursor='uncommitted')
+        payload['items'].append({'id':'report-2','title':'Second','content':'other'})
+        original=__import__('kb.feeds',fromlist=['_publish_document'])._publish_document
+        calls=[0]
+        def fail_second(*args,**kwargs):
+            calls[0]+=1
+            if calls[0]==2:raise ValueError('simulated document failure')
+            return original(*args,**kwargs)
+        with patch('kb.feeds._publish_document',side_effect=fail_second):
+            run=self.run_batch(payload)
+        self.assertEqual(run.status,'failed')
+        self.feed.refresh_from_db();self.assertEqual(self.feed.cursor,'')
+        self.assertFalse(Document.objects.exists())
+        self.assertFalse(KnowledgeBase.objects.filter(parent=self.folder).exists())
+        self.assertFalse(list((self.tmp/'media'/'documents').glob('*.md')))
 
     def test_publishes_tracker_rows_without_sublibraries_or_indexing(self):
         run=self.run_batch(batch())

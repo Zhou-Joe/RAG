@@ -408,10 +408,15 @@ def _image_search_core(query: str, target: str, lane_slugs: list[str],
     的文本，视觉模式下确认图片以多模态内容块随结果附上（模型可直接描述图中
     细节）。
     """
+    no_images = (f"在库「{target}」中未召回图片候选（库内无图片块，或与描述的相似度过低）。"
+                 "可换更具体的图片描述重试；若文档确有插图，请检查该文档是否已重新入库。")
     # ── 第一段：多模态向量召回 ──
     try:
+        from .retriever import _image_lane, _without_generated_feed_documents
+        lane_slugs = _without_generated_feed_documents(lane_slugs)
+        if not lane_slugs:
+            return no_images
         from .pipeline import _embeddings
-        from .retriever import _image_lane
         q_emb = _embeddings().embed_query(query)
         cands = _image_lane(lane_slugs, q_emb, limit=_IMG_LANE_CANDIDATES)
     except Exception as e:
@@ -428,8 +433,7 @@ def _image_search_core(query: str, target: str, lane_slugs: list[str],
     if selection is not None:
         unique=[row for row in unique if selection._document(row,lane_slugs) is not None]
     if not unique:
-        return (f"在库「{target}」中未召回图片候选（库内无图片块，或与描述的相似度过低）。"
-                "可换更具体的图片描述重试；若文档确有插图，请检查该文档是否已重新入库。")
+        return no_images
     try:  # 补页码溯源（图片块 chunk_id 规则 img-<doc_id>-<hash>）
         from . import provenance as _prov
         _prov.annotate_results(unique)
@@ -662,11 +666,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
    - **kb_neighbor_chunk**：从已读正文原样复制至少6个字符作为anchor，传实际source和kb_slug，direction=prev/next/both；列出原文相邻候选。仍须kb_read_chunks读取、kb_select_evidence确认后才引用。
    - **tracker_preview**：先查看追踪表真实字段、样例、条数，理解数据格式。样例不是全部记录，不能用样例算总数。
    - **tracker_lookup**：按实际字段过滤完整追踪表历史，支持 columns 选列、filters 条件、order_by 排序、limit/offset 分页。默认只查 done 已完成记录。统计 count/sum/avg/min/max/distinct_count 交给 metrics，按 group_by 分组；不要把整表取进上下文后自己数。同比用采集日期分别过滤两年，或按年/月分组。优先查明确 kb_slug。所有追踪表工具共用输出预算；单元格 truncated 或 has_more=true 时结果不完整，需精确查更少字段或在数据库汇总，不能声称已经遍历全表。
-3. **检索经济性**：已取到的内容直接用于回答，不要用相近关键词重复检索。若第一次结果不足，换一个实质不同的关键词再查一次。生成 write_analysis 前，确保已取到足够完整的数据。工具调用之间的过渡说明控制在一句以内，不要在聊天中复述工具返回的过程性内容（检索流水、逐张复核理由等）——汇总放到最终回答里，用简洁的列表或表格呈现。
-4. **如何描述你的依据（重要）**：文档依据是kb_read_chunks实际读取并用kb_select_evidence采用的原文片段，不是候选预览或整份PDF。注明实际文档与页码；片段可能不完整或含OCR误差，缺失部分明确说明，不用模型记忆补写。台账与图谱依据分别来自对应数据库工具。
+3. **检索经济性**：已取到的内容直接用于回答，不要用相近关键词重复检索。若第一次结果不足，换一个实质不同的关键词再查一次。生成 write_analysis 前，确保已取到足够完整的数据。工具调用之间的过渡说明控制在一句以内。界面已单独显示工具活动；最终回答只写结果和必要依据，不复述检索流水、查询词、调用次数或逐张复核过程，除非用户明确询问。
+4. **如何描述你的依据（重要）**：文档依据是kb_read_chunks实际读取并用kb_select_evidence采用的原文片段，不是候选预览或整份PDF。对用到的事实在相应句子附近注明实际文档与页码；界面另有可点击来源，不要再附重复的来源清单或逐篇介绍。片段可能不完整或含OCR误差，缺失部分明确说明，不用模型记忆补写。台账与图谱依据分别来自对应数据库工具。
 5. **页码与行号引用**：检索结果的来源行若带「第 N 页」（或区间），在回答中引用该内容时请一并注明页码（如「见 XX 文档第 43 页」）；表格片段带「表第 X-Y 行」时引用「原表第 X 行」。这些页码来自 OCR 版面定位，直接使用即可，不要自己推算页码。
 6. 回答须准确、客观，语言专业且易于理解。
-7. **简洁且聚焦**：先直接回答用户所问，再给必要依据；只回应问题本身，不主动展开无关背景、复述会话中已确认的内容或添加用户未要求的延伸说明。回答长度与问题复杂度相称——简单问题一两句话即可，不为显得完整而凑长度。
+7. **回答先行，默认简短**：第一句直接给结论、数值或明确的「现有资料不足」，让用户不必读完整段才能找到答案；不要以「根据检索结果」「首先」「以下是」开头。简单问题一两句话即可；多点问题通常用不超过三条短列表，每条只写一个要点。只回答当前用户真正问到的内容，不逐项回答检索规划中额外生成的子问题，不复述会话中已确认的内容。用户明确要求详细解释、完整表格、报告或操作步骤时，提供所需完整内容，不机械压缩。准确性、必要条件及引用不因简短而省略。
 8. **排版**：条目、参数、对比类内容用 Markdown 列表或表格呈现，避免大段密排文字；内容较长时才用小标题分节，不为格式而扩充内容。
 9. 若知识库中无相关内容，如实说明，不得编造（禁止幻觉）。
 
@@ -888,13 +892,29 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             if overview:
                 from .keyword_index import get_chunks
                 from .manual_overview import select_overview
-                from .models import Document
+                from .models import Document, FeedRecord
                 results = []
+                generated = FeedRecord.objects.filter(
+                    kb=target_kb, feed__adapter_spec__ingest_mode='documents',
+                ).first()
+                from .feeds import _is_managed_feed_document
                 for doc in Document.objects.filter(kb=target_kb, status=Document.Status.COMPLETED):
                     if source and doc.original_name != source:
                         continue
-                    rows = [dict(row, source=doc.original_name, doc_id=str(doc.pk))
-                            for row in get_chunks(target, doc.original_name)]
+                    if generated and doc.pk == generated.document_id:
+                        # Current cron source has no search chunks, but its
+                        # saved Markdown remains available for explicit reading.
+                        rows = (_fetch_doc(target, source=doc.original_name, limit=80)
+                                if not generated.deleted else [])
+                    elif generated and _is_managed_feed_document(doc):
+                        # Never revive an old generated version through a
+                        # leftover legacy keyword entry.
+                        continue
+                    else:
+                        rows = [dict(row, source=doc.original_name, doc_id=str(doc.pk))
+                                for row in get_chunks(target, doc.original_name)]
+                    if not rows:
+                        continue
                     selected, headings = select_overview(rows)
                     results.extend(selected)
                     import re as _re
@@ -1238,7 +1258,7 @@ async def run_agent_stream(
             max_in = max(max_in, p_usage["input_tokens"])
             max_out = max(max_out, p_usage["output_tokens"])
             if plan_text:
-                agent_input = (f"【问题理解与检索规划】\n{plan_text}\n\n"
+                agent_input = (f"【问题理解与检索规划（仅供查找资料，不扩大回答范围）】\n{plan_text}\n\n"
                                f"【用户问题】\n{message}")
                 yield SSE_STEP, {"stage": "query_plan", "status": "done",
                                  "detail": "问题规划完成"}

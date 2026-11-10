@@ -14,6 +14,7 @@ from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.core.exceptions import ValidationError,RequestDataTooBig
 from django.db import transaction
+from django.db.models import Q
 from django.http import Http404,JsonResponse,FileResponse
 from django.shortcuts import get_object_or_404,render
 from django.urls import reverse
@@ -45,11 +46,15 @@ def _feed_json(feed,user):
     from .report_controls import state as report_state
     report=report_state(feed,user)
     runs=[_run_json(run) for run in feed.runs.order_by('-started_at')[:10]]
+    ingest_mode=feed.adapter_spec.get('ingest_mode','tracker')
+    items=(feed.records.filter(deleted=False).filter(Q(document__isnull=False)|Q(pending_document__isnull=False)).count()
+           if ingest_mode=='documents' else feed.tracker_rows.filter(status='done').count())
     return {'id':str(feed.pk),'name':feed.kb.name,'kb':feed.kb.slug,'kb_name':feed.kb.name,'mode':feed.mode,'write_mode':feed.write_mode,
+            'ingest_mode':ingest_mode,'kb_url':reverse('kb:manage_detail',args=[feed.kb.slug]),
             'can_edit':access.can_edit_feed(user,feed),'workflow_settings':{'saved_workflow_types':report['saved_workflow_types']},'report':report,'url':feed.url,'header_env':feed.header_env,'allow_private':feed.allow_private,
             'cron':feed.cron,'timezone':feed.timezone,'enabled':feed.enabled,'token_configured':bool(feed.token_digest),
             'next_run_at':feed.next_run_at.isoformat() if feed.next_run_at else None,
-            'items':feed.tracker_rows.filter(status='done').count(),
+            'items':items,
             'tracker_url':reverse('kb:tracker',args=[feed.kb.slug]),
             'ai_edit_url':reverse('kb:connector_builder')+'?feed='+str(feed.pk) if feed.adapter_spec else None,
             'runs':runs,'generated_connector':bool(feed.adapter_spec),'authentication':summary(feed),'source_type':feed.adapter_spec.get('source_type','api'),

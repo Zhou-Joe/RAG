@@ -91,12 +91,13 @@ def field_exempt(record,field):
 
 
 def validate_spec(spec):
-    allowed={'name','url','query','records_path','single_record','id_paths','title_path','title_prefix','body_fields','metadata_paths',
+    allowed={'name','url','query','records_path','single_record','id_paths','title_path','title_prefix','body_fields','metadata_paths','ingest_mode',
              'updated_at_path','updated_at_format','source_url_path','deleted_path','next_cursor_path','cursor_param','cron','timezone','header_env',
              'source_type','browser','on_error','write_mode'}
     if not isinstance(spec,dict) or not spec.keys()<=allowed:raise ValueError('连接器配置包含不支持的字段。')
     if not isinstance(spec.get('name'),str) or not spec['name'].strip() or len(spec['name'])>100:raise ValueError('请提供连接器名称。')
     if spec.get('source_type','api') not in ('api','browser'):raise ValueError('source_type 仅支持 api 或 browser。')
+    if spec.get('ingest_mode','tracker') not in ('tracker','documents'):raise ValueError('ingest_mode 仅支持 tracker（结构化记录）或 documents（每条记录一份文档）。')
     if spec.get('write_mode','append') not in ('append','upsert'):raise ValueError('write_mode 仅支持 append（追加保留历史）或 upsert（覆盖相同 ID）。')
     if spec.get('source_type')=='browser':
         try:from .browser_runtime import validate_plan
@@ -167,6 +168,7 @@ def build_batch(spec,data):
     if not isinstance(records,list):raise ValueError('records_path 没有定位到数组；单对象接口请使用 single_record=true。')
     if len(records)>MAX_ITEMS:raise ValueError('API 返回超过500条，请在 query 中设置分页大小。')
     items=[];tolerant=spec.get('on_error','raw')=='raw'
+    document_mode=spec.get('ingest_mode','tracker')=='documents'
     context={'timezone':spec.get('timezone','Asia/Shanghai'),'collected_at':datetime.now(ZoneInfo(spec.get('timezone','Asia/Shanghai'))),'records':records}
     if spec.get('source_type')=='browser' and isinstance(data,dict) and data.get('__fos_collected_at'):
         stamp=datetime.fromisoformat(data['__fos_collected_at'])
@@ -182,6 +184,11 @@ def build_batch(spec,data):
         paragraphs=[];field_values={};capture=record.get('__fos_capture',{}) if isinstance(record,dict) else {}
         warnings=list(capture.get('warnings',[]));raws={}
         for field in spec['body_fields']:
+            # The system collection date belongs to the fetch, not the article.
+            # Keeping it in the document body creates a new file every day even
+            # when the source text has not changed.
+            if document_mode and field['label']=='采集日期' and field.get('source')=='today':
+                continue
             problem=''
             try:value=field_value(record,field,context)
             except (ValueError,TypeError,OverflowError) as exc:
@@ -200,7 +207,9 @@ def build_batch(spec,data):
                     except ImportError:from connector_calculations import calculation_inputs
                     raw=calculation_inputs(record,computed)
                 else:raw=capture.get('raw',{}).get(field.get('path')) or capture.get('text') or record
-                value=_value(raw)[:min(360,max(40,4000//len(spec['body_fields'])))]
+                raw_limit=(min(24000,max(1000,80000//len(spec['body_fields']))) if document_mode
+                           else min(360,max(40,4000//len(spec['body_fields']))))
+                value=_value(raw)[:raw_limit]
                 warnings.append(field['label']+'：'+(problem or '未能按原规则提取，保留抓到的原文'))
                 raws[field['label']]=value
             label=field['label'];kind=field.get('format','auto')
@@ -242,8 +251,11 @@ def build_batch(spec,data):
             field_values['采集提示']=warning;field_values['原始内容']=evidence
             item['metadata']['collection_warning']=warning
             item['content']+='\n\n## 采集提示\n\n'+warning+'\n\n## 原始内容\n\n'+evidence
-        if not item['content'].strip():item['content']=json.dumps(record,ensure_ascii=False,default=str)[:5000]
-        if field_values:item['fields']=field_values
+        if not item['content'].strip():
+            item['content']=json.dumps(record,ensure_ascii=False,default=str)[:100000 if document_mode else 5000]
+        # Feed protocol's structured fields cap is 8K. A document's long raw
+        # text lives in content and must not be copied into tracker fields.
+        if field_values and not document_mode:item['fields']=field_values
         if len(item['content'])>100000:raise ValueError('生成的单条报告超过100000字符。')
         items.append(item)
     deleted=lookup(data,spec['deleted_path']) if spec.get('deleted_path') else []

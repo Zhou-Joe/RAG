@@ -13,7 +13,7 @@ from django.db import transaction
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import Http404, HttpResponse, JsonResponse, StreamingHttpResponse
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -64,6 +64,21 @@ def _scope_docs(kb: KnowledgeBase,user=None):
         from . import access
         docs=docs.filter(access.visible_q(user,'kb__'))
     return docs.exclude(status=Document.Status.SUPERSEDED).exclude(kb__slug__startswith='syncitem-',status__in=['pending','ocr','indexing','failed'])
+
+
+def _feed_owned_child_ids(kb: KnowledgeBase, user=None) -> set:
+    """Child libraries whose documents are controlled by a feed run."""
+    from .models import FeedRecord
+    ids = _scope_kb_ids(kb, user)
+    linked = FeedRecord.objects.filter(kb_id__in=ids).values_list('kb_id', flat=True)
+    legacy = KnowledgeBase.objects.filter(pk__in=ids, slug__startswith='syncitem-').values_list('pk', flat=True)
+    return set(linked) | set(legacy)
+
+
+def _feed_owned_document(doc: Document) -> bool:
+    from .models import FeedRecord
+    return (doc.kb.slug.startswith('syncitem-')
+            or FeedRecord.objects.filter(kb_id=doc.kb_id).exists())
 
 
 def _scope_kb_ids(kb: KnowledgeBase,user=None) -> list:
@@ -261,27 +276,36 @@ def manage_list(request):
     _visible = kb_access.visible_kbs(request.user)
     _visible_pks = [kb.pk for kb in _visible]
     _writable = {kb.pk for kb in _visible if kb.can_manage}
+    from .models import KnowledgeBasePin
+    _pinned_rank = {kb_id: rank for rank, kb_id in enumerate(
+        KnowledgeBasePin.objects.filter(user=request.user, kb_id__in=_visible_pks)
+        .order_by('-created_at', '-pk').values_list('kb_id', flat=True))}
     from django.db.models import Count, Q
     _business_rows = {kb.pk: kb.business_row_count for kb in
                       KnowledgeBase.objects.filter(pk__in=_visible_pks, category='business')
                       .annotate(business_row_count=Count(
                           'tracker__rows', filter=Q(tracker__rows__status='done')))}
-    kbs, business_kbs, read_kbs = [], [], []
+    pinned_kbs, kbs, business_kbs, read_kbs = [], [], [], []
     for kb in _visible:
         kb.can_manage = kb.pk in _writable
         kb.business_row_count = _business_rows.get(kb.pk, 0)
-        if not kb.can_manage:
+        kb.is_pinned = kb.pk in _pinned_rank
+        if kb.is_pinned:
+            pinned_kbs.append(kb)
+        elif not kb.can_manage:
             read_kbs.append(kb)
         elif kb.category == 'business':
             business_kbs.append(kb)
         else:
             kbs.append(kb)
+    pinned_kbs.sort(key=lambda kb: _pinned_rank[kb.pk])
     from .models import StructuredDataset
     datasets = StructuredDataset.objects.filter(active=True).order_by("kind", "-created_at")
     datasets = datasets.filter(Q(kb__in=_visible_pks) | (Q(kb__isnull=True) if kb_access.is_manager(request.user) else Q(pk__in=[])))
     # 部门池（用户 ∪ 知识库；新部门唯一入口 = 用户管理页），表单只能从中选
     departments = kb_access.all_departments()
     return render(request, "kb/manage_list.html", {
+        "pinned_kbs": pinned_kbs,
         "kbs": kbs,
         "business_kbs": business_kbs,
         "read_kbs": read_kbs,
@@ -358,13 +382,46 @@ def manage_detail(request, slug):
         return redirect("kb:manage_detail", slug=slug)
 
     # ---------- GET：渲染 ----------
+    document_feed = (kb.feeds.filter(adapter_spec__ingest_mode='documents').exists()
+                     if kb.category == 'business' else False)
+    # 自动采集库以结构化采集记录为主页；文档模式保留文件页。
+    if (kb.category == "business" and kb.feeds.exists()
+            and not document_feed):
+        from .models import KbTracker, TrackerRow
+        tracker = KbTracker.objects.filter(kb=kb).first()
+        return render(request, "kb/manage_feed_detail.html", {
+            "kb": kb,
+            "feeds": kb.feeds.order_by("created_at"),
+            "total_rows": TrackerRow.objects.filter(feed__kb=kb, status=TrackerRow.Status.DONE).count(),
+            "tracker_fields": [field["label"] for field in (tracker.fields if tracker else [])],
+            "tracker_enabled": bool(tracker and tracker.enabled),
+            "can_manage": can_manage,
+            "is_global_admin": kb_access.is_global_admin(request.user),
+            "shared_manager": kb_access.is_manager(request.user),
+            "departments": kb_access.all_departments(),
+            "my_departments": kb_access.manageable_departments(request.user),
+            "user_department": kb_access.user_department(request.user),
+        })
     docs = _scope_docs(kb,request.user)
+    feed_owned_child_ids = _feed_owned_child_ids(kb, request.user)
     docs_total, chunks_total = kb.aggregate_counts()
+    from .models import KbTracker, TrackerRow
+    tracker = KbTracker.objects.filter(kb=kb).first()
+    show_tracker_data = bool(tracker and tracker.fields and (tracker.enabled or can_manage))
+    tracker_rows_count = (TrackerRow.objects.filter(tracker=tracker, feed__isnull=True,
+                          status=TrackerRow.Status.DONE, document__in=docs).count()
+                          if show_tracker_data else 0)
     return render(request, "kb/manage_detail.html", {
         "kb": kb,
         "docs": docs,
+        "feed_owned_child_ids": feed_owned_child_ids,
         "docs_total": docs_total,
         "chunks_total": chunks_total,
+        "show_tracker_data": show_tracker_data,
+        "is_document_feed": document_feed,
+        "tracker_fields": [field["label"] for field in tracker.fields] if show_tracker_data else [],
+        "tracker_rows_count": tracker_rows_count,
+        "doc_list_count": docs.count() if show_tracker_data else None,
         "is_global_admin": kb_access.is_global_admin(request.user),
         "shared_manager": kb_access.is_manager(request.user),
         "can_manage": can_manage,
@@ -479,6 +536,8 @@ def doc_desc_update(request, slug, doc_id):
     if not kb_access.can_manage_kb(request.user, kb):
         raise Http404("知识库不存在")
     doc = get_object_or_404(Document, id=doc_id, kb__in=_scope_kb_ids(kb,request.user))
+    if _feed_owned_document(doc):
+        return JsonResponse({'ok':False,'message':'自动更新文档由数据源管理，不能在此修改。'},status=409)
     doc.description = (request.POST.get("description") or "").strip()[:200]
     doc.save(update_fields=["description", "updated_at"])
     return JsonResponse({"ok": True, "description": doc.description})
@@ -494,7 +553,7 @@ def doc_retry(request, slug, doc_id):
     if not kb_access.can_manage_kb(request.user, kb):
         raise Http404("知识库不存在")
     doc = get_object_or_404(Document, id=doc_id, kb__in=_scope_kb_ids(kb,request.user))
-    if doc.kb.slug.startswith('syncitem-'):
+    if _feed_owned_document(doc):
         return JsonResponse({'ok':False,'message':'自动更新文档请从数据源重试，避免绕过批次发布。'},status=409)
     changed = Document.objects.filter(id=doc.id, status=Document.Status.FAILED).update(
         status=Document.Status.PENDING, error_msg="", stage_detail="排队中，等待从保存进度继续", updated_at=timezone.now())
@@ -506,6 +565,8 @@ def doc_retry(request, slug, doc_id):
     return redirect("kb:manage_detail", slug=slug)
 
 
+@login_required
+@require_POST
 def doc_delete(request, slug, doc_id):
     """删除某知识库下的一份文档（文件夹则跨其所有子库查找）。
 
@@ -535,6 +596,13 @@ def doc_delete(request, slug, doc_id):
                                  "message": "文档不存在或已被删除。"})
         messages.info(request, "该文档不存在或已被删除。")
         return redirect("kb:manage_detail", slug=slug)
+
+    if _feed_owned_document(doc):
+        message = '自动更新文档由数据源管理，不能在此删除。'
+        if is_ajax:
+            return JsonResponse({'ok': False, 'message': message}, status=409)
+        messages.error(request, message)
+        return redirect('kb:manage_detail', slug=slug)
 
     name = doc.original_name
     doc_kb = doc.kb  # 文档实际所在的（子）库
@@ -618,13 +686,24 @@ def _qs_without(request, *drop):
     return f"{encoded}&" if encoded else ""
 
 
+def _editable_tracker_rows(tracker, kb, user):
+    """Rows in this tracksheet that also belong to a visible source in this KB."""
+    from django.db.models import Q
+
+    document_ids = _scope_kb_ids(kb, user)
+    source = (Q(feed__kb=kb)
+              | Q(feed__isnull=True, document__kb_id__in=document_ids)
+              | Q(feed__isnull=True, document__isnull=True))
+    return tracker.rows.filter(source)
+
+
 @_is_manager
 @login_required
 def tracker_view(request, slug):
     """知识库追踪表：文档入库后由 AI 按自定义字段抽取关键信息登记，供追溯。
 
     - 配置：字段（一行一个，即列名）+ 补充提示 + 启用开关。
-    - 动作：补录已有文档（backfill）/ 单行重试 / 删除行 / 导出 CSV。
+    - 动作：补录已有文档（backfill）/ 单行重试 / 编辑单元格 / 删除行 / 导出 Excel。
     - 权限与 manage_detail 一致（全局管理员 或 该部门管理员）。
     """
     from . import access as kb_access
@@ -667,6 +746,8 @@ def tracker_view(request, slug):
             messages.error(request, denied)
             return redirect("kb:tracker", slug=slug)
         action = request.POST.get("action", "")
+        error_status = 200
+        response_data = {}
         if action == "enable":
             tr.enabled = True
             tr.save(update_fields=["enabled", "updated_at"])
@@ -750,13 +831,119 @@ def tracker_view(request, slug):
                 else:
                     tracker_svc.run_extraction_async(row.document_id, tr.id)
                     ok, msg = True, "已重新排队抽取。"
+        elif action == "cell_edit":
+            from .tracker_query import cell as tracker_cell
+
+            field = request.POST.get("field", "")
+            value = request.POST.get("value")
+            expected_updated_at = request.POST.get("expected_updated_at", "")
+            expected_value_supplied = "expected_value" in request.POST
+            expected_value_invalid = False
+            try:
+                expected_value = json.loads(request.POST["expected_value"]) if expected_value_supplied else None
+            except (TypeError, ValueError):
+                expected_value = None
+                expected_value_invalid = True
+            try:
+                row_id = int(request.POST.get("row_id", ""))
+                if row_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                row_id = None
+            if (row_id is None or field not in [f["label"] for f in tr.fields]
+                    or value is None or expected_value_invalid):
+                ok, msg, error_status = False, "记录、字段或值无效。", 400
+            elif len(value) > 2000:
+                ok, msg, error_status = False, "单元格内容不能超过 2000 字符。", 400
+            else:
+                with transaction.atomic():
+                    row = (_editable_tracker_rows(tr, kb, request.user)
+                           .select_for_update().filter(pk=row_id).first())
+                    current_cell = (row.values.get(field) if row is not None
+                                    and isinstance(row.values, dict) else None)
+                    if row is None:
+                        ok, msg, error_status = False, "记录不存在或无权编辑。", 404
+                    elif row.status != TrackerRow.Status.DONE:
+                        ok, msg, error_status = False, "只能编辑已完成的记录，请等待处理结束。", 409
+                    elif expected_updated_at and expected_updated_at != row.updated_at.isoformat():
+                        ok, msg, error_status = False, "记录已更新，请刷新后重试。", 409
+                    elif (expected_value_supplied and
+                          not any(type(expected_value) is type(candidate) and expected_value == candidate
+                                  for candidate in (current_cell, tracker_cell(current_cell, 2000)))):
+                        ok, msg, error_status = False, "单元格已更新，请刷新后重试。", 409
+                    else:
+                        values = dict(row.values) if isinstance(row.values, dict) else {}
+                        values[field] = value
+                        # A cell correction must not move this record into a later
+                        # collection-time trend bucket. Compare the entire saved
+                        # JSON so concurrent edits cannot silently overwrite it.
+                        n = TrackerRow.objects.filter(
+                            pk=row.pk, tracker=tr, status=TrackerRow.Status.DONE,
+                            updated_at=row.updated_at, values=row.values,
+                        ).update(values=values)
+                        if n:
+                            ok, msg = True, "单元格已更新。"
+                            response_data = {"row_id": row.pk, "field": field,
+                                             "value": value, "updated_at": row.updated_at.isoformat()}
+                        else:
+                            ok, msg, error_status = False, "记录已被其他操作更新，请刷新后重试。", 409
+        elif action == "rows_delete":
+            try:
+                raw_ids = json.loads(request.POST.get("row_ids", ""))
+                if (not isinstance(raw_ids, list) or not raw_ids or len(raw_ids) > 500
+                        or any(type(item) is not int or item <= 0 for item in raw_ids)
+                        or len(set(raw_ids)) != len(raw_ids)):
+                    raise ValueError
+            except (TypeError, ValueError):
+                ok, msg, error_status = False, "请选择 1 至 500 条有效记录。", 400
+            else:
+                with transaction.atomic():
+                    rows = (_editable_tracker_rows(tr, kb, request.user)
+                            .select_for_update().filter(pk__in=raw_ids))
+                    if rows.count() != len(raw_ids):
+                        ok, msg, error_status = False, "部分记录不存在或无权删除，请刷新后重试。", 404
+                    elif rows.filter(status__in=[TrackerRow.Status.PENDING,
+                                                 TrackerRow.Status.RUNNING]).exists():
+                        ok, msg, error_status = False, "部分记录仍在抽取中，请处理完成后再删除。", 409
+                    else:
+                        _, details = rows.filter(status__in=[
+                            TrackerRow.Status.DONE, TrackerRow.Status.PROPOSED,
+                            TrackerRow.Status.FAILED]).delete()
+                        count = details.get("kb.TrackerRow", len(raw_ids))
+                        if count != len(raw_ids):
+                            # Defensive for databases without row-level locks.
+                            transaction.set_rollback(True)
+                            ok, msg, error_status = False, "记录状态已变化，请刷新后重试。", 409
+                        else:
+                            ok, msg = True, f"已删除 {count} 条记录。"
+                            response_data = {"deleted": count}
         elif action == "row_delete":
-            deleted, _ = tr.rows.filter(id=request.POST.get("row_id")).delete()
-            ok, msg = (deleted > 0), ("记录已删除。" if deleted else "记录不存在或已被删除。")
+            try:
+                row_id = int(request.POST.get("row_id", ""))
+                if row_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                ok, msg, error_status = False, "记录编号无效。", 400
+            else:
+                with transaction.atomic():
+                    row = (_editable_tracker_rows(tr, kb, request.user)
+                           .select_for_update().filter(pk=row_id).first())
+                    if row is None:
+                        ok, msg, error_status = False, "记录不存在或已被删除。", 404
+                    elif row.status in (TrackerRow.Status.PENDING, TrackerRow.Status.RUNNING):
+                        ok, msg, error_status = False, "记录仍在抽取中，请处理完成后再删除。", 409
+                    else:
+                        deleted, _ = _editable_tracker_rows(tr, kb, request.user).filter(
+                            pk=row_id, status__in=[TrackerRow.Status.DONE,
+                                                  TrackerRow.Status.PROPOSED,
+                                                  TrackerRow.Status.FAILED]).delete()
+                        ok, msg = (deleted > 0), ("记录已删除。" if deleted else "记录状态已变化，请刷新后重试。")
+                        if not deleted:
+                            error_status = 409
         else:
             ok, msg = False, "未知操作。"
         if request.headers.get("x-requested-with") == "XMLHttpRequest":
-            return JsonResponse({"ok": ok, "message": msg})
+            return JsonResponse({"ok": ok, "message": msg, **response_data}, status=error_status)
         (messages.success if ok else messages.error)(request, msg)
         return redirect("kb:tracker", slug=slug)
 
@@ -864,7 +1051,7 @@ def tracker_view(request, slug):
         "can_manage": can_manage,
         # 趋势分析不跑模型（只是表内已完成采集行的 DB 聚合），能看追跟表就能用；
         # 判定不能采样 rows（分页后那只是当页），要直接问库。
-        "show_analysis": kb.category == "business" or tr.rows.filter(feed__isnull=False).exists(),
+        "show_analysis": not kb.feeds.exists() and (kb.category == "business" or tr.rows.filter(feed__isnull=False).exists()),
         "fields_text": "\n".join(f["label"] for f in tr.fields),
         "total_rows": paginator.count,
         "page_obj": page_obj,
@@ -903,6 +1090,7 @@ def doc_status_api(request, slug):
             if match and int(match[2]):
                 return min(95, 30 + int(65 * int(match[1]) / int(match[2])))
         return PROGRESS_MAP.get(doc.status, 0)
+    feed_owned_child_ids = _feed_owned_child_ids(kb, request.user)
     docs_data = [
         {
             "id": str(d.id),
@@ -915,6 +1103,7 @@ def doc_status_api(request, slug):
             "chunk_count": d.chunk_count,
             "error": d.error_msg[:100] if d.error_msg else "",
             "desc": d.description or "",
+            "feed_owned": d.kb_id in feed_owned_child_ids,
         }
         for d in _scope_docs(kb,request.user)
     ]

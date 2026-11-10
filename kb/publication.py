@@ -101,11 +101,28 @@ def validate_sources(evidence, user_id):
             if not validate_fact(ev, user):
                 return False
             continue
-        if not ev.get('doc_id') or not ev.get('chunk_id') or ev.get('kind') != 'text':
+        if not ev.get('doc_id') or ev.get('kind') != 'text':
             return False
         doc = Document.objects.select_related('kb').filter(pk=ev['doc_id'], status=Document.Status.COMPLETED).first()
         if doc is None or not kb_accessible(user, doc.kb) or digest(doc.md_content) != ev.get('document_digest'):
             return False
+        if not ev.get('chunk_id'):
+            # Cron-generated source files intentionally have no keyword or
+            # vector chunks. Validate the exact selected text against the
+            # currently published file instead of bypassing verification.
+            from .models import FeedRecord
+            text = ev.get('text')
+            if (not isinstance(text, str) or not text
+                    or digest(text) != ev.get('chunk_digest')
+                    or text not in (doc.md_content or '')
+                    or ev.get('source') != doc.original_name
+                    or ev.get('kb_slug') != doc.kb.slug
+                    or not FeedRecord.objects.filter(
+                        document=doc, deleted=False,
+                        feed__adapter_spec__ingest_mode='documents',
+                    ).exists()):
+                return False
+            continue
         rows = get_chunks(doc.kb.slug, doc.original_name)
         if not any(row.get('chunk_id') == ev['chunk_id'] and digest(row['text']) == ev['chunk_digest'] for row in rows):
             return False

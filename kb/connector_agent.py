@@ -9,14 +9,14 @@ import io
 import threading
 import time
 from datetime import timedelta
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from django.db import close_old_connections
 from django.utils import timezone
 
 from . import access
 from .connector_tools import (api_origins, declared_urls, document_text,
-                              origin, read_url, redact, sample_preview, search_docs)
+                              observed_json_shape, origin, read_url, redact, sample_preview, search_docs)
 from .feed_credentials import request_headers, secret_values, summary
 from .models import ConnectorDraft, ConnectorEvent
 from .connector_context import WorkingMemory, compact_context, message_size, fingerprint, usage_stats, normalize_arguments
@@ -69,6 +69,20 @@ test_browser_connector实际取数后会直接进入用户审核；默认缺失�
 大接口使用已知的分页参数，每次定时运行只拉一页，成功发布才提交游标；不遍历全部历史。
 网页POST查询、登录和XHR由浏览器工具完成，详情关联由detail配置完成；不要求用户编写GET代理。
 API脚本使用标准库，网页脚本使用已安装的Playwright和Chromium或Edge。系统将验证后的步骤生成可独立运行的Python脚本与依赖说明；不输出任意Python或JavaScript代码。
+"""
+
+RESPONSE_STYLE_INSTRUCTION = """
+答复风格：先用第一句直接回答当前问题或说明任务结果，再给用户需要的下一步。普通问答默认一两句话；有多个关键点时用短列表。界面已展示工具活动和预览卡片，最终答复不复述操作流水、全部样例数据或已经确认的要求。缺少信息时只问实际缺失项。用户明确要求完整报告、详细说明或步骤时提供完整内容；安全条件、失败原因与必要的核对信息不能省略。此规则只约束给用户看的自然语言，不删减工具参数或连接器配置。
+"""
+
+API_DISCOVERY_INSTRUCTION = """
+API 采集按「确认请求规则 → 观察响应 → 映射 → 验证」进行，不能跳过观察：
+1. 从用户给的实际接口地址和官方文档确认 GET 端点、认证方式、必需查询参数及分页规则。文档/用户未确认的路径、参数名、取值、游标和请求方法一律不要猜；只有产品主页时先查文档或询问具体接口。probe_api 只支持 GET JSON，网页的 POST/XHR 用浏览器工具观察。
+2. 用 probe_api 探测准确的 URL 和已确认的 query。它从完整真实响应返回有界 observed_paths 与 record_arrays；sample 字符串或路径清单可能截断，不能据此补写结构。数组在根节点时 records_path=""；嵌套数组使用返回的 JSON Pointer；单对象接口才设 single_record=true。id_paths、title_path、body_fields.path 相对于数组中的单条记录，只用已在 item_fields 中观察到的路径；字段稀疏、结构较深或清单截断时用 inspect_api_sample 查看具体记录，无需重新发请求。
+3. 400/404/405 时核对文档和上游错误，不随机改 URL 或参数重试；401/403 先处理授权；429 按 Retry-After 等待，不能密集重试；空数组没有可验证的稳定 ID，说明情况或询问可取得非空样例的已确认参数。非 JSON 响应先判断是否网页。不要将错误对象或 HTML 当数据。
+4. 映射前逐项核对 records_path、稳定 ID、业务字段、标题和分页游标的实际路径。只有观察到上游返回下一页游标且文档说明如何传回时才设置 next_cursor_path/cursor_param。配置的 URL 或 query 一旦改变，必须重新 probe_api；旧样例不能验证新请求。test_mapping 失败后按返回的具体路径修正，不重复同一参数；已确认的字段保持不变。确实无法确认时问用户缺少的接口信息。
+5. 原始字段确认后才做后处理：网页/浏览器字段可用 regex；API 字符串用 body_fields.computed 的 match、split、parse_number 等；计算、数组内过滤和分组也用 computed，并以真实记录 preview_calculation 验证。任务 timezone 控制系统生成的采集日期/时间，不代表任意上游时间戳已转换时区。当前采集配置没有通用的整批记录过滤规则；需在上游请求或网页操作筛选，或在保存后的报告中按字段过滤，不能虚构 spec 参数。
+6. 用户要把新闻、文章等长文本交给知识库追踪表 AI 进一步提炼时，配置 ingest_mode="documents"，把每条记录的真实正文映射到 body_fields（不要只映射标题/摘要）；每条记录将成为一份文档，随后可设置追踪表字段与抽取提示。普通结构化数据保持默认 ingest_mode="tracker"。采集配置只决定原始文档内容；不要假装已完成后续 AI 摘要。
 """
 
 
@@ -149,7 +163,9 @@ def run(job_id) -> ConnectorDraft:
     metrics = {'calls':0,'tools':0,'input_characters':0,'input_tokens':0,'output_tokens':0,
                'cached_tokens':0,'cache_reported':False,'context_compactions':0,'tool_cache_hits':0,'vision_images':0}
     memory=resumed.get('memory') or WorkingMemory();memory.stalled_turns=0
-    failed_operations=resumed.get('failed_operations',{})
+    # Duplicate failures are suppressed within one model run, then retried on a
+    # later user turn; an old 429 or upstream outage must not block recovery.
+    failed_operations={}
     preview_ready=None
     image_hash=resumed.get('image_hash','')
     pending_image=None
@@ -157,6 +173,12 @@ def run(job_id) -> ConnectorDraft:
     image_in_request=False
     sources = resumed.get('sources',[])
     sample = resumed.get('sample',job.sample)
+    sample_request = resumed.get('sample_request')
+    if job.parent_id:
+        previous=job.parent
+        if (job.api_url!=previous.api_url or job.credential_id!=previous.credential_id
+                or job.header_env!=previous.header_env):
+            sample=None;sample_request=None
     browser = resumed.get('browser')
     browser_sample = resumed.get('browser_sample')
     browser_digest = resumed.get('browser_digest','')
@@ -256,7 +278,16 @@ def run(job_id) -> ConnectorDraft:
             job.browser_state={**job.browser_state,'tested':True,'validation_scope':'full_batch','records':len(browser_sample.get('records',[]))}
             ConnectorDraft.objects.filter(pk=job.pk,status='running').update(browser_state=job.browser_state)
             return browser_sample
+        if sample is not None and sample_request and sample_request!=api_request_key(spec.get('url',''),spec.get('query',{})):
+            raise ValueError('当前 API 配置的 URL 或 query 与已读取样例不一致。先用 probe_api 探测这组实际请求，再验证映射；不要用旧响应证明新请求。')
         return sample
+
+    def api_request_key(url,query=None,headers=None):
+        from .connector_runtime import request_url
+        parts=urlsplit(request_url({'url':url,'query':query or {}}))
+        return fingerprint([parts.scheme.lower(),parts.netloc.lower(),parts.path,
+            sorted(parse_qsl(parts.query,keep_blank_values=True)),
+            sorted((headers if headers is not None else request_headers(job,url)).items())])
 
     def capture_digest(spec):
         from .feed_protocol import canonical
@@ -293,23 +324,52 @@ def run(job_id) -> ConnectorDraft:
 
     @tool
     def probe_api(url: str, query: dict | None = None) -> dict:
-        """GET 用户声明的 API，读取小型 JSON 样例；认证只发送到该用户声明的主机。"""
-        nonlocal sample
+        """GET 用户声明的 API；返回实际 JSON 路径、数组、字段类型和有界样例。先探测，再用观察到的路径配置映射。"""
+        nonlocal sample,sample_request
         from .connector_runtime import request_url
         from .connector_tools import SENSITIVE
         if origin(url) not in api_origins(job): raise ValueError('仅允许探测用户明确提供的 API 主机。')
-        if query and (len(query)>20 or any(key.lower() in SENSITIVE for key in query)): raise ValueError('请使用有限非认证查询参数。')
+        if query is not None and (not isinstance(query,dict) or len(query)>20 or any(not isinstance(key,str) or key.lower() in SENSITIVE or not isinstance(value,(str,int,float,bool)) for key,value in query.items())): raise ValueError('query 必须是文档确认的有限非认证简单参数对象。')
         from .feed_protocol import validate_url
         validate_url(url)
-        status, headers, body = read_url(request_url({'url':url,'query':query or {}}), allow_private=job.allow_private,
-            headers=request_headers(job,url))
-        if status in (401,403): raise ValueError('API 认证失败或权限不足（HTTP '+str(status)+'），请在对话中提供正确的访问凭据后重试。')
-        if status==200 and 'html' in headers.get('content-type','').lower():return {'format':'html','next_step':'这是网页，请使用 browser_open 打开并操作页面、检查网络请求或DOM，再用 test_browser_connector 验证网页采集配置；不需要用户提供JSON接口。'}
-        if status!=200 or 'json' not in headers.get('content-type','').lower(): raise ValueError('API 未返回 HTTP 200 JSON，状态码：'+str(status))
-        sample = clean(json.loads(body))
+        requested=request_url({'url':url,'query':query or {}})
+        auth_headers=request_headers(job,url)
+        status, headers, body = read_url(requested, allow_private=job.allow_private,
+            headers=auth_headers)
+        content_type=headers.get('content-type','').split(';',1)[0].lower()
+        if status!=200:
+            try:
+                problem=json.loads(body)
+                if isinstance(problem,dict):problem={key:problem[key] for key in ('error','message','detail','errors') if key in problem}
+                problem=json.dumps(clean(problem),ensure_ascii=False)[:500]
+            except (ValueError,UnicodeDecodeError,TypeError):problem=''
+            message=('API 认证失败或权限不足' if status in (401,403) else
+                'API 请求过于频繁；按 Retry-After 等待，不要盲目重试' if status==429 else
+                'API 请求未成功；核对文档中的端点、GET 方法及查询参数，不要猜测')
+            return {'error':message+'（HTTP '+str(status)+'）。','status':status,'content_type':content_type,
+                **({'retry_after':str(headers['retry-after'])[:80]} if headers.get('retry-after') else {}),
+                **({'upstream_error':problem} if problem else {})}
+        if 'html' in content_type:return {'format':'html','next_step':'这是网页，请使用 browser_open 打开并操作页面、检查网络请求或DOM，再用 test_browser_connector 验证网页采集配置；不需要用户提供JSON接口。'}
+        try:parsed=json.loads(body)
+        except (ValueError,UnicodeDecodeError):return {'error':'HTTP 200 响应不是可解析的 JSON；检查实际接口文档或改用浏览器观察网页请求。','status':status,'content_type':content_type}
+        sample = clean(parsed)
+        sample_request=api_request_key(url,query,auth_headers)
         sources.append(url)
-        # 全样例只保留在本轮工具内存；模型获得有界片段，不能把远端错误页当数据。
-        return {'sample':json.dumps(sample, ensure_ascii=False)[:12000], 'truncated':len(body)>12000}
+        # 全样例只留在工具内存；结构图从完整响应生成，避免截断片段诱导模型猜路径。
+        serialized=json.dumps(sample,ensure_ascii=False)
+        return {'sample':serialized[:6000], 'truncated':len(serialized)>6000,
+            **observed_json_shape(sample),
+            **({'warning':'响应是 JSON，但 Content-Type 未声明 JSON。'} if 'json' not in content_type else {})}
+
+    @tool
+    def inspect_api_sample(path: str = '') -> dict:
+        """不重新请求网络，按实际 JSON Pointer 路径查看已探测样例的结构和有界原值；大响应或嵌套字段不清楚时使用。"""
+        if sample is None:raise ValueError('当前没有可用 API 样例；先用 probe_api 探测真实请求。')
+        from .connector_runtime import lookup
+        value=lookup(sample,path)
+        serialized=json.dumps(clean(value),ensure_ascii=False)
+        return {'selected_path':path,'sample':serialized[:4000],'truncated':len(serialized)>4000,
+            **observed_json_shape(value)}
 
     @tool
     def set_source_access(url: str,authentication: dict) -> dict:
@@ -321,7 +381,7 @@ def run(job_id) -> ConnectorDraft:
         或确认该来源无需凭据时 {"type":"none"}。缺少 type 会直接报错，不会静默按不认证处理。
         凭据加密保存并与该主机绑定，不返回明文；只能使用用户原话里出现的值。
         """
-        nonlocal browser
+        nonlocal browser,sample,sample_request
         from .feed_credentials import bindings, discard_if_unused, normalize_auth, parse_auth, store
         from .feed_protocol import validate_url
         validate_url(url,allow_fragment=True)
@@ -344,6 +404,7 @@ def run(job_id) -> ConnectorDraft:
         progress.secrets=secret_values(job)
         job.prompt=clean(job.prompt);job.feedback=clean(job.feedback)
         job.save(update_fields=['api_url','credential','header_env','prompt','feedback','updated_at'])
+        sample=None;sample_request=None  # A changed credential may change the response shape.
         if previous_credential and job.credential_id != previous_credential:discard_if_unused(previous_credential)
         if browser:browser.close();browser=None
         if credential is None and not job.header_env:
@@ -581,7 +642,7 @@ def run(job_id) -> ConnectorDraft:
         if fields:result['question_fields']=fields
         preview_ready=(spec,result);return result
 
-    tools = {fn.name:fn for fn in (ask_user_questions,configure_report_delivery,get_current_time,inspect_task_history,get_report_site_address,inspect_report_data,preview_report_calculation,preview_scheduled_report,search_api_docs,read_api_documentation,probe_api,set_source_access,inspect_connector_environment,test_mapping,show_data_preview,preview_calculation,
+    tools = {fn.name:fn for fn in (ask_user_questions,configure_report_delivery,get_current_time,inspect_task_history,get_report_site_address,inspect_report_data,preview_report_calculation,preview_scheduled_report,search_api_docs,read_api_documentation,probe_api,inspect_api_sample,set_source_access,inspect_connector_environment,test_mapping,show_data_preview,preview_calculation,
         browser_open,browser_snapshot,browser_action,browser_network,browser_read_response,browser_extract,test_browser_connector)}
     try:
         checkpoint()
@@ -598,7 +659,7 @@ def run(job_id) -> ConnectorDraft:
         model = _get_llm({**cfg,'single_request_connections':True}).bind_tools(model_tools(tools.values()),max_tokens=8192,timeout=120,stream_usage=True)
         context=conversation_context(job) if job.parent_id else {}
         current_time=clock_context()
-        system_instruction=INSTRUCTION+TOOL_GUIDE+'\n\n'+language_instruction
+        system_instruction=INSTRUCTION+TOOL_GUIDE+API_DISCOVERY_INSTRUCTION+RESPONSE_STYLE_INSTRUCTION+'\n\n'+language_instruction
         if messages:
             messages=connector_sessions.complete_tool_groups(messages)
             if isinstance(messages[0],SystemMessage):messages[0]=SystemMessage(content=system_instruction)
@@ -614,7 +675,8 @@ def run(job_id) -> ConnectorDraft:
         else:messages = [SystemMessage(content=system_instruction), HumanMessage(content=json.dumps(clean({
             'current_time':current_time,'response_language':cfg['response_language'],'requirement':job.prompt,'api_url':job.api_url,'header_env':job.header_env,'authentication':summary(job),
             **context,
-            'sample':sample if sample is None else json.dumps(sample,ensure_ascii=False)[:12000]}),ensure_ascii=False))]
+            'sample':sample if sample is None else json.dumps(sample,ensure_ascii=False)[:6000],
+            'sample_shape':observed_json_shape(sample) if sample is not None else None}),ensure_ascii=False))]
         for turn in range(MAX_CALLS):
             checkpoint()
             stalled=memory.stalled_turns>=6
@@ -762,7 +824,7 @@ def run(job_id) -> ConnectorDraft:
             except (ValueError,ConnectorDraft.DoesNotExist):retain=False
             if retain:
                 state={'messages':messages,'memory':memory,'browser':browser,'sources':sources,
-                    'sample':sample,'browser_sample':browser_sample,'browser_digest':browser_digest,'failed_operations':failed_operations,'image_hash':image_hash}
+                    'sample':sample,'sample_request':sample_request,'browser_sample':browser_sample,'browser_digest':browser_digest,'image_hash':image_hash}
                 from .connector_storage import save
                 save(job,state)
                 connector_sessions.put(job.pk,job.user_id,state)

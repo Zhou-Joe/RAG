@@ -50,13 +50,14 @@ def integer(value, name, low, high):
 
 
 class TrackerQuery:
-    def __init__(self, allowed, evidence=None, relationship_scope=None):
+    def __init__(self, allowed, evidence=None, relationship_scope=None, row_scope=None):
         self.allowed = allowed
         self.evidence = evidence if evidence is not None else []
         self.remaining = TURN_CHARS
         self.lock = threading.Lock()
         from .kb_links import RelationshipScope
         self.relationship_scope = relationship_scope or RelationshipScope(allowed)
+        self.row_scope = row_scope
 
     def call(self, method, **params):
         """并行工具调用共用同一字符预算；不截断 JSON 或假装返回完整表格。"""
@@ -153,6 +154,8 @@ class TrackerQuery:
         if not tables:
             raise ValueError('范围内没有追踪表，请先调用 tracker_preview。')
         rows = TrackerRow.objects.filter(tracker__in=tables)
+        if self.row_scope is not None:
+            rows = rows.filter(self.row_scope)
         if status != 'all':
             rows = rows.filter(status=status)
         aliases = {}

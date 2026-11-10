@@ -26,6 +26,94 @@ def redact(value,secrets=()):
     return value
 
 
+def observed_json_shape(sample):
+    """Give the agent real JSON Pointer paths without dumping a large response."""
+    sample=redact(sample)
+    paths=[];arrays=[];limited=False
+
+    def pointer(parts):
+        value=''.join('/'+str(part).replace('~','~0').replace('/','~1') for part in parts)
+        return value if len(value)<=500 else None
+
+    def kind(value):
+        if value is None:return 'null'
+        if isinstance(value,bool):return 'boolean'
+        if isinstance(value,dict):return 'object'
+        if isinstance(value,list):return 'array'
+        if isinstance(value,(int,float)):return 'number'
+        return 'string'
+
+    def describe(value,path):
+        item={'path':path,'type':kind(value)}
+        if isinstance(value,dict):
+            item['keys']=[str(key)[:80] for key in list(value)[:40]];item['count']=len(value)
+            if len(value)>40 or any(len(str(key))>80 for key in list(value)[:40]):item['keys_truncated']=True
+        elif isinstance(value,list):
+            item['count']=len(value)
+            if value and isinstance(value[0],dict):item['first_item_keys']=[str(key)[:60] for key in list(value[0])[:12]]
+        elif value is not None:item['example']=str(value)[:60]
+        return item
+
+    def fields_in_record(record,parts=(),depth=0):
+        fields=[]
+        if not isinstance(record,dict):return fields
+        for key,value in list(record.items())[:60]:
+            path=pointer((*parts,key))
+            if path is None:continue
+            fields.append(describe(value,path))
+            if isinstance(value,dict) and depth<2:fields.extend(fields_in_record(value,(*parts,key),depth+1))
+            if len(fields)>=80:break
+        return fields[:80]
+
+    def record_fields(records):
+        union={}
+        for record in records[:50]:
+            for field in fields_in_record(record):
+                path=field['path']
+                if path in union:
+                    union[path]['seen_in']+=1
+                    if field['type']!=union[path]['type']:
+                        union[path].setdefault('other_types',[])
+                        if field['type'] not in union[path]['other_types']:union[path]['other_types'].append(field['type'])
+                elif len(union)<80:union[path]={**field,'seen_in':1}
+        return list(union.values())
+
+    def visit(value,parts=(),depth=0):
+        nonlocal limited
+        if len(paths)>=80:limited=True;return
+        path=pointer(parts)
+        if path is None:limited=True;return
+        paths.append(describe(value,path))
+        if isinstance(value,list):
+            if len(arrays)<12:
+                item_types=list(dict.fromkeys(kind(item) for item in value[:50]))
+                arrays.append({'records_path':path,'count':len(value),'item_type':item_types[0] if len(item_types)==1 else 'mixed' if item_types else 'unknown',
+                    'sampled_items':min(len(value),50),'item_fields':record_fields(value)})
+            else:limited=True
+        elif isinstance(value,dict):
+            if depth>=6:
+                if value:limited=True
+                return
+            for index,(key,child) in enumerate(value.items()):
+                visit(child,(*parts,key),depth+1)
+                if len(paths)>=80:
+                    if index<len(value)-1:limited=True
+                    break
+
+    visit(sample)
+    result={'root_type':kind(sample),'observed_paths':paths,'record_arrays':arrays,
+        'paths_truncated':limited,'path_syntax':'JSON Pointer; record field paths are relative to each array item'}
+    while len(json.dumps(result,ensure_ascii=False))>16000:
+        candidates=[array for array in arrays if array['item_fields']]
+        if candidates:
+            max(candidates,key=lambda array:len(array['item_fields']))['item_fields'].pop()
+        elif len(paths)>1:paths.pop()
+        elif len(arrays)>1:arrays.pop()
+        else:break
+        result['paths_truncated']=True
+    return result
+
+
 class PageText(HTMLParser):
     def __init__(self):super().__init__(convert_charrefs=True);self.parts=[];self.skip=0;self.links=[];self.link=None
     def handle_starttag(self,tag,attrs):
@@ -132,6 +220,24 @@ def sample_preview(job,spec,sample):
             if value not in (None,'',[]):present+=1
         coverage.append({'label':field['label'],'present':present,'total':len(records)-exempt,'not_applicable':exempt})
     preview['field_coverage']=coverage
+    if spec.get('source_type','api')=='api':
+        absent=object()
+        unmapped=[field['label']+' ('+field['path']+')'
+            for field in spec['body_fields']
+            if field.get('required',True) and isinstance(field.get('path'),str)
+            and all(lookup(record,field['path'],absent) is absent for record in records)]
+        if spec.get('title_path') and all(lookup(record,spec['title_path'],absent) is absent for record in records):
+            unmapped.append('title_path ('+spec['title_path']+')')
+        for field in spec['body_fields']:
+            if field.get('format')!='table':continue
+            tables=[lookup(record,field['path'],None) for record in records]
+            rows=[row for table in tables if isinstance(table,list) for row in table if isinstance(row,dict)]
+            if rows:
+                unmapped.extend(field['label']+'.'+column['label']+' ('+column['path']+')'
+                    for column in field['columns']
+                    if all(lookup(row,column['path'],absent) is absent for row in rows))
+        if unmapped:
+            raise ValueError('API 真实样例中所有记录都不存在已配置字段路径：'+('、'.join(unmapped))+'. 请按 probe_api 的 item_fields 或 inspect_api_sample 修正路径；确属可缺失业务字段才明确设 required=false。')
     missing=[field['label'] for field in coverage if field['present']<field['total']]
     issues=[{'title':item['title'],'message':item.get('metadata',{}).get('collection_warning')} for item in payload['items'] if item.get('metadata',{}).get('collection_warning')]
     preview['warnings']=issues

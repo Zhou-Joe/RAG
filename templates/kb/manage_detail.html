@@ -1,10 +1,22 @@
 {% extends "kb/_base.html" %}{% load static %}
 {% block title %}{{ kb.name }} · 知识库管理{% endblock %}
+{% block extra_head %}{% if show_tracker_data %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=5">{% endif %}{% endblock %}
 {% block content %}
+<svg aria-hidden="true" class="kb-icon-defs" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="kb-i-sparkles" viewBox="0 0 24 24"><path d="m12 2 1.7 6.3L20 10l-6.3 1.7L12 18l-1.7-6.3L4 10l6.3-1.7L12 2ZM19 17l.6 1.4L21 19l-1.4.6L19 21l-.6-1.4L17 19l1.4-.6L19 17Z"/></symbol>
+  <symbol id="kb-i-upload" viewBox="0 0 24 24"><path d="M7 18.5H6a4 4 0 0 1-.4-8A6.5 6.5 0 0 1 18.2 9a4.8 4.8 0 0 1 .8 9.5h-2"/><path d="M12 21V12m0 0-3.5 3.5M12 12l3.5 3.5"/></symbol>
+  <symbol id="kb-i-folder" viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-10Z"/></symbol>
+  <symbol id="kb-i-file" viewBox="0 0 24 24"><path d="M6 2.5h8l4 4v14A1.5 1.5 0 0 1 16.5 22h-10A1.5 1.5 0 0 1 5 20.5v-16A2 2 0 0 1 7 2.5Z"/><path d="M14 2.5v4h4M8 12h7M8 16h7"/></symbol>
+  <symbol id="kb-i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></symbol>
+  <symbol id="kb-i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="kb-i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></symbol>
+  <symbol id="kb-i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/></symbol>
+  <symbol id="kb-i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+</svg>
 <header class="page-head">
   <div class="page-head-main">
     <a class="page-back" href="/kb/manage/">资料上传中心</a>
-    <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge" id="kbAccessBadge">{{ kb.access_label }}</span>{% if not can_manage %} <span class="ro-badge" title="通用库对所有部门开放：可浏览、可检索、可问答；上传与修改由全局管理员维护">只读</span>{% endif %}{% if kb.embedding_label %} <span class="emb-badge">🧬 {{ kb.embedding_label }}</span>{% endif %}</h1>
+    <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge" id="kbAccessBadge">{{ kb.access_label }}</span>{% if not can_manage %} <span class="ro-badge" title="通用库对所有部门开放：可浏览、可检索、可问答；上传与修改由全局管理员维护">只读</span>{% endif %}{% if kb.embedding_label %} <span class="emb-badge"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-sparkles"></use></svg>{{ kb.embedding_label }}</span>{% endif %}</h1>
     <p class="page-desc"><span id="kbDescText">{% if kb.description %}{{ kb.description }}{% else %}（无描述）{% endif %}</span>
       · 文档 <span id="kbDocCount">{{ docs_total }}</span>
       · 向量块 <span id="kbChunkCount">{{ chunks_total }}</span></p>
@@ -12,7 +24,7 @@
   <div class="page-actions">
     <a class="btn outline" href="/kb/inspection/">检查项提取</a>
     {% if kb.is_folder %}<a class="btn outline" href="{% url 'kb:feeds' %}?kb={{ kb.slug|urlencode }}">自动更新数据源</a>{% endif %}
-    {% if kb.tracker.enabled %}<a class="btn outline" id="trkEntry" href="/kb/manage/{{ kb.slug }}/tracker/">追踪表</a>{% endif %}
+    {% if is_document_feed and can_manage %}<a class="btn outline" id="trkEntry" href="/kb/manage/{{ kb.slug }}/tracker/">配置 AI 提炼字段</a>{% elif kb.tracker.enabled %}<a class="btn outline" id="trkEntry" href="/kb/manage/{{ kb.slug }}/tracker/">追踪表</a>{% endif %}
     {% if can_manage %}<button type="button" id="descEditBtn" class="btn outline">编辑知识库</button>{% endif %}
   </div>
 </header>
@@ -27,6 +39,20 @@
 .trk-switch .sl::before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.25)}
 .trk-switch input:checked + .sl{background:var(--brand)}
 .trk-switch input:checked + .sl::before{transform:translateX(18px)}
+.kb-icon-defs{position:absolute;width:0;height:0;overflow:hidden}
+.kb-ui-icon{width:15px;height:15px;flex:none;vertical-align:-2px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.emb-badge .kb-ui-icon{width:13px;height:13px;margin-right:4px}
+.upload-hero-icon{display:block;width:40px;height:40px;margin:0 auto 12px;color:var(--brand);stroke-width:1.5}
+.upload-label{display:block}
+.upload-folder-icon{margin-right:5px}
+.doc-view-toggle .dvt-btn{display:inline-flex;align-items:center;gap:5px}
+.doc-view-toggle .kb-ui-icon{width:14px;height:14px}
+.doc-badge .kb-ui-icon{width:13px;height:13px}
+.uq-name{display:flex;align-items:center;gap:7px}
+.uq-name .kb-ui-icon{color:var(--brand)}
+.uq-file-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uq-state{display:inline-flex;align-items:center;gap:4px}
+.uq-state .kb-ui-icon{width:13px;height:13px}
 </style>
 <dialog id="kbEditDialog" class="fos-dialog">
   <form id="descForm">
@@ -52,6 +78,7 @@
   </form>
 </dialog>
 
+{% if show_tracker_data %}{% include "kb/_tracker_kb_records.html" %}{% endif %}
 
 {% if can_manage %}
 <div class="section-bar">
@@ -60,12 +87,12 @@
 <div class="upload-area">
   <form method="post" enctype="multipart/form-data" id="uploadForm">
     {% csrf_token %}
-    <label class="upload-label" for="fileInput">点击选择文件<span class="upload-hint">可按住 Shift/Cmd 多选，或把整个文件夹拖到这里 · PDF / Markdown / TXT / CSV / XLSX / 图片 JPG·PNG·WebP，业务表自动识别</span></label>
+    <label class="upload-label" for="fileInput"><svg class="kb-ui-icon upload-hero-icon" aria-hidden="true" focusable="false"><use href="#kb-i-upload"></use></svg>点击选择文件<span class="upload-hint">可按住 Shift/Cmd 多选，或把整个文件夹拖到这里 · PDF / Markdown / TXT / CSV / XLSX / 图片 JPG·PNG·WebP，业务表自动识别</span></label>
     <input type="file" name="file" id="fileInput" multiple
            accept=".pdf,.md,.markdown,.txt,.csv,.tsv,.xlsx,.xlsm,.jpg,.jpeg,.png,.webp">
     <input type="file" id="dirInput" webkitdirectory multiple hidden>
     <div class="upload-pick-row">
-      <button type="button" class="btn sm outline" id="pickDirBtn">选择整个文件夹</button>
+      <button type="button" class="btn sm outline" id="pickDirBtn"><svg class="kb-ui-icon upload-folder-icon" aria-hidden="true" focusable="false"><use href="#kb-i-folder"></use></svg>选择整个文件夹</button>
       <label class="page-embed-opt" title="图纸/扫描件类 PDF：OCR 文字少，整页视觉入库后可按自然语言搜到图纸页；普通文本手册无需开启">
         <input type="checkbox" name="page_embed" id="pageEmbedOpt">
         图纸 / 扫描件（整页视觉入库）
@@ -80,11 +107,12 @@
 <div class="readonly-note">此库为只读（通用库由全局管理员维护）：可正常查看文档、检索与问答；需上传或修改请联系全局管理员。</div>
 {% endif %}
 
+{% if show_tracker_data %}<details class="fkd-documents" id="kbDocumentDetails"><summary>原始文档 <span>{{ doc_list_count }} 份 · 展开查看文档列表</span></summary>{% endif %}
 <div class="section-bar">
   <div><h2>文档列表</h2></div>
   <span class="doc-view-toggle" role="group" aria-label="视图模式">
-    <button type="button" class="dvt-btn on" id="dvtList" title="列表视图">☰ 列表</button>
-    <button type="button" class="dvt-btn" id="dvtGrid" title="网格视图">▦ 网格</button>
+    <button type="button" class="dvt-btn on" id="dvtList" title="列表视图"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-list"></use></svg>列表</button>
+    <button type="button" class="dvt-btn" id="dvtGrid" title="网格视图"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-grid"></use></svg>网格</button>
   </span>
 </div>
 <div class="doc-list" id="docList">
@@ -100,13 +128,13 @@
       </div>
       <div class="doc-detail" data-detail>
         {% if doc.status == 'completed' %}
-          <span class="doc-badge badge-completed">✓ 已完成</span> · {{ doc.chunk_count }} 个片段
+          <span class="doc-badge badge-completed"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-check"></use></svg>已完成</span> · {% if doc.kb_id in feed_owned_child_ids %}AI 提炼源文档{% else %}{{ doc.chunk_count }} 个片段{% endif %}
           {% if doc.file_type == 'pdf' and doc.page_embed %}<span class="doc-badge badge-vis" title="整页视觉入库：每页渲染成图入多模态向量库">视觉模式</span>{% endif %}
           <span class="doc-desc" data-doc-desc>{{ doc.description }}</span>
         {% elif doc.status == 'failed' %}
-          <span class="doc-badge badge-failed">✗ 失败</span> {{ doc.error_msg|truncatechars:80 }}
+          <span class="doc-badge badge-failed"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-x"></use></svg>失败</span> {{ doc.error_msg|truncatechars:80 }}
         {% elif doc.status == 'pending' %}
-          <span class="doc-badge badge-pending">⏳ 排队中</span>
+          <span class="doc-badge badge-pending"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-clock"></use></svg>排队中</span>
         {% else %}
           <span class="spinner"></span> {{ doc.stage_detail|default:doc.get_status_display }}
         {% endif %}
@@ -116,7 +144,7 @@
         {% if doc.status == 'pending' %}0%{% elif doc.status == 'ocr' %}25%{% elif doc.status == 'indexing' %}75%{% else %}0%{% endif %}"></div></div>
       {% endif %}
     </div>
-    {% if can_manage %}<div class="doc-actions">
+    {% if can_manage and doc.kb_id not in feed_owned_child_ids %}<div class="doc-actions">
       <form method="post" action="{% url 'kb:doc_retry' kb.slug doc.id %}" class="doc-retry-form" {% if doc.status != 'failed' %}hidden{% endif %}>
         {% csrf_token %}<button type="submit" class="btn sm primary">重试（继续进度）</button>
       </form>
@@ -137,6 +165,7 @@
   <div class="empty">{% if can_manage %}还没有文档，上传第一份吧。{% else %}此库暂无文档。{% endif %}</div>
   {% endfor %}
 </div>
+{% if show_tracker_data %}</details>{% endif %}
 {% endblock %}
 
 {% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
@@ -303,6 +332,9 @@ const uploadQueue = document.getElementById('uploadQueue');
 const pageEmbedOpt = document.getElementById('pageEmbedOpt');
 const pickDirBtn = document.getElementById('pickDirBtn');
 const docList = document.getElementById('docList');
+function kbIcon(name){
+  return `<svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-${name}"></use></svg>`;
+}
 
 /* ---------- 批量上传：多选 / 选文件夹 / 拖拽（含文件夹递归） ---------- */
 const OK_EXT = ['pdf','md','markdown','txt','csv','tsv','xlsx','xlsm','jpg','jpeg','png','webp'];
@@ -336,8 +368,8 @@ function renderQueue(){
     li.className = 'uq-item';
     li.dataset.idx = i;
     const kb = f.size > 1048576 ? (f.size/1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(f.size/1024)) + ' KB';
-    li.innerHTML = '<span class="uq-name"></span><span class="uq-size"></span><span class="uq-state">待上传</span>';
-    li.querySelector('.uq-name').textContent = f.name;
+    li.innerHTML = `<span class="uq-name">${kbIcon('file')}<span class="uq-file-name"></span></span><span class="uq-size"></span><span class="uq-state">${kbIcon('clock')}<span>待上传</span></span>`;
+    li.querySelector('.uq-file-name').textContent = f.name;
     li.querySelector('.uq-size').textContent = kb;
     uploadQueue.appendChild(li);
   });
@@ -347,7 +379,9 @@ function setQueueState(i, state, text){
   const li = uploadQueue.querySelector(`[data-idx="${i}"]`);
   if (!li) return;
   li.className = 'uq-item ' + state;
-  li.querySelector('.uq-state').textContent = text;
+  const iconName = state === 'done' ? 'check' : state === 'fail' ? 'x' : 'clock';
+  li.querySelector('.uq-state').innerHTML = kbIcon(iconName) + '<span></span>';
+  li.querySelector('.uq-state span').textContent = text;
 }
 
 // 拖拽：文件夹 → webkitGetAsEntry 递归展开（dataTransfer.files 不含目录内容）
@@ -520,9 +554,6 @@ function bindDelete(btn){
 // 绑定页面已渲染的删除按钮
 document.querySelectorAll('.doc-del-btn').forEach(bindDelete);
 
-// 状态图标
-const STATUS_ICON = {completed:'✓',failed:'✗',pending:'⏳',ocr:'🔍',indexing:'🔢'};
-
 // 渲染单行文档
 function renderDocRow(d) {
   let row = document.querySelector(`[data-doc-id="${d.id}"]`);
@@ -532,7 +563,7 @@ function renderDocRow(d) {
     row.className = 'doc-item';
     row.dataset.docId = d.id;
     row.innerHTML = '<div class="doc-main"><div class="doc-name"></div><div class="doc-detail"></div></div>'
-      + (CAN_MANAGE ? '<div class="doc-actions"><button type="button" class="btn sm danger doc-del-btn"></button></div>' : '');
+      + (CAN_MANAGE && !d.feed_owned ? '<div class="doc-actions"><button type="button" class="btn sm danger doc-del-btn"></button></div>' : '');
     const btn = row.querySelector('.doc-del-btn');
     if (btn) {   // 只读库无删除按钮
       btn.title = '删除此文档及其向量';
@@ -546,6 +577,7 @@ function renderDocRow(d) {
     else docList.appendChild(row);
   }
   row.dataset.status = d.status;
+  if (d.feed_owned) row.querySelector('.doc-actions')?.remove();
 
   // 底部操作行：完成态补「更新描述」（处理完成时动态加上；与服务器渲染行一致）
   const actions = row.querySelector('.doc-actions');
@@ -583,12 +615,12 @@ function renderDocRow(d) {
     : `<div class="doc-name">${ftypeBadge(d.name, d.file_type)}<span class="doc-name-text">${esc(d.name)}</span></div>`;
 
   if (d.status === 'completed') {
-    html += `<div class="doc-detail"><span class="doc-badge badge-completed">✓ 已完成</span> · ${d.chunk_count} 个片段`
+    html += `<div class="doc-detail"><span class="doc-badge badge-completed">${kbIcon('check')}已完成</span> · ${d.feed_owned ? 'AI 提炼源文档' : `${d.chunk_count} 个片段`}`
       + `<span class="doc-desc" data-doc-desc>${esc(d.desc || '')}</span></div>`;
   } else if (d.status === 'failed') {
-    html += `<div class="doc-detail"><span class="doc-badge badge-failed">✗ 失败</span> ${esc(d.error) || '处理失败'}</div>`;
+    html += `<div class="doc-detail"><span class="doc-badge badge-failed">${kbIcon('x')}失败</span> ${esc(d.error) || '处理失败'}</div>`;
   } else {
-    const icon = d.status === 'pending' ? '<span class="doc-badge badge-pending">⏳ 待处理</span>' : '<span class="spinner"></span>';
+    const icon = d.status === 'pending' ? `<span class="doc-badge badge-pending">${kbIcon('clock')}待处理</span>` : '<span class="spinner"></span>';
     const text = esc(d.stage_detail || d.status_display) || '处理中…';
     html += `<div class="doc-detail">${icon} ${text}</div>`;
     html += `<div class="progress-bar"><div class="progress-fill" style="width:${d.progress}%"></div></div>`;
@@ -628,4 +660,6 @@ async function poll() {
 const hasProcessing = document.querySelectorAll('[data-status="pending"],[data-status="ocr"],[data-status="indexing"]').length > 0;
 if (hasProcessing) setTimeout(poll, 2000);
 </script>
+{% if show_tracker_data and can_manage %}<script src="{% static 'js/tracker_record_editor.js' %}?v=1" defer></script>{% endif %}
+{% if show_tracker_data %}<script src="{% static 'js/feed_kb_detail.js' %}?v=5" defer></script>{% endif %}
 {% endblock %}

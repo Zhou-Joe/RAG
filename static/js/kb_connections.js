@@ -76,7 +76,7 @@ async function init(root) {
     view=next;panel.hidden=view!=='cluster';
     root.querySelectorAll('[data-bubble-only]').forEach(node=>node.hidden=view!=='cluster');
     graph.setVisible(view==='cluster');
-    document.querySelectorAll('[data-kb-category]').forEach(node=>node.hidden=view==='cluster');
+    document.querySelectorAll('[data-kb-category]').forEach(node=>node.hidden=view==='cluster'||node.dataset.kbEmpty==='true');
     root.querySelectorAll('[data-kb-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.kbView===view)));
     try{sessionStorage.setItem('kb-manage-view',view);}catch{}
     if(view==='cluster')try{await ensureState();}catch(exc){get('klStatus').textContent=exc.message;}

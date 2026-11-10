@@ -126,10 +126,24 @@ def run_extraction(doc_id, tracker_id=None) -> bool:
     """
     import django
     django.setup()
-    from .models import Document, KbTracker, TrackerRow
+    from .models import Document, FeedRecord, KbTracker, TrackerRow
+
+    def extraction_allowed(current_doc, record):
+        if record is None:
+            return current_doc.status == Document.Status.COMPLETED
+        if record.deleted:
+            return False
+        if current_doc.status == Document.Status.COMPLETED:
+            return record.document_id == current_doc.id
+        # Append mode keeps a version that was current when AI extraction began.
+        return (current_doc.status == Document.Status.SUPERSEDED
+                and record.feed.write_mode == "append")
 
     doc = Document.objects.select_related("kb", "kb__parent").filter(id=doc_id).first()
     if doc is None:
+        return False
+    record = FeedRecord.objects.select_related("feed").filter(kb_id=doc.kb_id).first()
+    if not extraction_allowed(doc, record):
         return False
     if tracker_id is not None:
         tracker = KbTracker.objects.filter(id=tracker_id).first()
@@ -179,18 +193,29 @@ def run_extraction(doc_id, tracker_id=None) -> bool:
 
         # 终态写入均为 compare-and-set：仅当行仍处于 running（本次认领未被
         # 抢走）才落库，防止并发写入方互相覆盖（输家静默放弃）。
+        from django.db import transaction
         from django.utils import timezone as _tz
-        if prior and any(values[k] != (prior.get(k) or "") for k in values):
+        with transaction.atomic():
+            # Serialize the terminal write with document-version publication.
+            # Otherwise an old AI call can recreate an upsert row after its
+            # document was replaced while the model was still responding.
+            current_doc = Document.objects.get(pk=doc.pk)
+            record = (FeedRecord.objects.select_for_update().select_related("feed")
+                      .filter(kb_id=doc.kb_id).first())
+            if not extraction_allowed(current_doc, record):
+                TrackerRow.objects.filter(id=row.id, status=TrackerRow.Status.RUNNING).delete()
+                return False
+            if prior and any(values[k] != (prior.get(k) or "") for k in values):
+                n = TrackerRow.objects.filter(id=row.id, status=TrackerRow.Status.RUNNING).update(
+                    proposed_values=values, status=TrackerRow.Status.PROPOSED,
+                    error="", updated_at=_tz.now())
+                return bool(n)
             n = TrackerRow.objects.filter(id=row.id, status=TrackerRow.Status.RUNNING).update(
-                proposed_values=values, status=TrackerRow.Status.PROPOSED,
+                values=values, proposed_values={},
+                status=TrackerRow.Status.DONE,
+                schema_version=tracker.schema_version,
                 error="", updated_at=_tz.now())
             return bool(n)
-        n = TrackerRow.objects.filter(id=row.id, status=TrackerRow.Status.RUNNING).update(
-            values=values, proposed_values={},
-            status=TrackerRow.Status.DONE,
-            schema_version=tracker.schema_version,
-            error="", updated_at=_tz.now())
-        return bool(n)
     except Exception as e:  # noqa: BLE001 —— 失败要落到行上可见可重试
         from django.utils import timezone as _tz
         TrackerRow.objects.filter(

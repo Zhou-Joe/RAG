@@ -169,6 +169,32 @@ class CollectorApproveTests(TestCase):
         feed = collector_api.approve(user=self.admin, job=self.ready_job(), run_now=False)
         self.assertEqual([f['label'] for f in feed.adapter_spec['body_fields']], ['温度','报警','采集日期'])
 
+    def test_document_mode_preserves_raw_fields_and_opens_document_page(self):
+        from django.urls import reverse
+
+        job = self.ready_job()
+        feed = collector_api.approve(user=self.admin, job=job, ingest_mode='documents',
+                                     selected_fields=['温度'], run_now=False)
+        self.assertEqual(feed.adapter_spec['ingest_mode'], 'documents')
+        self.assertEqual([field['label'] for field in feed.adapter_spec['body_fields']],
+                         ['温度', '报警', '采集日期'])
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse('kb:manage_detail', args=[feed.kb.slug]))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'kb/manage_detail.html')
+        self.assertContains(response, '配置 AI 提炼字段')
+
+    def test_existing_feed_cannot_change_ingest_mode_in_place(self):
+        original = self.ready_job()
+        feed = collector_api.approve(user=self.admin, job=original, run_now=False)
+        revised = self.ready_job(parent=original, kb=feed.kb, job_spec=spec(ingest_mode='documents'))
+        with self.assertRaisesMessage(ValueError, '不能直接切换入库方式'):
+            collector_api.approve(user=self.admin, job=revised, run_now=False)
+        revised.refresh_from_db()
+        self.assertEqual(revised.status, 'ready')
+        feed.refresh_from_db()
+        self.assertEqual(feed.adapter_spec['ingest_mode'], 'tracker')
+
 
 class CollectorRefineTests(TestCase):
     def setUp(self):

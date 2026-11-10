@@ -2,7 +2,7 @@
 from django.contrib.auth.decorators import login_required
 from django.urls import path
 
-from . import graph_views, hierarchy_views, feed_views, connector_views, tracker_analysis_views, kb_link_views, views
+from . import graph_views, hierarchy_views, feed_views, connector_views, tracker_analysis_views, feed_kb_views, kb_link_views, pin_views, views
 
 from . import report_views
 
@@ -44,8 +44,11 @@ urlpatterns = [
     path("graph/relation/<int:relation_id>/", graph_views.graph_relation, name="graph_relation"),
     # 知识库管理（共享库管理员或个人库创建者）
     path("manage/", views.manage_list, name="manage_list"),
+    path("manage/<slug:slug>/pin/", pin_views.kb_pin, name="kb_pin"),
     path("manage/connections/state/", kb_link_views.connections, name="kb_connections"),
     path("manage/<slug:slug>/", views.manage_detail, name="manage_detail"),
+    path("manage/<slug:slug>/feed-data/", feed_kb_views.feed_data, name="feed_kb_data"),
+    path("manage/<slug:slug>/tracker-data/", feed_kb_views.tracker_data, name="tracker_kb_data"),
     path("manage/<slug:slug>/tracker/", views.tracker_view, name="tracker"),
     path("manage/<slug:slug>/tracker/analysis/", tracker_analysis_views.tracker_analysis, name="tracker_analysis"),
     path("manage/<slug:slug>/delete/", views.manage_delete, name="manage_delete"),

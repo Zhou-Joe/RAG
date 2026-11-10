@@ -1,5 +1,17 @@
 {
   "messages": {
+    "采集结果入库方式": "How to store collected records",
+    "直接写入追踪表 · 结构化数据": "Write to tracker · Structured data",
+    "每条记录作为文档 · 长文本 AI 提炼": "Each record as a document · AI refinement of long text",
+    "已启用任务的入库方式保持不变；新方式请新建任务。": "The storage mode of an enabled task stays the same. Create a new task to use another mode.",
+    "每条记录会保存成一份文档，保留全部采集字段。随后可在知识库配置追踪表字段，让 AI 提炼摘要。": "Each collected record becomes a document with all fields preserved. Configure tracker fields in the knowledge base to let AI extract a summary.",
+    "每条记录直接写入追踪表，适合字段已经明确的数据。": "Each record is written directly to the tracker when the fields are already defined.",
+    "文档模式保留全部已采集字段与原文，以便后续 AI 提炼。": "Document mode preserves all collected fields and source text for later AI refinement.",
+    "确认后每条采集记录成为知识库文档；文档处理完成后，可用追踪表 AI 按你配置的字段提炼。": "After confirmation, each collected record becomes a knowledge base document. Once processed, tracker AI can extract the fields you configured.",
+    "查看文档与 AI 提炼": "View documents and AI refinement",
+    "（拟生成文档）": "(documents to be created)",
+    "采集完成，文档已排队处理；后续按计划自动更新。": "Collection complete. Documents are queued for processing; future collections will run on schedule.",
+    "✓ 数据已入库到知识库追踪表，后续按计划自动更新。": "✓ Data was saved to the knowledge base tracker; future collections will run on schedule.",
     "AI分析范围": "AI analysis scope",
     "Apex 设备日志": "Apex equipment logs",
     "C 型架": "C-Frame",
@@ -2171,6 +2183,14 @@
     {
       "source": "变更人 {name}",
       "target": "Changed by {name}"
+    },
+    {
+      "source": "{count} 条记录已保留原文，请在文档查看采集提示。",
+      "target": "{count} records retained their source text. Review collection notices in the documents."
+    },
+    {
+      "source": "{count} 条记录已保留原文，请在追踪表查看采集提示。",
+      "target": "{count} records retained their source text. Review collection notices in the tracker."
     }
   ],
   "englishSource": {

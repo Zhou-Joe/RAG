@@ -119,14 +119,16 @@ def get_chunks(kb_slug: str, source: str) -> list[dict]:
         return []
 
 
-def delete_doc(kb_slug: str, source: str) -> None:
+def delete_doc(kb_slug: str, source: str) -> bool:
     """删除文档时同步清理（与 retriever.delete_doc_vectors 配对）。"""
     try:
         with _LOCK, contextlib.closing(_conn()) as conn, conn:
             conn.execute(
                 "DELETE FROM chunk WHERE kb_slug = ? AND source = ?", (kb_slug, source))
+        return True
     except Exception:
         logger.exception("关键词索引删除失败（kb=%s source=%s）", kb_slug, source)
+        return False
 
 
 def delete_kb(kb_slug: str) -> None:
@@ -162,21 +164,30 @@ def _terms(query: str) -> list[str]:
     return deduped[:16]  # 防超长 query 拖慢打分
 
 
-def search(kb_slug: str, query: str, limit: int = 20, *, source: str | None = None) -> list[dict]:
+def search(kb_slug: str, query: str, limit: int = 20, *, source: str | None = None,
+           sources: list[str] | None = None) -> list[dict]:
     """关键词检索：LIKE 预过滤 + 词频 × IDF 打分。
 
-    source 非空时先限定文档再排序，避免其它文档挤占候选名额。
+    source 或 sources 非空时先限定文档再排序，避免其它文档挤占候选名额。
     返回 [{"text","source","section","score"}]（按分数降序，≤ limit）。
     任何异常返回 []（降级纯向量）。
     """
     terms = _terms(query)
     if not terms:
         return []
+    if sources is not None and not sources:
+        return []
     try:
         # 锁内只做 fetch（连接即开即关）；打分在锁外，不阻塞其它库的读写
         with _LOCK, contextlib.closing(_conn()) as conn:
-            scope_sql = "kb_slug = ?" + (" AND source = ?" if source is not None else "")
-            scope_params = [kb_slug] + ([source] if source is not None else [])
+            scope_sql = "kb_slug = ?"
+            scope_params = [kb_slug]
+            if source is not None:
+                scope_sql += " AND source = ?"
+                scope_params.append(source)
+            elif sources is not None:
+                scope_sql += " AND source IN (" + ",".join("?" for _ in sources) + ")"
+                scope_params.extend(sources)
             total = conn.execute(
                 f"SELECT COUNT(*) FROM chunk WHERE {scope_sql}", scope_params).fetchone()[0]
             if not total:

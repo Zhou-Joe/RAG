@@ -21,7 +21,7 @@ from langchain_core.messages import AIMessageChunk, ToolMessage
 
 from kb.connector_agent import MAX_CALLS, MAX_SECONDS, recover_stale, run
 from kb.connector_runtime import build_batch, lookup, request_url, validate_spec
-from kb.connector_tools import check_spec, redact, sample_preview, search_docs
+from kb.connector_tools import check_spec, observed_json_shape, redact, sample_preview, search_docs
 from kb.connector_views import package
 from kb.feed_http import fetch_batch
 from kb.feed_protocol import validate_batch
@@ -42,6 +42,53 @@ def sample():
 
 
 class RuntimeTests(SimpleTestCase):
+    def test_observed_api_shape_reports_real_pointer_paths_without_large_values(self):
+        data={'payload':{'entries':[{'id':'A1','nested':{'value':42},'alarms':[{'code':'E1'}]}]},
+            'next':'cursor-2','access_token':'private-token','large':'x'*20000}
+        shape=observed_json_shape(data)
+        self.assertEqual(shape['root_type'],'object')
+        entries=next(row for row in shape['record_arrays'] if row['records_path']=='/payload/entries')
+        self.assertEqual(entries['count'],1)
+        self.assertIn('/nested/value',[field['path'] for field in entries['item_fields']])
+        self.assertIn('/next',[field['path'] for field in shape['observed_paths']])
+        self.assertNotIn('private-token',json.dumps(shape))
+        self.assertLess(len(json.dumps(shape)),12000)
+        self.assertEqual(observed_json_shape([{'id':1}])['record_arrays'][0]['records_path'],'')
+        self.assertEqual(observed_json_shape({'id':1})['record_arrays'],[])
+        sparse=observed_json_shape({'rows':[{'id':1},{'id':2,'temperature':25}]})
+        fields=sparse['record_arrays'][0]['item_fields']
+        self.assertEqual(next(field['seen_in'] for field in fields if field['path']=='/temperature'),1)
+        long_keys={('field'+str(index)+'x'*200):index for index in range(60)}
+        self.assertLessEqual(len(json.dumps(observed_json_shape(long_keys),ensure_ascii=False)),16000)
+
+    def test_document_mode_preserves_long_article_without_tracker_field_cap(self):
+        article='Long article content. '*650
+        data=sample();data['data'][0]['body']=article
+        config=spec(ingest_mode='documents',body_fields=[{'label':'正文','path':'body'},
+            {'label':'采集日期','source':'today'}])
+        item=validate_batch(build_batch(config,data))['items'][0]
+        self.assertIn(article,item['content'])
+        self.assertNotIn('采集日期',item['content'])
+        self.assertNotIn('fields',item)
+
+    def test_raw_api_preview_rejects_never_observed_required_field(self):
+        job=SimpleNamespace(api_url=spec()['url'],prompt=spec()['url'],header_env={})
+        guessed=spec(on_error='raw',body_fields=[{'label':'猜测温度','path':'invented'}])
+        with self.assertRaisesRegex(ValueError,'所有记录都不存在已配置字段路径'):
+            sample_preview(job,guessed,sample())
+        guessed['body_fields'][0]['required']=False
+        self.assertTrue(sample_preview(job,guessed,sample())['valid'])
+        partial=sample();partial['data'].append({**partial['data'][0],'device':'A2','temperature':None})
+        self.assertTrue(sample_preview(job,spec(on_error='raw'),partial)['valid'])
+        all_null=sample();all_null['data'][0]['temperature']=None
+        self.assertTrue(sample_preview(job,spec(on_error='raw'),all_null)['valid'])
+        bad_table=spec(on_error='raw',body_fields=[{'label':'报警','path':'alarms','format':'table',
+            'columns':[{'label':'猜测编号','path':'missing_code'}]}])
+        with self.assertRaisesRegex(ValueError,'报警.猜测编号'):
+            sample_preview(job,bad_table,sample())
+        with self.assertRaisesRegex(ValueError,'title_path'):
+            sample_preview(job,spec(on_error='raw',title_path='invented'),sample())
+
     def test_nested_mapping_composite_ids_units_tables_timestamps_and_cursor(self):
         payload=validate_batch(build_batch(spec(),sample()));item=payload['items'][0]
         self.assertEqual(json.loads(item['id']),['A1','2026-10-31']);self.assertIn('25 ℃',item['content'])
@@ -178,6 +225,54 @@ class AgentTests(TestCase):
             result,model=self.run_model([call('probe_api',{'url':config['url']}),answer(config)])
         self.assertEqual(result.status,'ready',str(result.events));self.assertEqual(read.call_args.kwargs['headers']['Authorization'],'Bearer hidden-secret')
         self.assertNotIn('hidden-secret',str(model.messages));self.assertNotIn('hidden-secret',json.dumps(result.events))
+
+    def test_probe_exposes_observed_shape_and_rejects_other_query_sample(self):
+        self.job.sample=None;self.job.api_url=spec()['url'];self.job.save(update_fields=['sample','api_url'])
+        model=FakeModel([call('probe_api',{'url':spec()['url']}),
+            call('inspect_api_sample',{'path':'/data/0'},'inspect'),
+            call('test_mapping',{'spec':spec(query={'page':2})},'mapping'),
+            AIMessageChunk(content='需要先探测第 2 页的真实响应。')])
+        with patch('kb.agent._get_llm',return_value=model),patch('kb.connector_agent.read_url',return_value=(200,{'content-type':'application/json'},json.dumps(sample()).encode())) as read:
+            result=run(self.job.pk)
+        self.assertEqual(result.status,'answered',result.error)
+        self.assertEqual(read.call_count,1)
+        tools=[json.loads(message.content) for message in model.messages[-1] if isinstance(message,ToolMessage)]
+        self.assertEqual(tools[0]['record_arrays'][0]['records_path'],'/data')
+        self.assertIn('/device',[row['path'] for row in tools[0]['record_arrays'][0]['item_fields']])
+        self.assertEqual(tools[1]['selected_path'],'/data/0')
+        self.assertIn('/device',[row['path'] for row in tools[1]['observed_paths']])
+        self.assertIn('URL 或 query 与已读取样例不一致',tools[2]['error'])
+
+    def test_source_change_drops_inherited_api_sample(self):
+        from kb.collector_api import refine_draft
+        self.job.api_url=spec()['url'];self.job.status='answered';self.job.save(update_fields=['api_url','status'])
+        with patch('kb.collector_api.start_async'):
+            child=refine_draft(user=self.user,job=self.job,requirement='改用新的实际接口',
+                api_url='https://api.example.test/other')
+        self.assertIsNone(child.sample)
+
+    def test_probe_returns_actionable_http_error_without_accepting_sample(self):
+        self.job.sample=None;self.job.api_url=spec()['url'];self.job.save(update_fields=['sample','api_url'])
+        model=FakeModel([call('probe_api',{'url':spec()['url']}),AIMessageChunk(content='接口返回错误，请核对参数。')])
+        with patch('kb.agent._get_llm',return_value=model),patch('kb.connector_agent.read_url',return_value=(429,{'content-type':'application/json','retry-after':'60'},b'{"error":"rate limited"}')):
+            result=run(self.job.pk)
+        self.assertEqual(result.status,'answered',result.error)
+        detail=json.loads(next(message.content for message in model.messages[-1] if isinstance(message,ToolMessage)))
+        self.assertEqual(detail['status'],429);self.assertEqual(detail['retry_after'],'60')
+        self.assertNotIn('sample',detail)
+
+    def test_rate_limit_from_prior_turn_does_not_block_later_probe(self):
+        self.job.sample=None;self.job.api_url=spec()['url'];self.job.save(update_fields=['sample','api_url'])
+        with patch('kb.connector_agent.read_url',return_value=(429,{'content-type':'application/json'},b'{"error":"slow down"}')):
+            parent,_=self.run_model([call('probe_api',{'url':spec()['url']}),AIMessageChunk(content='请稍后重试。')])
+        self.assertEqual(parent.status,'answered',parent.error)
+        child=ConnectorDraft.objects.create(user=self.user,parent=parent,prompt=parent.prompt,
+            feedback='现在重试',api_url=spec()['url'])
+        self.job=child
+        with patch('kb.connector_agent.read_url',return_value=(200,{'content-type':'application/json'},json.dumps(sample()).encode())) as read:
+            result,_=self.run_model([call('probe_api',{'url':spec()['url']}),AIMessageChunk(content='已取得真实样例。')])
+        self.assertEqual(result.status,'answered',result.error)
+        read.assert_called_once()
 
     def test_probe_cannot_send_auth_to_invented_origin(self):
         with patch('kb.connector_agent.read_url') as read:

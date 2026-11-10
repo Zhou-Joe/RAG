@@ -35,9 +35,15 @@ def model_tools(tools):
             props['spec']={'type':'object','required':['name','url','id_paths','body_fields'],
                 'description':'完整配置，保留已有正确字段。网页 source_type=browser，必须包含 browser.output；不能只提交动作。',
                 'properties':{'name':{'type':'string'},'url':{'type':'string'},'source_type':{'enum':['api','browser'],'type':'string'},
-                    'records_path':{'type':'string'},'title_path':{'type':'string'},
-                    'id_paths':{'type':'array','minItems':1,'maxItems':4,'items':{'type':'string'},'description':'真实稳定ID或详情链接的字段路径'},
-                    'body_fields':{'type':'array','minItems':1,'items':{'type':'object','required':['label'],'properties':{'label':{'type':'string'},'path':{'type':'string'},'computed':{'type':'object','required':['op','start','end'],'properties':{'op':{'enum':['duration']},'start':{'type':'string'},'end':{'type':'string'},'format':{'enum':['hhmm','iso8601','unix_seconds','unix_millis']},'unit':{'enum':['hours','minutes','seconds']}}}}}},
+                    'ingest_mode':{'type':'string','enum':['tracker','documents'],'description':'默认 tracker 直接写追踪表；documents 将每条采集记录作为文档入库，供后续追踪表 AI 抽取长文本。'},
+                    'records_path':{'type':'string','description':'从 probe_api.record_arrays 选真实数组的 records_path；根数组为 ""，可用 JSON Pointer。'},
+                    'single_record':{'type':'boolean','description':'只有真实响应在 records_path 处是单个对象时才设 true。'},
+                    'query':{'type':'object','description':'只填用户或上游文档确认的 GET 查询参数；变更后重新 probe_api。'},
+                    'title_path':{'type':'string','description':'相对单条记录的已观察字段路径。'},
+                    'id_paths':{'type':'array','minItems':1,'maxItems':4,'items':{'type':'string'},'description':'相对单条记录的真实稳定 ID 路径，从 probe_api.item_fields 选择。'},
+                    'body_fields':{'type':'array','minItems':1,'items':{'type':'object','required':['label'],'properties':{'label':{'type':'string'},'path':{'type':'string','description':'相对单条记录的已观察路径；不要猜 API 字段。'},'computed':{'type':'object','required':['op','start','end'],'properties':{'op':{'enum':['duration']},'start':{'type':'string'},'end':{'type':'string'},'format':{'enum':['hhmm','iso8601','unix_seconds','unix_millis']},'unit':{'enum':['hours','minutes','seconds']}}}}}},
+                    'next_cursor_path':{'type':'string','description':'仅上游响应中确有游标时填写观察到的路径。'},
+                    'cursor_param':{'type':'string','description':'仅上游文档确认如何请求下一页时填写参数名。'},
                     'browser':{'type':'object','required':['output'],'properties':{'actions':{'type':'array','items':{'type':'object'}},'output':{'type':'object','description':'dom 必须有 rows 和 fields；network 必须有 url_contains 和 path','properties':{'kind':{'enum':['dom','network']},'rows':{'type':'string'},'fields':{'type':'object'},'detail':{'type':'object'},'url_contains':{'type':'string'},'path':{'type':'string'}}}}}}}
             field_props=props['spec']['properties']['body_fields']['items']['properties']
             field_props['computed']=calculation_schema()
@@ -47,7 +53,7 @@ def model_tools(tools):
             field_props['source']={'type':'string','enum':['today','now'],'description':'由系统生成采集日期或采集时间，所有模式都支持；不从网站取值，不再询问日期来源。'}
             props['spec']['properties']['on_error']={'type':'string','enum':['raw','fail'],'default':'raw','description':'raw保留真实原文与解析提示；fail才对格式问题失败。'}
             props['spec']['properties']['write_mode']={'type':'string','enum':['append','upsert'],'default':'append','description':'默认append：每次采集追加新行，保留历史，适合运营时间、价格、指标、同比环比。仅用户明确只要最新状态/覆盖时用upsert，按稳定ID更新；切换不删除历史。'}
-            props['spec']['properties']['url']['description']='浏览器真实起始URL，必须保留单页应用的完整 #/... 路由。'
+            props['spec']['properties']['url']['description']='API 使用已探测的准确 GET 端点；浏览器使用真实起始 URL 并保留单页应用的完整 #/... 路由。'
             props['spec']['properties']['browser']['properties']['output']['description']='network读取实际JSON数组，支持fields注入today/now及detail.url_field逐条取详情；dom通过rows和fields取数。'
             detail=props['spec']['properties']['browser']['properties']['output']['properties']['detail']
             detail['properties']={'url_field':{'type':'string'},'click_selector':{'type':'string'},'fields':{'type':'object'},'render':{'type':'string','enum':['browser','html'],'description':'已确认HTML有完整数据时选html；动态数据用browser。'}}
