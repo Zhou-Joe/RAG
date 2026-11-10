@@ -94,15 +94,30 @@ def _inline(text: str) -> str:
     先整体 HTML 转义再套 markdown 规则（escape 只动 & < > "，
     不影响 * ` [ ] ( ) 标记语法），杜绝 <script> 直进 <p>。
     """
+    escaped = []
+    prefix = '\x00ESC'
+    while prefix in text:
+        prefix += 'E'
+    def protect(match):
+        escaped.append(match.group(1))
+        return prefix + str(len(escaped) - 1) + '\x00'
+    # Preserve literal source punctuation before applying Markdown patterns.
+    # Restoring after conversion keeps escaped image/link syntax inert.
+    text = re.sub(r'\\([!"#$%&\'()*+,\-./:;<=>?@\[\]\\^_`{|}~])', protect, text)
     text = _html.escape(text, quote=False)
 
+    def restore(value):
+        for index, char in enumerate(escaped):
+            value = value.replace(prefix + str(index) + '\x00', char)
+        return value
+
     def _img_repl(m):
-        alt = _html.escape(_html.unescape(m.group(1)), quote=True)
-        src = _html.escape(_safe_url(_html.unescape(m.group(2))), quote=True)
+        alt = _html.escape(_html.unescape(restore(m.group(1))), quote=True)
+        src = _html.escape(_safe_url(_html.unescape(restore(m.group(2)))), quote=True)
         return f'<img alt="{alt}" src="{src}">'
 
     def _link_repl(m):
-        href = _html.escape(_safe_url(_html.unescape(m.group(2))), quote=True)
+        href = _html.escape(_safe_url(_html.unescape(restore(m.group(2)))), quote=True)
         return f'<a href="{href}">{m.group(1)}</a>'  # 链接文字已随整体转义
 
     text = _INLINE_IMG.sub(_img_repl, text)
@@ -110,6 +125,10 @@ def _inline(text: str) -> str:
     text = _INLINE_BOLD.sub(r"<strong>\1</strong>", text)
     text = _INLINE_CODE.sub(r"<code>\1</code>", text)
     text = _INLINE_ITALIC.sub(r"<em>\1</em>", text)
+    for index, char in enumerate(escaped):
+        # A protected quote may sit inside a generated href/src attribute.
+        # Escape for both text and attribute contexts when restoring it.
+        text = text.replace(prefix + str(index) + '\x00', _html.escape(char, quote=True))
     return text
 
 
@@ -138,21 +157,28 @@ def md_to_html(md: str) -> str:
             list_type = None
 
     in_code_fence = False
+    fence_marker = ''
     code_buf: list[str] = []
 
     for raw in lines:
-        # ---- 代码围栏 ``` ----
-        if raw.strip().startswith("```"):
-            if in_code_fence:
+        # A longer opening fence may safely contain shorter literal fences.
+        fence = re.match(r'^\s*(`{3,}|~{3,})(.*)$', raw)
+        if fence:
+            marker, suffix = fence.groups()
+            if in_code_fence and marker[0] == fence_marker[0] \
+                    and len(marker) >= len(fence_marker) and not suffix.strip():
                 code = _html.escape("\n".join(code_buf))
                 out.append(f"<pre><code>{code}</code></pre>")
                 code_buf = []
                 in_code_fence = False
-            else:
+                fence_marker = ''
+                continue
+            elif not in_code_fence:
                 flush_para()
                 close_list()
                 in_code_fence = True
-            continue
+                fence_marker = marker
+                continue
         if in_code_fence:
             code_buf.append(raw)
             continue

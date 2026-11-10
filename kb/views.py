@@ -140,7 +140,7 @@ def _recount(kb: KnowledgeBase) -> None:
 
 def _create_manual_document(kb: KnowledgeBase, upload, user,
                             page_embed: bool = False) -> Document:
-    """把手册上传到指定顶层库；文件夹库自动创建隔离的子文档库。
+    """把文件上传到指定知识库；文件夹库自动创建隔离的子文档库。
 
     page_embed：视觉文档模式（图纸/扫描件）——PDF 每页渲染成图入多模态
     向量库，OCR 文字少的图纸页也能被自然语言搜到。
@@ -151,11 +151,17 @@ def _create_manual_document(kb: KnowledgeBase, upload, user,
     ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
     file_types = {
         "pdf": "pdf", "md": "md", "markdown": "md", "txt": "txt",
+        "csv": "csv", "tsv": "tsv", "xlsx": "xlsx", "xlsm": "xlsm",
+        "docx": "docx", "eml": "eml", "msg": "msg",
         # 照片直传：JPG/PNG/WebP 走多模态索引
         "jpg": "image", "jpeg": "image", "png": "image", "webp": "image",
     }
     if ext not in file_types:
-        raise ValueError("仅支持 PDF、Markdown（.md）、TXT 和图片（JPG/PNG/WebP）文件。")
+        if ext == "doc":
+            raise ValueError("请将旧版 Word .doc 文件另存为 .docx 后上传。")
+        if ext == "xls":
+            raise ValueError("请将旧版 Excel .xls 文件另存为 .xlsx 后上传。")
+        raise ValueError("支持 PDF、Word（DOCX）、Excel（XLSX/XLSM）、CSV/TSV、邮件（EML/MSG）、Markdown、TXT 和图片（JPG/PNG/WebP）。")
 
     with transaction.atomic():
         if kb.is_folder:
@@ -165,6 +171,7 @@ def _create_manual_document(kb: KnowledgeBase, upload, user,
                 description=f"自动创建：{fname}",
                 is_folder=False,
                 parent=kb,
+                category=kb.category,
                 department=kb.department,  # 子库继承父库部门，保持检索可见性一致
                 created_by=user,
             )
@@ -338,8 +345,8 @@ def manage_detail(request, slug):
     # 本视图的上传与各独立写端点仍逐个卡 can_manage_kb。
     can_manage = kb_access.can_manage_kb(request.user, kb)
 
-    # ---------- 上传（统一入口，按格式自动路由） ----------
-    # pdf/md/txt → 手册解析入库；csv/xlsx → 业务数据导入（kind 自动识别）
+    # ---------- 上传：所有文件保留在用户选择的知识库 ----------
+    # 结构化业务数据导入保留独立入口，不再因文件扩展名自动切换流程。
     if request.method == "POST" and request.FILES.get("file"):
         if not can_manage:
             denied = "该知识库为只读（通用库由全局管理员维护），无法上传。"
@@ -348,33 +355,17 @@ def manage_detail(request, slug):
             messages.error(request, denied)
             return redirect("kb:manage_detail", slug=slug)
         upload = request.FILES["file"]
-        ext = Path(upload.name).suffix.lower()
         is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
         try:
-            if ext in (".csv", ".tsv", ".xlsx", ".xlsm"):
-                from .structured_data import (
-                    FIELD_LABELS, StructuredDataError, import_structured_dataset,
-                )
-                dataset = import_structured_dataset(upload, "", request.user, kb=kb)
-                mapped = "、".join(
-                    label for key, label in FIELD_LABELS.items() if key in dataset.mapping
-                ) or "未识别到标准关联字段（原始列已保留）"
-                msg = (f"已识别为业务数据并导入「{dataset.source_name}」"
-                       f"（{dataset.get_kind_display()}）：{dataset.row_count} 行；{mapped}。")
-                if is_ajax:
-                    return JsonResponse({"ok": True, "message": msg})
-                messages.success(request, msg)
-            else:
-                doc = _create_manual_document(
-                    kb, upload, request.user,
-                    page_embed=request.POST.get("page_embed") == "on")
-                from .pipeline import process_document_async
-                process_document_async(doc.id)
-                msg = f"已上传「{doc.original_name}」，正在后台处理…"
-                if is_ajax:
-                    # 批量上传（AJAX 单文件逐个提交）→ JSON（页面不跳转，队列继续）
-                    return JsonResponse({"ok": True, "doc_id": str(doc.id), "message": msg})
-                messages.success(request, msg)
+            doc = _create_manual_document(
+                kb, upload, request.user,
+                page_embed=request.POST.get("page_embed") == "on")
+            from .pipeline import process_document_async
+            process_document_async(doc.id)
+            msg = f"已上传「{doc.original_name}」，正在后台处理…"
+            if is_ajax:
+                return JsonResponse({"ok": True, "doc_id": str(doc.id), "message": msg})
+            messages.success(request, msg)
         except ValueError as exc:
             if is_ajax:
                 return JsonResponse({"ok": False, "message": str(exc)})

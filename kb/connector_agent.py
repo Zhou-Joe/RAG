@@ -65,7 +65,7 @@ test_browser_connector实际取数后会直接进入用户审核；默认缺失�
 如有 previous_connector、previous_examples 和 review_feedback，在原方案上按用户反馈调整并重新获取/验证真实样例；保留已认可的其他要求。
 你只生成候选方案和样例，不启用调度、不发布知识库。用户可以反复调整，只有用户明确点击批准后，系统才入库并启动 cron。
 明细数组可映射成Markdown表格或JSON。稳定ID不能使用随机值、当前时间或数组序号；设备报告可使用设备ID+报告日期组合。
-默认每小时cron="0 * * * *"、timezone="Asia/Shanghai"，按用户要求修改。每批最多500条、2MB、单条正文100000字符。
+默认每小时cron="0 * * * *"、timezone="Asia/Shanghai"，按用户要求修改。每批最多500条、2MB、单条正文100000字符；每条记录的fields与metadata分别最多20000个序列化JSON字符（含键名和结构），需要完整元数据时可用空路径映射整个对象，不要静默截断。
 大接口使用已知的分页参数，每次定时运行只拉一页，成功发布才提交游标；不遍历全部历史。
 网页POST查询、登录和XHR由浏览器工具完成，详情关联由detail配置完成；不要求用户编写GET代理。
 API脚本使用标准库，网页脚本使用已安装的Playwright和Chromium或Edge。系统将验证后的步骤生成可独立运行的Python脚本与依赖说明；不输出任意Python或JavaScript代码。
@@ -420,12 +420,13 @@ def run(job_id) -> ConnectorDraft:
     def inspect_connector_environment() -> dict:
         """检查可信运行时、依赖及接入规范，不读取任何环境变量值。"""
         from .connector_calculations import ARITY
-        from .feed_protocol import MAX_ITEMS
+        from .feed_protocol import MAX_ITEMS, MAX_FIELDS_CHARS, MAX_METADATA_CHARS
         return {'python':'3.10+', 'dependencies':{'api':'Python standard library','browser':'Playwright 1.58.0 + Chromium/Edge'},
             'computed_operations':list(ARITY),'calculation_tool':'preview_calculation','detail_render_modes':['auto','html','browser'],
             'sources':['GET JSON API','HTML webpage','JavaScript rendered webpage','browser JSON network responses'],
             'http_methods':['GET','browser-managed POST'], 'contract':'fos-rag-feed/v1', 'max_batch_items':MAX_ITEMS,
-            'max_batch_bytes':2000000, 'path_syntax':['dot.path','/json/pointer'],
+            'max_batch_bytes':2000000, 'max_fields_json_chars':MAX_FIELDS_CHARS,
+            'max_metadata_json_chars':MAX_METADATA_CHARS, 'path_syntax':['dot.path','/json/pointer'],
             'approved_header_references':job.header_env,'authentication':summary(job), 'sample_available':sample is not None}
 
     @tool

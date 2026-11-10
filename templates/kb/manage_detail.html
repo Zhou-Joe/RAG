@@ -87,9 +87,9 @@
 <div class="upload-area">
   <form method="post" enctype="multipart/form-data" id="uploadForm">
     {% csrf_token %}
-    <label class="upload-label" for="fileInput"><svg class="kb-ui-icon upload-hero-icon" aria-hidden="true" focusable="false"><use href="#kb-i-upload"></use></svg>点击选择文件<span class="upload-hint">可按住 Shift/Cmd 多选，或把整个文件夹拖到这里 · PDF / Markdown / TXT / CSV / XLSX / 图片 JPG·PNG·WebP，业务表自动识别</span></label>
+    <label class="upload-label" for="fileInput"><svg class="kb-ui-icon upload-hero-icon" aria-hidden="true" focusable="false"><use href="#kb-i-upload"></use></svg>点击选择文件<span class="upload-hint">支持 PDF / Word DOCX / Excel XLSX·XLSM / CSV·TSV / 邮件 EML·MSG / Markdown·TXT / 图片；文件保存在当前知识库，可多选或拖入文件夹。</span></label>
     <input type="file" name="file" id="fileInput" multiple
-           accept=".pdf,.md,.markdown,.txt,.csv,.tsv,.xlsx,.xlsm,.jpg,.jpeg,.png,.webp">
+           accept=".pdf,.md,.markdown,.txt,.csv,.tsv,.xlsx,.xlsm,.docx,.eml,.msg,.jpg,.jpeg,.png,.webp">
     <input type="file" id="dirInput" webkitdirectory multiple hidden>
     <div class="upload-pick-row">
       <button type="button" class="btn sm outline" id="pickDirBtn"><svg class="kb-ui-icon upload-folder-icon" aria-hidden="true" focusable="false"><use href="#kb-i-folder"></use></svg>选择整个文件夹</button>
@@ -316,6 +316,7 @@ function ftypeBadge(name, fileType){
              xls:['xls','XLS'], xlsx:['xls','XLS'], xlsm:['xls','XLS'],
              csv:['xls','XLS'], tsv:['xls','XLS'],
              md:['txt','TXT'], markdown:['txt','TXT'], txt:['txt','TXT'],
+             eml:['mail','MAIL'], msg:['mail','MAIL'],
              jpg:['img','IMG'], jpeg:['img','IMG'], png:['img','IMG'], webp:['img','IMG']};
   const [k, l] = m[ext] || ['file', 'FILE'];
   return `<span class="ftype ftype-${k}" title="文件类型">${l}</span>`;
@@ -337,7 +338,7 @@ function kbIcon(name){
 }
 
 /* ---------- 批量上传：多选 / 选文件夹 / 拖拽（含文件夹递归） ---------- */
-const OK_EXT = ['pdf','md','markdown','txt','csv','tsv','xlsx','xlsm','jpg','jpeg','png','webp'];
+const OK_EXT = ['pdf','md','markdown','txt','csv','tsv','xlsx','xlsm','docx','eml','msg','jpg','jpeg','png','webp'];
 let pendingFiles = [];   // 待上传队列（去重按 name+size）
 
 function addFiles(list){

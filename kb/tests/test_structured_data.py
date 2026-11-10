@@ -102,13 +102,10 @@ class StructuredDataTests(TestCase):
         self.assertContains(upload_page, "资料上传中心")
         self.assertContains(upload_page, "业务数据")
 
-        # 统一上传：CSV 从手册库入口上传，按扩展名自动导入为业务数据
-        library = KnowledgeBase.objects.create(
-            name="业务库", slug="unified-lib", is_folder=True, created_by=user,
-        )
+        # 业务关联导入是显式操作；知识库文件上传保留原始文档。
         response = self.client.post(
-            reverse("kb:manage_detail", args=[library.slug]),
-            {"file": csv_upload(
+            reverse("kb:manage_list"),
+            {"action": "upload_structured", "file": csv_upload(
                 "drawing-ui.csv",
                 "图纸号,部件名称,G-code,SCP等级\nUI-900,制动器,G-9,SCP-1\n",
             )},
@@ -116,7 +113,7 @@ class StructuredDataTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         # 消息经 json_script 渲染，连字符会被转义成 \u002D → 断言不含连字符的前缀
-        self.assertContains(response, "已识别为业务数据并导入")
+        self.assertContains(response, "已导入")
 
         response = self.client.get(reverse("kb:search"), {"q": "ui 900"})
         self.assertEqual(response.status_code, 200)

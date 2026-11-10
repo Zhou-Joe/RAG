@@ -584,6 +584,17 @@ def run_ocr_with_images(file_path: Path, file_type: str, on_progress=None) -> tu
         if on_progress:
             on_progress("正在读取文本文件…")
         return file_path.read_text(encoding="utf-8", errors="ignore"), {}, None
+    elif file_type in ("docx", "eml", "msg"):
+        if on_progress:
+            on_progress("正在读取 Word 或邮件文件…")
+        from .document_formats import office_email_to_markdown
+        md, images = office_email_to_markdown(file_path, file_type)
+        return md, images, None
+    elif file_type in ("csv", "tsv", "xlsx", "xlsm"):
+        if on_progress:
+            on_progress("正在读取电子表格…")
+        from .spreadsheet_documents import spreadsheet_to_markdown
+        return spreadsheet_to_markdown(file_path, file_type), {}, None
     elif file_type == "pdf":
         return _ocr_pdf(file_path, on_progress=on_progress)
     elif file_type == "image":

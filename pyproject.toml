@@ -28,6 +28,7 @@ dependencies = [
     "python-dotenv==1.2.1",
     # CSV/XLSX structured-data imports
     "openpyxl==3.1.5",
+    "olefile==0.47",
     # Local PDF OCR service used by the one-click deployment script.
     # 只通过 HTTP v1 接口调用；kb/pipeline.py 同时支持 4.0.x（File API）
     # 与 4.1.x（Tasks API），按服务端 /v1/health 报的版本号自动选择。

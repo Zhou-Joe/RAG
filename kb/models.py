@@ -196,6 +196,7 @@ class Document(models.Model):
         "pdf": "pdf", "doc": "doc", "docx": "doc",
         "xls": "xls", "xlsx": "xls", "xlsm": "xls", "csv": "xls", "tsv": "xls",
         "md": "txt", "markdown": "txt", "txt": "txt",
+        "eml": "mail", "msg": "mail",
         "jpg": "img", "jpeg": "img", "png": "img", "webp": "img",
     }
 
@@ -208,7 +209,7 @@ class Document(models.Model):
     @property
     def badge_label(self) -> str:
         return {"pdf": "PDF", "doc": "DOC", "xls": "XLS", "txt": "TXT",
-                "img": "IMG"}.get(self.badge_kind, "FILE")
+                "img": "IMG", "mail": "MAIL"}.get(self.badge_kind, "FILE")
 
 
 class ChunkProvenance(models.Model):

@@ -12,6 +12,8 @@ SCHEMA='fos-rag-feed/v1'
 MAX_BYTES=2_000_000
 MAX_ITEMS=500
 MAX_CONTENT=100_000
+MAX_FIELDS_CHARS=20_000
+MAX_METADATA_CHARS=20_000
 
 
 def canonical(value):
@@ -57,9 +59,9 @@ def validate_batch(payload) -> dict:
         if not isinstance(item.get('content'),str) or not item['content'].strip() or len(item['content'])>MAX_CONTENT:raise ValueError('content 必须是非空正文，最多100000字符。')
         if item.get('format','markdown') not in ('markdown','text'):raise ValueError('format 仅支持 markdown 或 text。')
         validate_url(item.get('source_url',''),required=False,allow_fragment=True)
-        if not isinstance(item.get('metadata',{}),dict) or len(canonical(item.get('metadata',{})))>8000:raise ValueError('metadata 必须是最多8000字符的 JSON 对象。')
+        if not isinstance(item.get('metadata',{}),dict) or len(canonical(item.get('metadata',{})))>MAX_METADATA_CHARS:raise ValueError(f'metadata 必须是最多{MAX_METADATA_CHARS}字符的 JSON 对象。')
         fields=item.get('fields',{})
-        if not isinstance(fields,dict) or len(canonical(fields))>8000 or any(not isinstance(key,str) or len(key)>200 or any(ord(ch)<32 for ch in key) or not isinstance(value,(str,int,float,bool)) for key,value in fields.items()):raise ValueError('fields 必须是标量值、最多8000字符的 JSON 对象，供追踪表展示。')
+        if not isinstance(fields,dict) or len(canonical(fields))>MAX_FIELDS_CHARS or any(not isinstance(key,str) or len(key)>200 or any(ord(ch)<32 for ch in key) or not isinstance(value,(str,int,float,bool)) for key,value in fields.items()):raise ValueError(f'fields 必须是标量值、最多{MAX_FIELDS_CHARS}字符的 JSON 对象，供追踪表展示。')
         if 'updated_at' in item:
             try:stamp=parse_datetime(item['updated_at']) if isinstance(item['updated_at'],str) else None
             except ValueError:stamp=None

@@ -1,5 +1,18 @@
 {
   "messages": {
+    "正在读取 Word 或邮件文件…": "Reading Word or email file…",
+    "正在读取电子表格…": "Reading spreadsheet…",
+    "Word 或邮件文件不能超过 25 MB，请拆分后上传。": "Word and email files must be no larger than 25 MB. Split the file and upload again.",
+    "表格文件超过 25 MB，请拆分后上传。": "The spreadsheet exceeds 25 MB. Split it and upload again.",
+    "无法读取 Excel 文件，请确认文件未损坏或加密。": "Cannot read the Excel file. Check that it is valid and not encrypted.",
+    "不是有效的 DOCX 文件；旧版 Word 请另存为 .docx。": "This is not a valid DOCX file. Save legacy Word files as .docx.",
+    "不是有效的 Outlook MSG 文件。": "This is not a valid Outlook MSG file.",
+    "此 MSG 仅含 RTF 正文，请在 Outlook 中另存为 EML 或 DOCX 后上传。": "This MSG has only an RTF body. Save it as EML or DOCX in Outlook before uploading.",
+    "支持 PDF / Word DOCX / Excel XLSX·XLSM / CSV·TSV / 邮件 EML·MSG / Markdown·TXT / 图片；文件保存在当前知识库，可多选或拖入文件夹。": "Upload PDF, Word DOCX, Excel XLSX/XLSM, CSV/TSV, email EML/MSG, Markdown/TXT, or images into this library. Select multiple files or drop a folder.",
+    "PDF / Word / Excel / 邮件 / Markdown / TXT / 图片，上传至指定知识库。": "Upload PDF, Word, Excel, email, Markdown, text, and images into the selected library.",
+    "请将旧版 Word .doc 文件另存为 .docx 后上传。": "Save the legacy Word .doc file as .docx before uploading.",
+    "请将旧版 Excel .xls 文件另存为 .xlsx 后上传。": "Save the legacy Excel .xls file as .xlsx before uploading.",
+    "支持 PDF、Word（DOCX）、Excel（XLSX/XLSM）、CSV/TSV、邮件（EML/MSG）、Markdown、TXT 和图片（JPG/PNG/WebP）。": "Supported files: PDF, Word (DOCX), Excel (XLSX/XLSM), CSV/TSV, email (EML/MSG), Markdown, TXT, and images (JPG/PNG/WebP).",
     "你置顶的知识库集中在这里，方便快速打开。": "Your pinned libraries stay here for quick access.",
     "其余手册库会显示在这里。": "Other manual libraries appear here.",
     "其余业务数据会显示在这里。": "Other business data libraries appear here.",

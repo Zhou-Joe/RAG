@@ -385,10 +385,10 @@ The UI's download button packages these files with this guide; no credentials or
 | `items` | Required array, possibly empty. Each item requires stable string `id`, `title`, and nonempty `content`. |
 | `id` | Stable identity within a source. Reuse it across collections: append mode stores a new observation; upsert mode updates the current row. Never generate a random ID every run. |
 | `format` | `markdown` (default) or literal `text`. Convert JSON records/tables to readable content in the connector. |
-| `fields` | Optional object of scalar values (≤ 8,000 serialized characters). Shown as tracker-table columns; generated automatically by AI connectors from each mapped field, including computed durations. |
+| `fields` | Optional object of scalar values (≤ 20,000 serialized JSON characters per record, including field names and JSON structure). Shown as tracker-table columns; generated automatically by AI connectors from each mapped field, including computed durations. Whole-object metadata mapped to a column is preserved as JSON text within this budget. |
 | `source_url` | Optional original HTTP(S) report link. No embedded credentials. Stored for provenance; RAG does not fetch it. |
 | `updated_at` | Optional upstream ISO 8601 timestamp with timezone. Upsert mode prevents older timestamps overwriting a newer current item; append mode retains each observation. |
-| `metadata` | Optional JSON object, at most 8,000 serialized characters. Auxiliary metadata; put facts that must be searchable into `content`. |
+| `metadata` | Optional JSON object, at most 20,000 serialized JSON characters per record. Auxiliary metadata; put facts that must be searchable into `content`. The 2 MB total batch limit still applies. |
 | `deleted` | Explicit deleted source IDs. Append mode retains history; upsert mode removes only current rows. Missing IDs are always preserved. A later observation can restore the source item. |
 | `cursor` | Optional opaque string, at most 2,048 characters. Committed only after the whole batch publishes. An empty string resets it. |
 | `batch_id` | Optional idempotency key, strongly recommended for pushes. Repeating a running/completed batch returns the existing run; a failed batch may retry with the same ID/content and produces a new attempt in history. Reusing an ID for different content is rejected. |

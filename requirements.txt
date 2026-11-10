@@ -14,6 +14,7 @@ chromadb==1.5.9
 aiosqlite==0.22.1
 openai==2.42.0
 openpyxl==3.1.5
+olefile==0.47  # Offline Outlook MSG source-file parsing
 Pillow==12.3.0  # 照片直传处理 + 视觉模式附图缩边
 pymupdf==1.28.2  # 证据面板：渲染原 PDF 页（chunk 级定位红圈）
 mineru[torch]==4.1.7  # PDF → Markdown 解析服务（只跑 HTTP API，可与本应用分开部署；4.0.x 也支持）

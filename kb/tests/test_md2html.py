@@ -30,3 +30,25 @@ class SanitizerTests(SimpleTestCase):
     def test_markdown_side_links_sanitized(self):
         out = md_to_html("[点我](javascript:alert(1))")
         self.assertNotIn("javascript", out)
+        for source in (r'[x](javascript\:alert)', r'![x](javascript\:alert)'):
+            self.assertNotIn('javascript', md_to_html(source))
+
+    def test_escaped_quotes_cannot_create_link_or_image_attributes(self):
+        from html.parser import HTMLParser
+
+        class Tags(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.seen = []
+
+            def handle_starttag(self, tag, attrs):
+                if tag in ('a', 'img'):
+                    self.seen.append((tag, dict(attrs)))
+
+        for source in (r'[x](https://example.test/\"onmouseover=\"bad)',
+                       r'![x](https://example.test/\"onerror=\"bad)'):
+            reader = Tags()
+            reader.feed(md_to_html(source))
+            self.assertEqual(len(reader.seen), 1)
+            tag, attrs = reader.seen[0]
+            self.assertEqual(set(attrs), {'href'} if tag == 'a' else {'src', 'alt'})

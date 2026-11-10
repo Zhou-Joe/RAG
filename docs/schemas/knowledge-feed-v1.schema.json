@@ -21,8 +21,8 @@
           "format": {"enum": ["markdown", "text"], "default": "markdown"},
           "source_url": {"type": "string", "maxLength": 2000, "pattern": "^https?://[^\\s]+$"},
           "updated_at": {"type": "string", "format": "date-time"},
-          "fields": {"type": "object", "description": "Scalar field values shown as tracker-table columns."},
-          "metadata": {"type": "object"}
+          "fields": {"type": "object", "description": "Scalar field values shown as tracker-table columns. At most 20,000 serialized JSON characters per record, including keys and structure."},
+          "metadata": {"type": "object", "description": "At most 20,000 serialized JSON characters per record, including keys and structure."}
         }
       }
     },

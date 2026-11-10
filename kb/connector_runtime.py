@@ -253,7 +253,7 @@ def build_batch(spec,data):
             item['content']+='\n\n## 采集提示\n\n'+warning+'\n\n## 原始内容\n\n'+evidence
         if not item['content'].strip():
             item['content']=json.dumps(record,ensure_ascii=False,default=str)[:100000 if document_mode else 5000]
-        # Feed protocol's structured fields cap is 8K. A document's long raw
+        # Feed protocol's structured fields cap is 20K. A document's long raw
         # text lives in content and must not be copied into tracker fields.
         if field_values and not document_mode:item['fields']=field_values
         if len(item['content'])>100000:raise ValueError('生成的单条报告超过100000字符。')
