@@ -57,9 +57,9 @@
 {% include "kb/_tracker_record_editor.html" %}
 
 <section class="fkd-panel" id="feedKbAggregate" aria-labelledby="feedKbAggregateHeading">
-  <div class="section-bar"><div><h2 id="feedKbAggregateHeading">汇总与周期对比</h2><p>选择字段或时间周期分组，在同一结果表查看统计值与变化。</p></div></div>
+  <div class="section-bar"><div><h2 id="feedKbAggregateHeading">汇总与周期对比</h2><p>按时间周期统计，在同一结果表查看数值与逐期变化。</p></div></div>
   <div class="fkd-aggregate-controls">
-    <label>分组维度<select id="feedKbGroup"><option value="">不分组（总体）</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}<optgroup label="按时间周期"><option value="$period:10min">每 10 分钟</option><option value="$period:hour">每小时</option><option value="$period:day">每天</option><option value="$period:week">每周</option><option value="$period:month">每月</option></optgroup></select></label>
+    <label>时间周期<select id="feedKbGroup"><option value="$period:10min">每 10 分钟</option><option value="$period:hour">每小时</option><option value="$period:day" selected>每天</option><option value="$period:week">每周</option><option value="$period:month">每月</option></select></label>
     <label id="feedKbTrendFieldWrap" hidden>对象字段<select id="feedKbTrendField"><option value="$source_id">来源 ID</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
     <label id="feedKbTrendValueWrap" hidden>对象值<input id="feedKbTrendValue" type="text" list="feedKbTrendSuggestions" maxlength="200" placeholder="输入要比较的对象"><datalist id="feedKbTrendSuggestions"></datalist></label>
     <label>统计方式<select id="feedKbOperation"><option value="count">记录数</option><option value="sum">合计</option><option value="avg">平均值</option><option value="min">最小值</option><option value="max">最大值</option></select></label>
@@ -76,5 +76,5 @@
 {% block scripts %}
 <script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
 {% if can_manage %}<script src="{% static 'js/tracker_record_editor.js' %}?v=1" defer></script>{% endif %}
-<script src="{% static 'js/feed_kb_detail.js' %}?v=5" defer></script>
+<script src="{% static 'js/feed_kb_detail.js' %}?v=6" defer></script>
 {% endblock %}

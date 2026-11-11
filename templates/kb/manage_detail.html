@@ -662,5 +662,5 @@ const hasProcessing = document.querySelectorAll('[data-status="pending"],[data-s
 if (hasProcessing) setTimeout(poll, 2000);
 </script>
 {% if show_tracker_data and can_manage %}<script src="{% static 'js/tracker_record_editor.js' %}?v=1" defer></script>{% endif %}
-{% if show_tracker_data %}<script src="{% static 'js/feed_kb_detail.js' %}?v=5" defer></script>{% endif %}
+{% if show_tracker_data %}<script src="{% static 'js/feed_kb_detail.js' %}?v=6" defer></script>{% endif %}
 {% endblock %}

@@ -8,7 +8,7 @@
   const editable = Boolean($('feedKbRecordActions') && window.trackerRecordEditor);
   const uiText = source => window.FOSI18n?.t(source) || source;
   const periodMode = () => $('feedKbGroup').value.startsWith('$period:');
-  const periodScopeNote = '周期模式使用上方日期范围和已保存历史，对象值精确匹配；搜索、字段筛选及最新/历史切换不影响周期结果。空周期不补零；覆盖更新仅保留当前快照。';
+  const periodScopeNote = '周期统计使用上方日期范围和已保存历史，对象值精确匹配；搜索、字段筛选及最新/历史切换不影响结果。空周期不补零；覆盖更新仅保留当前快照。';
   const formatTime = value => value ? new Date(value).toLocaleString(document.documentElement.lang || 'zh-CN') : '—';
   const valueText = value => {
     if (value === null || value === undefined || value === '') return '—';
@@ -35,15 +35,8 @@
     if (JSON.stringify(state.fields) === JSON.stringify(fields)) return false;
     state.fields = fields;
     optionSync($('feedKbFilterField'), fields, '不限字段');
-    const group = $('feedKbGroup'), selectedGroup = group.value;
-    clear(group);
-    group.append(new Option('不分组（总体）', ''));
-    fields.forEach(field => { const option = new Option(field, field); option.setAttribute('translate', 'no'); group.append(option); });
-    const periods = document.createElement('optgroup'); periods.label = window.FOSI18n?.t('按时间周期') || '按时间周期';
-    [['10min', '每 10 分钟'], ['hour', '每小时'], ['day', '每天'], ['week', '每周'], ['month', '每月']]
-      .forEach(([value, label]) => periods.append(new Option(label, `$period:${value}`)));
-    group.append(periods);
-    if ([...fields, '', '$period:10min', '$period:hour', '$period:day', '$period:week', '$period:month'].includes(selectedGroup)) group.value = selectedGroup;
+    // 「时间周期」下拉是模板里的固定五项（每 10 分钟 … 每月），这里不再重建，
+    // 免得字段一变化就把周期选项挤下去。
     const selectedMeasure = $('feedKbMeasure').value;
     optionSync($('feedKbMeasure'), fields, null);
     const trendField = $('feedKbTrendField');
@@ -65,8 +58,7 @@
     }
     columnSelect.value = String(selected < fields.length ? selected : 0);
     $('feedKbColumnWrap').hidden = fields.length <= 12;
-    return group.value !== selectedGroup
-      || (periodMode() && trendField.value !== selectedTrendField)
+    return (periodMode() && trendField.value !== selectedTrendField)
       || ($('feedKbOperation').value !== 'count' && $('feedKbMeasure').value !== selectedMeasure);
   }
 
@@ -398,8 +390,6 @@
 
   function syncPeriodControls() {
     const period = periodMode();
-    const periodGroup = $('feedKbGroup').querySelector('optgroup');
-    if (periodGroup) periodGroup.label = window.FOSI18n?.t('按时间周期') || '按时间周期';
     $('feedKbTrendFieldWrap').hidden = !period;
     $('feedKbTrendValueWrap').hidden = !period;
     $('feedKbMeasureWrap').hidden = $('feedKbOperation').value === 'count';
