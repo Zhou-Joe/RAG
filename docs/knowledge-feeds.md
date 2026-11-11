@@ -131,7 +131,7 @@ Browser replay also ends generation directly after a valid real capture is forma
 produce a raw-content preview with visible warnings, rather than more model retries. The user can approve or refine it.
 Users can stop a generation from the page, and a stopped worker cannot publish a late candidate.
 There is no autonomous retry loop. Mapping repairs use the same budget; expired jobs become failed on the next page check.
-Each network tool reads at most 2 MB, uses a 30-second elapsed-response bound plus connection/read timeouts,
+Each network tool reads at most 500 MB, uses a 30-second elapsed-response bound plus connection/read timeouts,
 pins DNS, preserves TLS validation, and rejects redirects. Credentials and common authentication fields are redacted
 before samples reach the model. Server permissions are rechecked during the task and when enabling it.
 
@@ -211,7 +211,7 @@ and composable computed fields: arithmetic, counting, aggregation, ratios, condi
 text parsing and time/date operations. Legacy `computed: {op:"duration", start, end, format, unit}` remains supported.
 `hhmm` durations support `HH:MM` values that cross midnight; time units include seconds/minutes/hours/days.
 Paths support `dot.path` and JSON Pointer (`/data/0/name`, with `~1` for `/` and `~0` for `~`).
-API mode requests one bounded API batch. Browser mode can apply filters, paginate up to 10 list pages, follow actual
+API mode requests one bounded API batch. Browser mode can apply filters, paginate up to 100 list pages, follow actual
 detail links or click-only cards, and merge detail fields into each record. Browser-generated POST queries and login requests
 are supported; arbitrary API write operations and automatic OAuth refresh are not part of direct API mode.
 
@@ -273,9 +273,9 @@ Detail pages default to `detail.render: "auto"`: first read the actual source HT
 load JavaScript only if data is absent or actions are needed. `html` forces document-only loading and `browser`
 explicitly loads dynamic content. Bulk collection skips unused per-page snapshots and unrelated third-party tracking
 requests. The response reports request/byte totals and static/dynamic detail counts.
-`browser.max_records` defaults to 500 and accepts 1–500; explicitly configured smaller limits are retained. It belongs beside `browser.output`. A misplaced `output.max_records` is repaired automatically;
+`browser.max_records` defaults to 50,000 and accepts 1–50,000; explicitly configured smaller limits are retained. It belongs beside `browser.output`. A misplaced `output.max_records` is repaired automatically;
 unknown output keys report their exact path. The tool schema includes record/page limits and nested field options.
-The network request and byte limits remain unchanged. HTTP connections are reused only within one isolated browser run,
+The browser allows up to 600 network requests and 500 MB of resource data per run. HTTP connections are reused only within one isolated browser run,
 with separate TLS pools for each original host/IP. Public assets can be reused when explicitly cacheable; private assets
 are keyed by authentication/cookies, and `no-store`/`no-cache` responses are not reused.
 
@@ -317,8 +317,8 @@ without Edge. `FOS_BROWSER_EXECUTABLE` optionally selects an existing browser ex
 Browser traffic is proxied through bounded HTTP requests with pinned DNS/TLS checks. Private-network requests require
 the administrator opt-in and an approved source origin; link-local/metadata addresses remain blocked. Service workers,
 WebSockets and file URLs are not enabled. Images, media and fonts are skipped to focus on data and reduce load; public
-scripts/styles are cached within each isolated run. A run is bounded to 500 records, 10 list pages, 30 setup actions,
-600 actual network requests, 60 MB of resources and 1,200 seconds (20 minutes) of browser execution. The enclosing feed publication
+scripts/styles are cached within each isolated run. A run is bounded to 50,000 records, 100 list pages, 30 setup actions,
+600 actual network requests, 500 MB of resources and 1,200 seconds (20 minutes) of browser execution. The enclosing feed publication
 budget and lease remain in effect, and a revoked task/lease stops further browser work. Requests to purchase, pay,
 delete, or submit unrelated business changes are outside the collection flow.
 
@@ -388,12 +388,12 @@ The UI's download button packages these files with this guide; no credentials or
 | `fields` | Optional object of scalar values (≤ 20,000 serialized JSON characters per record, including field names and JSON structure). Shown as tracker-table columns; generated automatically by AI connectors from each mapped field, including computed durations. Whole-object metadata mapped to a column is preserved as JSON text within this budget. |
 | `source_url` | Optional original HTTP(S) report link. No embedded credentials. Stored for provenance; RAG does not fetch it. |
 | `updated_at` | Optional upstream ISO 8601 timestamp with timezone. Upsert mode prevents older timestamps overwriting a newer current item; append mode retains each observation. |
-| `metadata` | Optional JSON object, at most 20,000 serialized JSON characters per record. Auxiliary metadata; put facts that must be searchable into `content`. The 2 MB total batch limit still applies. |
+| `metadata` | Optional JSON object, at most 20,000 serialized JSON characters per record. Auxiliary metadata; put facts that must be searchable into `content`. The 500 MB total batch limit still applies. |
 | `deleted` | Explicit deleted source IDs. Append mode retains history; upsert mode removes only current rows. Missing IDs are always preserved. A later observation can restore the source item. |
 | `cursor` | Optional opaque string, at most 2,048 characters. Committed only after the whole batch publishes. An empty string resets it. |
 | `batch_id` | Optional idempotency key, strongly recommended for pushes. Repeating a running/completed batch returns the existing run; a failed batch may retry with the same ID/content and produces a new attempt in history. Reusing an ID for different content is rejected. |
 
-Limits: UTF-8 JSON, **2 MB per batch**, **500 total item upserts plus deletions**, 100,000 characters per item,
+Limits: UTF-8 JSON, **500 MB per batch**, **50,000 total item upserts plus deletions**, 100,000 characters per item,
 200 characters per ID/title, and no duplicate/conflicting IDs. There is no implicit snapshot deletion.
 Whitespace-only content and non-finite JSON numbers are rejected. The server is authoritative for limits that JSON Schema cannot express.
 
@@ -402,6 +402,9 @@ Whitespace-only content and non-finite JSON numbers are rejected. The server is 
 The configured endpoint receives `GET`. After a successful batch with a cursor, subsequent requests include
 `?cursor=<committed cursor>` (preserving other query parameters). Each run processes one bounded batch;
 paginate in your connector and continue from the committed cursor on the next scheduled/manual run.
+For a first historical collection, ask EnGenie to set the source's supported history/date range and larger batch size;
+after it succeeds, refine the same task's date range and cron for daily collection. No separate backfill stage is required.
+The source's own page-size limits still apply. Existing explicit `max_records`/`max_pages` settings are retained until edited.
 The endpoint must return `200 application/json` and this contract. Empty `items` is a valid no-op.
 For cursorless upsert feeds, an ETag may be saved and sent as `If-None-Match`; `304` records a successful unchanged run.
 Append feeds do not send conditional ETags, so unchanged upstream content can be observed again at the next collection.

@@ -11,7 +11,7 @@ from urllib.request import Request,urlopen,HTTPRedirectHandler,build_opener
 from urllib.error import HTTPError
 
 SCHEMA='fos-rag-feed/v1'
-MAX_BYTES=2_000_000
+MAX_BYTES=500_000_000
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):return None
@@ -23,7 +23,7 @@ def push(url: str,token: str,batch: dict,*,wait: bool=True,timeout: int=660) -> 
     if parts.scheme not in ('http','https') or not parts.netloc or parts.username or parts.password:raise ValueError('Use an HTTP(S) ingest URL without embedded credentials.')
     if not token or '\n' in token or '\r' in token:raise ValueError('Missing or invalid feed token.')
     raw=json.dumps(batch,ensure_ascii=False,allow_nan=False).encode('utf-8')
-    if len(raw)>MAX_BYTES:raise ValueError('Batch exceeds 2MB.')
+    if len(raw)>MAX_BYTES:raise ValueError('Batch exceeds 500MB.')
     opener=build_opener(NoRedirect())
     def request(target,data=None):
         try:
@@ -58,7 +58,7 @@ def main():
     if args.path=='-':raw=sys.stdin.buffer.read(MAX_BYTES+1)
     else:
         with Path(args.path).open('rb') as stream:raw=stream.read(MAX_BYTES+1)
-    if len(raw)>MAX_BYTES:raise ValueError('Batch exceeds 2MB.')
+    if len(raw)>MAX_BYTES:raise ValueError('Batch exceeds 500MB.')
     result=push(args.url,os.environ.get(args.token_env,''),json.loads(raw),wait=not args.no_wait)
     print(json.dumps(result,ensure_ascii=False))
 

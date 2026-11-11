@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase,TestCase
 from django.urls import reverse
 
-from kb.browser_runtime import BrowserSession,fetch_resource,validate_plan
+from kb.browser_runtime import BrowserSession,fetch_resource,validate_plan,MAX_RECORDS,MAX_PAGES
 from kb.connector_agent import run
 from kb.connector_runtime import build_batch,validate_spec
 from kb.connector_tools import sample_preview
@@ -51,11 +51,37 @@ class BrowserPlanTests(SimpleTestCase):
         data['records'][0]['state']='Open'
         with self.assertRaisesMessage(ValueError,'start'):build_batch(spec,data)
 
-    def test_browser_record_limit_accepts_500_and_rejects_501(self):
-        candidate=web_spec()['browser'];candidate['max_records']=500
-        self.assertEqual(validate_plan(candidate)['max_records'],500)
-        candidate['max_records']=501
+    def test_browser_limits_accept_50000_records_and_100_pages(self):
+        self.assertEqual((MAX_RECORDS,MAX_PAGES),(50000,100))
+        candidate=web_spec()['browser'];candidate['max_records']=MAX_RECORDS
+        candidate['output']['max_pages']=MAX_PAGES
+        self.assertEqual(validate_plan(candidate)['max_records'],MAX_RECORDS)
+        candidate['max_records']=MAX_RECORDS+1
         with self.assertRaises(ValueError):validate_plan(candidate)
+        candidate['max_records']=500
+        self.assertEqual(validate_plan(candidate)['max_records'],500)
+
+    def test_model_tool_schema_matches_runtime_large_batch_limits(self):
+        from langchain_core.tools import tool
+        from kb.connector_schema import model_tools
+        @tool
+        def configure(spec:dict)->dict:
+            """Configure a collector."""
+            return spec
+        schema=model_tools([configure])[0]['function']['parameters']['properties']['spec']
+        browser=schema['properties']['browser']['properties']
+        self.assertEqual(browser['max_records']['maximum'],MAX_RECORDS)
+        self.assertEqual(browser['output']['properties']['max_pages']['maximum'],MAX_PAGES)
+
+    def test_dom_count_over_limit_is_rejected_before_reading_rows(self):
+        browser=BrowserSession.__new__(BrowserSession);browser.zone='UTC';browser._goto=AsyncMock()
+        browser.page=Mock();rows=browser.page.locator.return_value
+        rows.first.wait_for=AsyncMock();rows.count=AsyncMock(return_value=MAX_RECORDS+1)
+        browser._fields=AsyncMock()
+        candidate=web_spec();candidate['browser']['actions']=[]
+        with self.assertRaisesMessage(ValueError,'50000条'):
+            asyncio.run(browser._collect(candidate))
+        browser._fields.assert_not_called()
 
     def test_browser_spec_supports_css_fields_details_and_portable_package(self):
         import io,zipfile
@@ -67,8 +93,8 @@ class BrowserPlanTests(SimpleTestCase):
     def test_browser_plan_rejects_eval_unbounded_pages_and_secret_code(self):
         for plan in [{'actions':[{'action':'evaluate','value':'fetch("file:///etc/passwd")'}],'output':{'rows':'body','fields':{'text':{}}}},
             {'actions':[],'output':{'rows':'body','fields':{'text':{'regex':'(a+)+$'}}}},
-            {'output':{'rows':'body','fields':{'text':{}},'max_pages':99}},
-            {'output':{'kind':'network','url_contains':''}}, {'output':{'rows':'body','fields':{'text':{}}},'max_records':1000}]:
+            {'output':{'rows':'body','fields':{'text':{}},'max_pages':101}},
+            {'output':{'kind':'network','url_contains':''}}, {'output':{'rows':'body','fields':{'text':{}}},'max_records':50001}]:
             with self.assertRaises(ValueError):validate_plan(plan)
 
     def test_private_requests_require_opt_in_and_matching_origin(self):
@@ -221,7 +247,9 @@ class BrowserRuntimeTests(SimpleTestCase):
         from kb.browser_runtime import origin
         options={'allow_private':True,'private_origins':{origin(self.base)}}
         self.assertEqual(fetch_resource(self.base+'/gzip-resource','GET',{},None,**options)[2],b'compressed resource')
-        with self.assertRaisesMessage(ValueError,'5MB'):fetch_resource(self.base+'/gzip-oversize','GET',{},None,**options)
+        self.assertEqual(len(fetch_resource(self.base+'/gzip-oversize','GET',{},None,**options)[2]),5_000_100)
+        with patch('kb.browser_runtime.MAX_BYTES',5_000_000):
+            with self.assertRaisesMessage(ValueError,'限制'):fetch_resource(self.base+'/gzip-oversize','GET',{},None,**options)
 
     def test_href_prefix_normalizes_observed_paths_without_accessing_internal_host(self):
         browser=self.browser();browser.call('open',url=self.base+'/')
@@ -302,22 +330,23 @@ class BrowserRuntimeTests(SimpleTestCase):
         self.assertEqual(len(result['records']),500);self.assertEqual(result['records'][-1]['id'],'499')
         self.assertEqual(len(build_batch(candidate,result)['items']),500)
 
-    def test_dom_collection_rejects_501_records_instead_of_truncating(self):
+    def test_dom_collection_accepts_more_than_old_500_limit(self):
         candidate=web_spec(self.base+'/many-dom-501')
         candidate['browser']={'output':{'kind':'dom','rows':'.card','fields':{'id':{'attribute':'data-id'},'name':{'selector':'.title'}}}}
-        with self.assertRaisesMessage(ValueError,'500条'):self.browser().call('collect',spec=candidate)
+        result=self.browser().call('collect',spec=candidate)
+        self.assertEqual(len(result['records']),501);self.assertEqual(result['records'][-1]['id'],'500')
 
-    def test_browser_network_collection_accepts_500_and_rejects_501(self):
-        for count in (500,501):
+    def test_browser_network_collection_accepts_more_than_old_limit_and_rejects_50001(self):
+        for count in (501,MAX_RECORDS+1):
             with self.subTest(count=count):
                 candidate=web_spec(self.base+'/many-network-'+str(count))
                 candidate['browser']={'output':{'kind':'network','url_contains':'/many-data-','path':'data'}}
                 browser=self.browser()
-                if count==500:
+                if count==501:
                     result=browser.call('collect',spec=candidate)
-                    self.assertEqual(len(result['records']),500);self.assertEqual(result['records'][-1]['id'],'499')
+                    self.assertEqual(len(result['records']),501);self.assertEqual(result['records'][-1]['id'],'500')
                 else:
-                    with self.assertRaisesMessage(ValueError,'500条'):browser.call('collect',spec=candidate)
+                    with self.assertRaisesMessage(ValueError,'50000条'):browser.call('collect',spec=candidate)
 
 
 class BrowserAgentTests(TestCase):

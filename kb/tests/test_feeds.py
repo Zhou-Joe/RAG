@@ -23,7 +23,7 @@ from django.utils import timezone
 
 from kb.feed_cron import CronSchedule
 from kb.feed_http import fetch_batch,resolve_target,validate_headers
-from kb.feed_protocol import SCHEMA,load_batch,validate_batch
+from kb.feed_protocol import SCHEMA,MAX_ITEMS,load_batch,validate_batch
 from kb.feeds import FeedBusy,claim,execute,finalize_feed_document,rotate_token,run_due
 from kb.models import ChunkProvenance,Document,FeedRecord,FeedRun,KnowledgeBase,KnowledgeFeed,KbTracker,TrackerRow
 
@@ -75,7 +75,7 @@ class ProtocolTests(SimpleTestCase):
         with self.assertRaises(ValueError):load_batch(b'{}'*(1_000_001))
         with self.assertRaises(ValueError):load_batch(b'{"schema":"fos-rag-feed/v1","items":[],"cursor":NaN}')
         with self.assertRaises(ValueError):validate_batch(batch(content='x'*100001))
-        with self.assertRaises(ValueError):validate_batch({'schema':SCHEMA,'items':[],'deleted':[str(i) for i in range(501)]})
+        with self.assertRaises(ValueError):validate_batch({'schema':SCHEMA,'items':[],'deleted':[str(i) for i in range(MAX_ITEMS+1)]})
 
     def test_bad_urls_empty_reports_and_naive_timestamps_fail(self):
         for field,value in [('source_url','javascript:alert(1)'),('source_url','https://user:secret@example.com/x'),('updated_at','2027-01-01T08:00:00'),('content','   ')]:
@@ -137,6 +137,22 @@ class FeedHttpTests(SimpleTestCase):
         with patch('kb.feed_http.time.monotonic',side_effect=lambda:clock[0]):
             with self.assertRaisesMessage(ValueError,'30秒'):
                 self.fetch(lambda request:httpx.Response(200,stream=Drip(),headers={'content-type':'application/json'}))
+
+    def test_http_batch_above_old_2mb_limit_is_read_in_full(self):
+        payload={'schema':SCHEMA,'items':[{'id':str(i),'title':'Item','content':'x'*60000} for i in range(50)]}
+        raw=json.dumps(payload).encode()
+        self.assertGreater(len(raw),2_621_440)
+        handler=lambda request:httpx.Response(200,stream=httpx.ByteStream(raw),headers={'content-type':'application/json'})
+        result,_=self.fetch(handler)
+        self.assertEqual(len(result['items']),50)
+        self.assertEqual(result['items'][-1]['content'],'x'*60000)
+        from kb.feed_http import read_url
+        original=httpx.Client
+        def client(**kwargs):return original(**kwargs,transport=httpx.MockTransport(handler))
+        with patch('kb.feed_http.resolve_target',return_value=('api.example.test','203.0.113.10')),\
+                patch('kb.feed_http.httpx.Client',side_effect=client):
+            status,_,data=read_url('https://api.example.test/feed')
+        self.assertEqual(status,200);self.assertEqual(data,raw)
 
 
 class FeedExecutionTests(TestCase):

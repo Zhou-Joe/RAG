@@ -27,6 +27,7 @@ def normalize_spec(spec):
 
 def model_tools(tools):
     from langchain_core.utils.function_calling import convert_to_openai_tool
+    from .browser_runtime import MAX_RECORDS, MAX_PAGES
     result=[]
     for tool in tools:
         schema=convert_to_openai_tool(tool)
@@ -60,9 +61,9 @@ def model_tools(tools):
             detail['properties']['render']={'type':'string','enum':['auto','html','browser'],'default':'auto','description':'auto先读原始HTML，缺数据才加载脚本；html强制只读HTML；browser用于已确认依赖JS的页面。'}
             detail['properties']['actions']={'type':'array','items':{'type':'object'}}
             browser=props['spec']['properties']['browser']['properties']
-            browser['max_records']={'type':'integer','minimum':1,'maximum':100,'description':'放在browser内，与output平级，不能放进output。'}
+            browser['max_records']={'type':'integer','minimum':1,'maximum':MAX_RECORDS,'description':'放在browser内，与output平级，不能放进output。首次拉取历史时按用户需要放宽，最多50000条；不能以较小条数冒充已取全。'}
             output=browser['output']['properties']
-            output['max_pages']={'type':'integer','minimum':1,'maximum':10};output['next_selector']={'type':'string'}
+            output['max_pages']={'type':'integer','minimum':1,'maximum':MAX_PAGES};output['next_selector']={'type':'string'}
             mapping={'type':'object','additionalProperties':{'type':'object','properties':{'selector':{'type':'string'},'attribute':{'type':'string'},'regex':{'type':'string'},'group':{'type':'integer'},'all':{'type':'boolean'},'required':{'type':'boolean'},'source':{'type':'string','enum':['url','today','now']},'prefix':{'type':'string'},'default':{'type':'string'},'path':{'type':'string'}}}}
             output['fields']=mapping;detail['properties']['fields']=mapping
         if 'computed' in props:props['computed']=calculation_schema()

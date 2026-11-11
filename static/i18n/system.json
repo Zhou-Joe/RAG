@@ -1,5 +1,17 @@
 {
   "messages": {
+    "单批数据不能超过500MB。": "A batch cannot exceed 500 MB.",
+    "API 返回数据超过500MB上限。": "The API response exceeds the 500 MB limit.",
+    "每批最多50000项写入和删除；items 必须是数组。": "A batch can contain up to 50,000 writes and deletions. items must be an array.",
+    "API 返回超过50000条，请在 query 中设置分页大小或时间范围。": "The API returned more than 50,000 records. Set the page size or time range in query.",
+    "单批写入与删除总数不能超过50000。": "A batch cannot contain more than 50,000 writes and deletions in total.",
+    "每批网页采集最多50000条记录。": "A webpage collection batch can contain up to 50,000 records.",
+    "browser.max_records须为1至50000。": "browser.max_records must be between 1 and 50,000.",
+    "网络响应超过50000条，请在页面选择范围或使用分页。": "The network response exceeds 50,000 records. Select a range on the page or use pagination.",
+    "网页记录超过50000条，请选择范围或配置分页。": "The webpage contains more than 50,000 records. Select a range or configure pagination.",
+    "每批最多浏览100页列表。": "A batch can browse up to 100 list pages.",
+    "网页资源超过500MB限制。": "The webpage resource exceeds the 500 MB limit.",
+    "网页资源总量超过500MB限制。": "The webpage resources exceed the 500 MB total limit.",
     "当前密码不正确。": "The current password is incorrect.",
     "两次输入的新密码不一致。": "The new passwords do not match.",
     "部门名不能为空，且不能叫「通用」。": "Enter a department name other than “General”.",

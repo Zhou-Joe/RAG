@@ -26,7 +26,7 @@ from .connector_agent import MAX_CALLS, MAX_TOOLS, MAX_SECONDS, authorize, recov
 from .connector_tools import check_spec, redact
 from .feed_credentials import api_origin, bindings, discard_if_unused, parse_auth, request_headers, secret_values, store, summary
 from .feed_http import validate_headers
-from .feed_protocol import validate_url
+from .feed_protocol import validate_url, MAX_ITEMS, MAX_BYTES
 from .feed_views import _managed
 from .models import ConnectorDraft, KnowledgeBase, KnowledgeFeed
 
@@ -404,7 +404,7 @@ Cron：`{spec.get('cron','0 * * * *')}`，时区：`{spec.get('timezone','Asia/S
 Windows 可用任务计划运行同一命令。请避免并行运行同一脚本，推送失败退出非零且不提交游标。
 
 也可在网页审核后启用内置定时拉取，无需部署脚本。两种运行方式请选一种，避免重复数据源。
-每次仅请求一页，最多100条/2MB，发布成功后提交游标。写入模式：{spec.get('write_mode','append')}。
+API每次仅请求一页；单批最多{MAX_ITEMS}条/{MAX_BYTES // 1_000_000}MB，网页列表最多100页。发布成功后提交游标。写入模式：{spec.get('write_mode','append')}。
 append每次采集追加保留历史，upsert按稳定ID覆盖当前行；在推送数据源页面选择对应模式。缺席项与历史快照保留。
 {'来源为动态网页，程序会重放已验证的浏览器动作，采集DOM/网络响应及详情页。' if browser else '来源为GET JSON接口。'}采集步骤和字段映射见connector.json。
 ''')

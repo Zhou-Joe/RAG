@@ -15,7 +15,8 @@ from urllib.parse import urlsplit,urlencode,urlunsplit,parse_qsl
 from urllib.request import Request,build_opener,HTTPRedirectHandler
 
 SCHEMA='fos-rag-feed/v1'
-MAX_ITEMS=500
+MAX_ITEMS=50_000
+MAX_BYTES=500_000_000
 MISSING=object()
 _SCALE={'seconds':1,'minutes':60,'hours':3600,'days':86400}
 
@@ -166,7 +167,7 @@ def build_batch(spec,data):
     records=lookup(data,spec.get('records_path',''))
     if spec.get('single_record',False):records=[records]
     if not isinstance(records,list):raise ValueError('records_path 没有定位到数组；单对象接口请使用 single_record=true。')
-    if len(records)>MAX_ITEMS:raise ValueError('API 返回超过500条，请在 query 中设置分页大小。')
+    if len(records)>MAX_ITEMS:raise ValueError('API 返回超过50000条，请在 query 中设置分页大小或时间范围。')
     items=[];tolerant=spec.get('on_error','raw')=='raw'
     document_mode=spec.get('ingest_mode','tracker')=='documents'
     context={'timezone':spec.get('timezone','Asia/Shanghai'),'collected_at':datetime.now(ZoneInfo(spec.get('timezone','Asia/Shanghai'))),'records':records}
@@ -260,7 +261,7 @@ def build_batch(spec,data):
         items.append(item)
     deleted=lookup(data,spec['deleted_path']) if spec.get('deleted_path') else []
     if not isinstance(deleted,list) or any(not isinstance(key,(str,int)) or isinstance(key,bool) for key in deleted):raise ValueError('deleted_path 只能指向显式删除 ID 的数组。')
-    if len(items)+len(deleted)>MAX_ITEMS:raise ValueError('单批写入与删除总数不能超过500。')
+    if len(items)+len(deleted)>MAX_ITEMS:raise ValueError('单批写入与删除总数不能超过50000。')
     payload={'schema':SCHEMA,'items':items,'deleted':[str(key) for key in deleted]}
     if spec.get('next_cursor_path'):
         cursor=lookup(data,spec['next_cursor_path'],None)
@@ -289,8 +290,8 @@ def main(spec):
         try:data=browser.call('collect',spec=spec)
         finally:browser.close()
     else:
-        with build_opener(NoRedirect()).open(Request(request_url(spec,state.get('cursor','')),headers={'Accept':'application/json','Accept-Encoding':'identity',**headers}),timeout=30) as response:raw=response.read(2_000_001)
-        if len(raw)>2_000_000:raise ValueError('API response exceeds 2MB.')
+        with build_opener(NoRedirect()).open(Request(request_url(spec,state.get('cursor','')),headers={'Accept':'application/json','Accept-Encoding':'identity',**headers}),timeout=30) as response:raw=response.read(MAX_BYTES+1)
+        if len(raw)>MAX_BYTES:raise ValueError('API response exceeds 500MB.')
         data=json.loads(raw)
     payload=build_batch(spec,data)
     if args.push:

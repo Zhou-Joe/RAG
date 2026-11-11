@@ -18,8 +18,9 @@ TOOL_GUIDE = r'''
 8. 稳定ID、URL、网络权限、必要配置仍须有效；抓不到任何数据或缺稳定ID时说明具体阻碍。禁止用数组序号/随机数冒充稳定ID。
 9. 本工具成功后系统直接展示真实样例，结束当前生成步骤，等待用户审核。warning是原文回退提示，不是要求重试。完成后不要再重放已通过的脚本。
 10. 用户追问/回答/确认后继续沿用消息和浏览器。只变body_fields(如加日期/时长/计数/业务公式)时，可直接test_mapping或show_data_preview复用已验证的原始样例；test_browser_connector也会自动复用同一取数配置当日已验证的完整批次。取数步骤改变、样例跨天或refresh:true才重新抓取；用户明确要求实时刷新时传refresh:true。
-11. browser.max_records与output平级；不能写output.max_records。例：browser:{max_records:500,actions:[],output:{kind:"dom",rows:".实际卡片",fields:{...}}}。不要为了通过验证而漏采用户要求的记录。
+11. browser.max_records与output平级；不能写output.max_records。例：browser:{max_records:50000,actions:[],output:{kind:"dom",rows:".实际卡片",fields:{...},max_pages:100}}。首次拉取历史可使用最多50000条、500MB、100页；不要为了通过验证而漏采用户要求的记录。
 12. 详情默认render:"auto"：先读取原始HTML，目标字段不在HTML才加载JS。网页观察已确认HTML含所需数据时可以选html。资源上限报错时优先改详情加载策略，不原样重跑整站、不缩小记录数假装任务完成。
+13. 用户可先要求采集完整历史，成功后再在同一对话修改时间范围和cron用于每日更新。无需额外的补历史状态流程；已有明确max_records、max_pages或API分页大小较小时，按这次用户要求调整并重新验证真实请求。API一次只取一页，不能声称会自动翻完所有页。
 
 【业务计算手册：对任意行业都适用】
 原始网页/JSON字段是输入，派生字段在body_fields.computed定义。计算结果不要出现在browser.output.fields里；不要发明一个selector去找“总数、利润、平均值、率”。

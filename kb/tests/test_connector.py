@@ -103,7 +103,8 @@ class RuntimeTests(SimpleTestCase):
         self.assertEqual(build_batch(config,record)['items'][0]['id'],'A1')
 
     def test_missing_ids_required_fields_and_oversized_arrays_fail(self):
-        for change in [lambda d:d['data'][0].pop('device'),lambda d:d['data'][0].pop('temperature'),lambda d:d.update(data=d['data']*501)]:
+        from kb.connector_runtime import MAX_ITEMS
+        for change in [lambda d:d['data'][0].pop('device'),lambda d:d['data'][0].pop('temperature'),lambda d:d.update(data=d['data']*(MAX_ITEMS+1))]:
             data=sample();change(data)
             with self.assertRaises(ValueError):build_batch(spec(),data)
 

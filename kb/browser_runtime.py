@@ -23,9 +23,10 @@ from zoneinfo import ZoneInfo
 try:from .browser_dom import OBSERVE_SCRIPT
 except ImportError:from browser_dom import OBSERVE_SCRIPT
 
-MAX_RECORDS=500
+MAX_RECORDS=50_000
+MAX_PAGES=100
 MAX_REQUESTS=600
-MAX_BYTES=60_000_000
+MAX_BYTES=500_000_000
 COLLECT_TIMEOUT_SECONDS=20*60
 
 
@@ -50,7 +51,7 @@ def validate_plan(plan: dict,*,allow_refs=False) -> dict:
                 for item in value:stable(item)
         stable(plan)
     maximum=plan.get('max_records',MAX_RECORDS)
-    if not isinstance(maximum,int) or isinstance(maximum,bool) or not 1<=maximum<=MAX_RECORDS:raise ValueError('每批网页采集最多500条记录。')
+    if not isinstance(maximum,int) or isinstance(maximum,bool) or not 1<=maximum<=MAX_RECORDS:raise ValueError('每批网页采集最多50000条记录。')
     actions=plan.get('actions',[])
     def steps(values):
         if not isinstance(values,list) or len(values)>30:raise ValueError('网页动作最多30步。')
@@ -76,7 +77,7 @@ def validate_plan(plan: dict,*,allow_refs=False) -> dict:
         if 'max_records' in plan and plan['max_records']!=output['max_records']:raise ValueError('browser.max_records与browser.output.max_records冲突。')
         plan['max_records']=output.pop('max_records')
         maximum=plan['max_records']
-        if type(maximum) is not int or not 1<=maximum<=MAX_RECORDS:raise ValueError('browser.max_records须为1至500。')
+        if type(maximum) is not int or not 1<=maximum<=MAX_RECORDS:raise ValueError('browser.max_records须为1至50000。')
     unsupported=output.keys()-{'kind','rows','fields','detail','next_selector','max_pages','url_contains','path'}
     if unsupported:raise ValueError('browser.output含不支持的字段：'+', '.join(sorted(unsupported))+'。max_records应放在browser内，与output平级。')
     if output.get('kind','dom')=='network':
@@ -110,7 +111,7 @@ def validate_plan(plan: dict,*,allow_refs=False) -> dict:
                 if key in detail and (not isinstance(detail[key],str) or len(detail[key])>1000):raise ValueError('详情页定位格式无效。')
             fields(detail.get('fields'));steps(detail.get('actions',[]))
         if 'next_selector' in output and (not isinstance(output['next_selector'],str) or len(output['next_selector'])>1000):raise ValueError('翻页选择器格式无效。')
-        if not isinstance(output.get('max_pages',1),int) or not 1<=output.get('max_pages',1)<=10:raise ValueError('每批最多浏览10页列表。')
+        if type(output.get('max_pages',1)) is not int or not 1<=output.get('max_pages',1)<=MAX_PAGES:raise ValueError('每批最多浏览100页列表。')
     else:raise ValueError('output.kind 仅支持 dom 或 network。')
     return plan
 
@@ -136,7 +137,7 @@ def fetch_resource(url,method,headers,body,*,private_origins=(),allow_private=Fa
         with client.stream(method,original.copy_with(host=addresses[0]),headers=values,content=body,extensions={'sni_hostname':host}) as response:
             for part in response.iter_bytes(chunk_size=65536):
                 data.extend(part)
-                if len(data)>5_000_000:raise ValueError('网页资源超过5MB限制。')
+                if len(data)>MAX_BYTES:raise ValueError('网页资源超过500MB限制。')
                 if time.monotonic()-start>25:raise ValueError('网页资源读取超过25秒限制。')
             cookies=response.headers.get_list('set-cookie')
             outgoing={k:v for k,v in response.headers.items() if k.lower() not in ('set-cookie','content-length','content-encoding','transfer-encoding','content-security-policy-report-only','report-to','nel')}
@@ -257,6 +258,7 @@ class BrowserSession:
             status,headers,body,cookies=await asyncio.to_thread(self.fetcher,request.url,request.method,values,request.post_data_buffer,
                 private_origins=self.private_origins,allow_private=self.allow_private)
             self.bytes+=len(body)
+            if self.bytes>MAX_BYTES:raise ValueError('网页资源总量超过500MB限制。')
             policy=headers.get('cache-control','').lower();vary=headers.get('vary','').lower()
             if cacheable and status==200 and not cookies and not any(flag in policy for flag in ('no-store','no-cache')) and '*' not in vary and self.asset_bytes+len(body)<=20_000_000:
                 key=public_key if 'public' in policy and 'private' not in policy and not any(name in vary for name in sensitive) else cache_key
@@ -271,7 +273,7 @@ class BrowserSession:
                         # URL-bound cookies cannot widen their scope to another host.
                         await self.context.add_cookies([cookie])
                 except Exception:pass
-            if 'json' in headers.get('content-type','').lower() and status==200 and len(body)<=2_000_000:
+            if 'json' in headers.get('content-type','').lower() and status==200 and len(body)<=MAX_BYTES:
                 try:
                     data=json.loads(body)
                     self.response_count+=1;identity=str(self.response_count);self.responses[identity]=data
@@ -441,7 +443,7 @@ class BrowserSession:
             except ImportError:from connector_runtime import lookup
             data=lookup(self.responses[matching[-1]['id']],output.get('path',''))
             if not isinstance(data,list):raise ValueError('网络响应 path 必须指向记录数组。')
-            if len(data)>MAX_RECORDS and limit is None:raise ValueError('网络响应超过500条，请在页面选择范围或使用分页。')
+            if len(data)>MAX_RECORDS and limit is None:raise ValueError('网络响应超过50000条，请在页面选择范围或使用分页。')
             records=[dict(record) if isinstance(record,dict) else {'value':record} for record in data[:maximum]]
             for record in records:
                 for name,field in output.get('fields',{}).items():
@@ -464,7 +466,7 @@ class BrowserSession:
         for page_number in range(0 if output.get('kind')=='network' else output.get('max_pages',1)):
             rows=self.page.locator(self._selector(output['rows']));await rows.first.wait_for(state='attached')
             count=await rows.count()
-            if len(records)+count>MAX_RECORDS and limit is None:raise ValueError('网页记录超过500条，请选择范围或配置分页。')
+            if len(records)+count>MAX_RECORDS and limit is None:raise ValueError('网页记录超过50000条，请选择范围或配置分页。')
             remaining=maximum-len(records)
             values=await self._fields(rows,output['fields'],remaining)
             records.extend(values);positions.extend([(self.page.url,index,page_number) for index in range(len(values))])

@@ -224,15 +224,17 @@ def ingest(request,feed_id):
     try:
         feed=_token_feed(request,feed_id)
         if request.content_type!='application/json':raise ValueError('Content-Type 必须是 application/json。')
-        if int(request.META.get('CONTENT_LENGTH') or 0)>MAX_BYTES:raise ValueError('单批数据不能超过2MB。')
-        payload=load_batch(request.body)
+        if int(request.META.get('CONTENT_LENGTH') or 0)>MAX_BYTES:raise ValueError('单批数据不能超过500MB。')
+        # Bound this authenticated feed stream explicitly. request.body applies
+        # Django's small generic form limit, which would reject large valid batches.
+        payload=load_batch(request.read(MAX_BYTES+1))
         key='batch:'+payload['batch_id'] if payload.get('batch_id') else ''
         run,fresh=claim(feed.pk,trigger='push',payload=payload,request_key=key)
         if fresh:start_async(run.pk)
         return JsonResponse({'ok':True,'run':_run_json(run),'replayed':not fresh,
             'status_url':reverse('kb:feed_run_status',args=[feed.pk,run.pk])},status=202 if run.status=='running' else 200)
     except PermissionError as exc:return JsonResponse({'ok':False,'error':str(exc)},status=401)
-    except RequestDataTooBig:return JsonResponse({'ok':False,'error':'单批数据不能超过2MB。'},status=413)
+    except RequestDataTooBig:return JsonResponse({'ok':False,'error':'单批数据不能超过500MB。'},status=413)
     except FeedBusy as exc:return JsonResponse({'ok':False,'error':str(exc)},status=409)
     except (ValueError,TypeError) as exc:return JsonResponse({'ok':False,'error':str(exc)},status=400)
 

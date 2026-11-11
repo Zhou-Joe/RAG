@@ -1,0 +1,43 @@
+<section class="fkd-panel fkd-analysis" id="feedKbAggregate" aria-labelledby="feedKbAggregateHeading">
+  <div class="section-bar fkd-analysis-heading"><div><h2 id="feedKbAggregateHeading">汇总与周期对比</h2><p>选择统计方式、时间范围和对比对象，在同一张表或图中查看结果。</p></div>
+    <div class="fkd-view-switch" role="group" aria-label="汇总视图"><button type="button" data-fkd-view="table" aria-pressed="true">表格</button><button type="button" data-fkd-view="chart" aria-pressed="false">图表</button></div>
+  </div>
+  <form id="feedKbAnalysisForm" class="fkd-analysis-form">
+    <div class="fkd-mode-switch" role="group" aria-label="分析方式"><button type="button" data-fkd-mode="summary" aria-pressed="true">统计汇总</button><button type="button" data-fkd-mode="trend" aria-pressed="false">周期对比</button></div>
+    <input id="feedKbAnalysisMode" type="hidden" value="summary">
+    <div class="fkd-aggregate-controls">
+      <label id="feedKbSummaryGroupWrap">分组字段<select id="feedKbSummaryGroup"><option value="">不分组（总体）</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
+      <label id="feedKbPeriodWrap" hidden>对比周期<span class="fkd-period"><span>每</span><input id="feedKbPeriodSpan" type="number" min="1" max="180" step="1" value="1" inputmode="numeric" aria-label="周期长度"><select id="feedKbGroup" aria-label="周期单位"><option value="$period:minute">分钟</option><option value="$period:hour">小时</option><option value="$period:day" selected>天</option><option value="$period:week">周</option><option value="$period:month">月</option><option value="$period:year">年</option></select></span></label>
+      <label>统计方式<select id="feedKbOperation"><option value="count">记录数</option><option value="sum">合计</option><option value="avg">平均值</option><option value="min">最小值</option><option value="max">最大值</option></select></label>
+      <label id="feedKbMeasureWrap" hidden>数值字段<select id="feedKbMeasure" aria-describedby="feedKbNumericNote"><option value="">正在识别数值字段…</option></select></label>
+      <label id="feedKbChartModeWrap" hidden>图表口径<select id="feedKbChartMode"><option value="value">数值</option><option value="change">较上期变化</option><option value="change_pct">变化率（%）</option></select></label>
+    </div>
+    <div class="fkd-analysis-range">
+      <label>时间范围<select id="feedKbAnalysisPreset"><option value="24h">最近 24 小时</option><option value="7d" selected>最近 7 天</option><option value="30d">最近 30 天</option><option value="today">今天</option><option value="all">全部历史</option><option value="custom">自定义</option></select></label>
+      <label>开始时间<input id="feedKbAnalysisFrom" type="datetime-local" required aria-describedby="feedKbRangeNote"></label>
+      <label>结束时间<input id="feedKbAnalysisTo" type="datetime-local" required aria-describedby="feedKbRangeNote"></label>
+      <span class="fkd-range-note" id="feedKbRangeNote">按记录更新时间筛选，结束时间不包含在内。</span>
+    </div>
+    <div class="fkd-object-controls" id="feedKbObjectControls" hidden>
+      <label id="feedKbTrendFieldWrap">对象字段<select id="feedKbTrendField"><option value="{% if is_document_feed %}$document_name{% else %}$source_id{% endif %}">{% if is_document_feed %}文档名{% else %}来源 ID{% endif %}</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
+      <div class="fkd-object-picker" id="feedKbTrendValueWrap">
+        <span id="feedKbObjectLabel" class="fkd-control-label">对比对象</span>
+        <button type="button" id="feedKbObjectToggle" class="fkd-object-toggle" aria-expanded="false" aria-controls="feedKbObjectPopover" aria-labelledby="feedKbObjectLabel feedKbObjectCount"><span id="feedKbObjectCount">选择对象</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7 5 5 5-5"/></svg></button>
+        <div id="feedKbObjectPopover" class="fkd-object-popover" hidden>
+          <div class="fkd-object-search"><input id="feedKbTrendValue" type="search" maxlength="200" placeholder="搜索全部历史中的对象" aria-label="搜索对比对象" autocomplete="off"></div>
+          <div class="fkd-object-toolbar"><span id="feedKbObjectLimit">最多选择 8 个对象</span><button type="button" id="feedKbObjectClear">清空选择</button></div>
+          <div id="feedKbObjectOptions" class="fkd-object-options" role="group" aria-label="可选对象" aria-busy="false"></div>
+          <button type="button" id="feedKbObjectMore" class="fkd-object-more" hidden>加载更多对象</button>
+          <div class="fkd-object-footer"><span id="feedKbObjectStatus" role="status" aria-live="polite"></span><button type="button" class="btn sm primary" id="feedKbObjectDone">完成选择</button></div>
+        </div>
+      </div>
+      <div class="fkd-chips" id="feedKbTrendChips" aria-label="已选对象" hidden></div>
+    </div>
+    <div class="fkd-analysis-footer"><div><p id="feedKbNumericNote" class="fkd-subnote" hidden></p><p id="feedKbAnalysisScope" class="fkd-subnote">使用已保存历史；记录搜索和最新/历史切换不影响分析。</p></div><button class="btn primary" type="submit" id="feedKbApply">应用分析</button></div>
+  </form>
+  <p class="fkd-subnote" id="feedKbAggregateNote" role="status" aria-live="polite"></p>
+  <div class="fkd-table-scroll" id="feedKbSummaryTableWrap" tabindex="0" aria-label="分析表，可横向滚动"><table class="fkd-table"><thead id="feedKbSummaryHead"></thead><tbody id="feedKbSummaryBody"></tbody></table></div>
+  <div class="fkd-legend" id="feedKbLegend" hidden></div>
+  <div class="fkd-chart" id="feedKbChart" role="img" aria-label="汇总与周期趋势图" hidden></div>
+  <div class="fkd-footer"><span id="feedKbSummaryInfo"></span><button type="button" class="btn sm outline" id="feedKbSummaryMore" hidden>显示更多分组</button></div>
+</section>

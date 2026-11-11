@@ -12,7 +12,7 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.db.models import Case, Count, F, FloatField, Max, Min, Q, Sum, TextField, Value, When
 from django.db.models.functions import (
-    Cast, TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek, TruncYear)
+    Cast, Length, TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek, TruncYear)
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -122,32 +122,135 @@ def tracker_data(request, slug):
                         trend_scope=scope | historical)
 
 
+def _analysis_zone(name):
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        return ZoneInfo(settings.TIME_ZONE)
+
+
+def _time_range(request, zone):
+    """Local datetimes are [from, to); legacy calendar end dates include the day."""
+    def boundary(name, end=False):
+        raw = request.GET.get(name, "").strip()
+        if not raw:
+            return None
+        if len(raw) > 64:
+            raise ValueError
+        if len(raw) == 10:
+            value = date.fromisoformat(raw)
+            if end:
+                value += timedelta(days=1)
+            return datetime.combine(value, time.min, tzinfo=zone)
+        value = datetime.fromisoformat(raw)
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=zone)
+        return value.astimezone(zone)
+
+    first, last = boundary("from"), boundary("to", end=True)
+    if first is not None and last is not None and first >= last:
+        raise ValueError
+    return first, last
+
+
+def _time_scope(first, last):
+    scope = Q()
+    if first is not None:
+        scope &= Q(updated_at__gte=first)
+    if last is not None:
+        scope &= Q(updated_at__lt=last)
+    return scope
+
+
+def _numeric_fields(rows, fields):
+    """Classify complete scoped data with the same scalar parsing used by metrics."""
+    annotations = {}
+    metrics = {}
+    for index, field in enumerate(fields):
+        raw, number = f"option_raw_{index}", f"option_number_{index}"
+        annotations[raw] = Cast(TrackerText(field, "values"), TextField())
+        annotations[number] = Case(
+            When(**{raw + "__regex": NUMERIC}, then=Cast(F(raw), FloatField())),
+            default=Value(None), output_field=FloatField())
+        # Numeric strings such as 1e999 match the grammar but are not usable
+        # finite values. Do not advertise a field containing only those values.
+        metrics[f"field_{index}"] = Count(number, filter=Q(**{
+            number + "__gte": -float.fromhex('0x1.fffffffffffffp+1023'),
+            number + "__lte": float.fromhex('0x1.fffffffffffffp+1023'),
+        }))
+    if not fields:
+        return []
+    counts = rows.order_by().annotate(**annotations).aggregate(**metrics)
+    return [field for index, field in enumerate(fields) if counts[f"field_{index}"]]
+
+
+def _analysis_options(request, tracker, scope, fields, first, last, zone, data_scope):
+    object_field = request.GET.get("object_field", "")
+    query = request.GET.get("object_query", "").strip()
+    try:
+        offset = int(request.GET.get("object_offset", "0"))
+        if offset < 0 or offset > 100_000 or len(query) > 200:
+            raise ValueError
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "message": "对象搜索或分页参数无效。"}, status=400)
+    if object_field and object_field not in fields and object_field not in ("$source_id", "$document_name"):
+        return JsonResponse({"ok": False, "message": "请选择有效的对象字段。"}, status=400)
+    rows = TrackerRow.objects.filter(scope, tracker=tracker, status=TrackerRow.Status.DONE)
+    bounds = TrackerRow.objects.filter(data_scope, tracker=tracker, status=TrackerRow.Status.DONE).aggregate(
+        data_from=Min("updated_at"), data_to=Max("updated_at"))
+    numeric_fields = _numeric_fields(rows, fields)
+    values = []
+    if object_field:
+        expression = (Cast(F("external_id"), TextField()) if object_field == "$source_id" else
+                      Cast(F("document__original_name"), TextField()) if object_field == "$document_name" else
+                      Cast(TrackerText(object_field, "values"), TextField()))
+        choices = rows.order_by().annotate(option_value=expression).annotate(
+            option_length=Length("option_value"),
+        ).filter(option_length__lte=200, option_value__regex=r'\S')
+        if query:
+            choices = choices.filter(option_value__icontains=query)
+        values = list(choices.values_list("option_value", flat=True).distinct().order_by("option_value")
+                      [offset:offset + 51])
+    has_more = len(values) > 50
+    response = JsonResponse({
+        "ok": True, "kind": "options", "fields": fields, "numeric_fields": numeric_fields,
+        "object_field": object_field, "object_values": values[:50],
+        "object_has_more": has_more, "object_next_offset": offset + 50 if has_more else None,
+        "series_max": _TREND_SERIES_MAX, "timezone": str(zone),
+        "range_from": first.isoformat() if first else None,
+        "range_to": last.isoformat() if last else None,
+        "data_from": bounds["data_from"].astimezone(zone).isoformat() if bounds["data_from"] else None,
+        "data_to": bounds["data_to"].astimezone(zone).isoformat() if bounds["data_to"] else None,
+    })
+    response["Cache-Control"] = "private, no-store"
+    return response
+
+
 def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend_timezone=None,
                  trend_scope=None):
     """Shared read-only paging and aggregation for feed and manual tracksheets."""
     slug = kb.slug
-    first = request.GET.get("from", "")
-    last = request.GET.get("to", "")
+    zone = _analysis_zone(trend_timezone or settings.TIME_ZONE)
     try:
-        if first:
-            first = date.fromisoformat(first)
-            row_scope &= Q(updated_at__date__gte=first)
-        if last:
-            last = date.fromisoformat(last)
-            row_scope &= Q(updated_at__date__lte=last)
-        if first and last and first > last:
-            raise ValueError
-    except ValueError:
+        first, last = _time_range(request, zone)
+    except (TypeError, ValueError, OverflowError):
         return JsonResponse({"ok": False, "message": "日期范围无效。"}, status=400)
+    time_scope = _time_scope(first, last)
+    row_scope &= time_scope
+    analysis_base_scope = trend_scope if trend_scope is not None else record_scope
+    analysis_scope = analysis_base_scope & time_scope
 
     fields = [field["label"] for field in (tracker.fields if tracker else [])]
     kind = request.GET.get("kind", "rows")
-    if kind not in ("rows", "summary", "record", "trend"):
+    if kind not in ("rows", "summary", "record", "trend", "options"):
         return JsonResponse({"ok": False, "message": "视图无效。"}, status=400)
+    if kind == "options":
+        return _analysis_options(request, tracker, analysis_scope, fields, first, last, zone,
+                                 analysis_base_scope)
     if kind == "trend":
         return _trend_data(request, tracker, trend_scope if trend_scope is not None else record_scope,
                            fields, first, last,
-                           trend_timezone or settings.TIME_ZONE)
+                           str(zone))
     if kind == "record":
         try:
             row_id = int(request.GET.get("row", ""))
@@ -172,6 +275,9 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
         "ok": True,
         "fields": fields,
         "column_offset": column_offset,
+        "timezone": str(zone),
+        "range_from": first.isoformat() if first else None,
+        "range_to": last.isoformat() if last else None,
     }
     if not fields:
         common.update({"kind": kind, "total_matched": 0, "rows": [], "groups": [], "has_more": False})
@@ -179,7 +285,9 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
         response["Cache-Control"] = "private, no-store"
         return response
 
-    query = TrackerQuery(lambda library: library.pk == kb.pk, row_scope=row_scope)
+    query = TrackerQuery(lambda library: library.pk == kb.pk,
+                         row_scope=analysis_scope if kind == "summary" and request.GET.get("scope") == "history"
+                         else row_scope)
     search = request.GET.get("q", "").strip()
     field = request.GET.get("field", "")
     value = request.GET.get("value", "").strip()
@@ -348,7 +456,7 @@ def _trend_data(request, tracker, record_scope, fields, first, last, timezone_na
     object_field = request.GET.get("object_field", "")
     measure = request.GET.get("measure", "")
     # 对象可多选：前端重复发 object_value=A&object_value=B（值里可能带逗号，所以不用分隔符）
-    objects = [value.strip() for value in dict.fromkeys(request.GET.getlist("object_value"))
+    objects = [value for value in dict.fromkeys(request.GET.getlist("object_value"))
                if value.strip()]
     if operation not in ("count", "sum", "avg", "min", "max"):
         return JsonResponse({"ok": False, "message": "统计方式无效。"}, status=400)
@@ -364,20 +472,15 @@ def _trend_data(request, tracker, record_scope, fields, first, last, timezone_na
                                         f"当前选了 {len(objects)} 个。"}, status=400)
     if operation != "count" and measure not in fields:
         return JsonResponse({"ok": False, "message": "请选择数值字段。"}, status=400)
+    zone = _analysis_zone(timezone_name)
     try:
-        zone = ZoneInfo(timezone_name)
-    except (ZoneInfoNotFoundError, ValueError, TypeError):
-        zone = ZoneInfo(settings.TIME_ZONE)
-    try:
-        end = (datetime.combine(last + timedelta(days=1), time.min, tzinfo=zone)
-               if last else timezone.now().astimezone(zone))
-        start = (datetime.combine(first, time.min, tzinfo=zone)
-                 if first else end - _TREND_UNITS[unit][1])
+        end = last if last else timezone.now().astimezone(zone)
+        start = first if first else end - _TREND_UNITS[unit][1]
         if start >= end:
             raise ValueError
+        steps = _trend_steps(start, end, unit, span)
     except (ValueError, OverflowError):
         return JsonResponse({"ok": False, "message": "日期范围无效。"}, status=400)
-    steps = _trend_steps(start, end, unit, span)
     if steps is None:
         return JsonResponse({"ok": False,
                              "message": f"时间范围超过 {_TREND_LIMIT} 个周期，请缩小日期范围或拉长周期。"},

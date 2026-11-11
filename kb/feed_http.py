@@ -83,7 +83,7 @@ def fetch_batch(feed):
                 for chunk in response.iter_raw():
                     if time.monotonic()-started>30:raise ValueError('API 响应超过30秒，已停止本次拉取。')
                     data.extend(chunk)
-                    if len(data)>MAX_BYTES:raise ValueError('API 返回数据超过2MB上限。')
+                    if len(data)>MAX_BYTES:raise ValueError('API 返回数据超过500MB上限。')
                 payload=load_batch(bytes(data))
                 if getattr(feed,'credential_id',None):
                     from .connector_tools import redact
@@ -105,7 +105,7 @@ def environment_headers(mapping):
     return result
 
 
-def read_url(url,*,allow_private=False,headers=None,method='GET',json_body=None,limit=2_000_000):
+def read_url(url,*,allow_private=False,headers=None,method='GET',json_body=None,limit=MAX_BYTES):
     """供连接器工具使用的有限请求，复用地址校验与固定 DNS 连接。"""
     host,address=resolve_target(url,allow_private);original=httpx.URL(url)
     values={'Accept-Encoding':'identity','User-Agent':'FOS-Connector-Agent/1',**(headers or {}),'Host':original.netloc.decode('ascii')}

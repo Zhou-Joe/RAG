@@ -9,8 +9,8 @@ from urllib.parse import urlsplit
 from django.utils.dateparse import parse_datetime
 
 SCHEMA='fos-rag-feed/v1'
-MAX_BYTES=2_000_000
-MAX_ITEMS=500
+MAX_BYTES=500_000_000
+MAX_ITEMS=50_000
 MAX_CONTENT=100_000
 MAX_FIELDS_CHARS=20_000
 MAX_METADATA_CHARS=20_000
@@ -21,7 +21,7 @@ def canonical(value):
 
 
 def load_batch(raw: bytes) -> dict:
-    if len(raw)>MAX_BYTES:raise ValueError('单批数据不能超过2MB。')
+    if len(raw)>MAX_BYTES:raise ValueError('单批数据不能超过500MB。')
     try:payload=json.loads(raw.decode('utf-8'),parse_constant=lambda value: (_ for _ in ()).throw(ValueError('非有限 JSON 数值')))
     except (ValueError,UnicodeDecodeError,RecursionError) as exc:raise ValueError('请提交 UTF-8 JSON 数据。') from exc
     return validate_batch(payload)
@@ -43,7 +43,7 @@ def validate_batch(payload) -> dict:
     if not isinstance(payload,dict) or payload.get('schema')!=SCHEMA:raise ValueError('数据必须使用 schema="fos-rag-feed/v1"。')
     if not payload.keys()<={'schema','batch_id','items','deleted','cursor'}:raise ValueError('数据包含不支持的字段，不能使用隐式 snapshot 删除。')
     items=payload.get('items');deleted=payload.get('deleted',[])
-    if not isinstance(items,list) or not isinstance(deleted,list) or len(items)+len(deleted)>MAX_ITEMS:raise ValueError('每批最多500项写入和删除；items 必须是数组。')
+    if not isinstance(items,list) or not isinstance(deleted,list) or len(items)+len(deleted)>MAX_ITEMS:raise ValueError('每批最多50000项写入和删除；items 必须是数组。')
     batch_id=payload.get('batch_id','')
     if not isinstance(batch_id,str) or (batch_id and not re.fullmatch(r'[A-Za-z0-9._:-]{1,160}',batch_id)):raise ValueError('batch_id 请使用1至160位字母、数字、点、冒号、下划线或连字符。')
     if 'cursor' in payload and (not isinstance(payload['cursor'],str) or len(payload['cursor'])>2048):raise ValueError('cursor 必须是最多2048字符的字符串。')
@@ -67,5 +67,5 @@ def validate_batch(payload) -> dict:
             except ValueError:stamp=None
             if stamp is None or stamp.tzinfo is None:raise ValueError('updated_at 必须是包含时区的 ISO 8601 时间。')
     for value in deleted:identity(value)
-    if len(canonical(payload).encode('utf-8'))>MAX_BYTES:raise ValueError('单批数据不能超过2MB。')
+    if len(canonical(payload).encode('utf-8'))>MAX_BYTES:raise ValueError('单批数据不能超过500MB。')
     return payload

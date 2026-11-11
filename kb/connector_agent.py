@@ -54,7 +54,7 @@ actions支持goto(url)、click(selector)、fill/select(selector,value或credenti
 使用browser_open/snapshot/action检查页面，browser_network/read_response分析真实JSON请求，browser_extract按CSS获取真实字段。
 观察结果包含清洗HTML、正文、真实elements与structures和tables。操作优先用返回的@e编号；保存脚本必须用真实稳定CSS，不保存@e编号。不要猜main或虚构组件/类名；定位不存在时工具已返回当前页面和真实定位，直接依据新观察修正。
 先确认列表结构，再查看一个代表性详情、确认所需字段和等待条件，然后写通用列表/详情配置交给test_browser_connector试采。不要手动逐一访问所有条目才写脚本。详情打开后若还未出现字段，只能依据页面已经观察到的标题/控件等待，不能反复猜hours/time类名。
-每次采集最多600个请求、60MB。图片、字体、媒体和常见追踪脚本已被底层自动拦截，永远不会加载，也不必为它们做任何处理或反复开页确认；预算只会消耗在反复整页导航、逐条重进详情和大体积JSON响应上。探索保持最小集：一次导航能观察清楚就不重复打开；详情优先network或html渲染取数，必须动态取数时才逐条进入，并用detail与max_pages限制条数；接近上限时立即用已观察到的数据收尾。
+每次网页采集最多600个请求、500MB，列表最多100页、总计50000条。图片、字体、媒体和常见追踪脚本已被底层自动拦截，永远不会加载，也不必为它们做任何处理或反复开页确认；预算只会消耗在反复整页导航、逐条重进详情和大体积JSON响应上。探索保持最小集：一次导航能观察清楚就不重复打开；详情优先network或html渲染取数，必须动态取数时才逐条进入，并用detail与max_pages限制条数；接近上限时立即用已观察到的数据收尾。
 浏览器与依赖已就绪，无需例行检查环境。只配置用户需要的业务字段，并始终保留 {"label":"采集日期","source":"today"}。采集日期由运行时按任务timezone（默认Asia/Shanghai）生成，是本次抓取的日期；绝不能去网页或API查找日期，不需要询问用户，不把它放进id_paths或updated_at_path。用户审核时可多选保留业务字段，采集日期始终保留。data_link没有可点击区域，直接goto返回的真实href即可。
 连续没有新页面或有效数据时系统会停止探索并要求收尾。成功show_data_preview即完成本次任务，不必再调用其他工具。50轮只是上限，简单任务应尽快验证并结束。
 test_browser_connector实际取数后会直接进入用户审核；默认缺失字段保留原文并提示，不为格式告警反复调用。严格模式才继续修正必需字段缺失。
@@ -65,7 +65,8 @@ test_browser_connector实际取数后会直接进入用户审核；默认缺失�
 如有 previous_connector、previous_examples 和 review_feedback，在原方案上按用户反馈调整并重新获取/验证真实样例；保留已认可的其他要求。
 你只生成候选方案和样例，不启用调度、不发布知识库。用户可以反复调整，只有用户明确点击批准后，系统才入库并启动 cron。
 明细数组可映射成Markdown表格或JSON。稳定ID不能使用随机值、当前时间或数组序号；设备报告可使用设备ID+报告日期组合。
-默认每小时cron="0 * * * *"、timezone="Asia/Shanghai"，按用户要求修改。每批最多500条、2MB、单条正文100000字符；每条记录的fields与metadata分别最多20000个序列化JSON字符（含键名和结构），需要完整元数据时可用空路径映射整个对象，不要静默截断。
+默认每小时cron="0 * * * *"、timezone="Asia/Shanghai"，按用户要求修改。每批最多50000条、500MB、单条正文100000字符；每条记录的fields与metadata分别最多20000个序列化JSON字符（含键名和结构），需要完整元数据时可用空路径映射整个对象，不要静默截断。
+用户要求“第一次拉全/补历史，以后每天新增”时，先按用户指定的历史时间范围或上游允许的批量参数配置现有采集；网页可将browser.max_records放宽到50000、output.max_pages放宽到100，不要沿用旧500条上限。用户后续再要求日常采集时，修改同一任务的查询时间范围与cron即可，无需增加阶段机制或另建一套任务。API仍只请求一页；必须遵守已核实的上游分页/时间筛选规则，未确认取全时明确说明，不能把达到本地上限当成全部历史。
 大接口使用已知的分页参数，每次定时运行只拉一页，成功发布才提交游标；不遍历全部历史。
 网页POST查询、登录和XHR由浏览器工具完成，详情关联由detail配置完成；不要求用户编写GET代理。
 API脚本使用标准库，网页脚本使用已安装的Playwright和Chromium或Edge。系统将验证后的步骤生成可独立运行的Python脚本与依赖说明；不输出任意Python或JavaScript代码。
@@ -420,12 +421,15 @@ def run(job_id) -> ConnectorDraft:
     def inspect_connector_environment() -> dict:
         """检查可信运行时、依赖及接入规范，不读取任何环境变量值。"""
         from .connector_calculations import ARITY
-        from .feed_protocol import MAX_ITEMS, MAX_FIELDS_CHARS, MAX_METADATA_CHARS
+        from .feed_protocol import MAX_ITEMS, MAX_BYTES, MAX_FIELDS_CHARS, MAX_METADATA_CHARS
+        from .browser_runtime import MAX_PAGES, MAX_REQUESTS, COLLECT_TIMEOUT_SECONDS
         return {'python':'3.10+', 'dependencies':{'api':'Python standard library','browser':'Playwright 1.58.0 + Chromium/Edge'},
             'computed_operations':list(ARITY),'calculation_tool':'preview_calculation','detail_render_modes':['auto','html','browser'],
             'sources':['GET JSON API','HTML webpage','JavaScript rendered webpage','browser JSON network responses'],
             'http_methods':['GET','browser-managed POST'], 'contract':'fos-rag-feed/v1', 'max_batch_items':MAX_ITEMS,
-            'max_batch_bytes':2000000, 'max_fields_json_chars':MAX_FIELDS_CHARS,
+            'max_batch_bytes':MAX_BYTES, 'max_browser_pages':MAX_PAGES,
+            'max_browser_requests':MAX_REQUESTS, 'max_browser_seconds':COLLECT_TIMEOUT_SECONDS,
+            'max_fields_json_chars':MAX_FIELDS_CHARS,
             'max_metadata_json_chars':MAX_METADATA_CHARS, 'path_syntax':['dot.path','/json/pointer'],
             'approved_header_references':job.header_env,'authentication':summary(job), 'sample_available':sample is not None}
 
