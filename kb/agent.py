@@ -1035,10 +1035,10 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
     tracker_query = TrackerQuery(_dept_allowed, evidence_sink, relationship_scope=relationship_scope)
 
     def tracker_preview(kb_slug: str = "", offset: int = 0, field_offset: int = 0) -> str:
-        """查看追踪表字段、数据类型、两条小样例和真实条数；首次查表先用本工具。
+        """查看追踪表字段、数据类型、两条小样例、真实条数和更新时间覆盖范围；尚不清楚结构时使用。
 
         kb_slug 必须指定所选库；文件夹可列出子库表。offset 按 next_offset 翻表，
-        field_offset 按 next_field_offset 翻字段。样例仅帮助理解结构，不能代表全量或用于统计。
+        field_offset 按 next_field_offset 翻字段。已有结构可复用，不必每轮重查；样例不能用于全量统计。
         """
         if not kb_slug:return '请明确提供本次选择的 kb_slug；需要选库时调用 list_knowledge_bases。'
         return tracker_query.call('preview', kb_slug=kb_slug, offset=offset, field_offset=field_offset)
@@ -1059,10 +1059,14 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
                         period: Literal['minute', 'hour', 'day', 'week', 'month', 'year'] = 'day',
                         span: int = 1, output: Literal['preview', 'excel', 'plot', 'both'] = 'preview',
                         chart_metric: Literal['value', 'change', 'change_pct'] = 'value',
-                        feed_id: str = '') -> str:
+                        feed_id: str = '', query: str = '', filters: list[TrackerFilter] | None = None) -> str:
         """直接分析完整台账历史并生成真实 Excel/图表；普通和增强模式均可用，无需编写代码。
 
-        先 tracker_preview 确认 kb_slug/字段；mode=options 返回数值字段和 object_field 的实际可选对象。
+        不清楚结构时先 tracker_preview 确认 kb_slug/字段；已有上下文直接复用。
+        query为关键词；filters为与tracker_lookup相同的最多12个AND条件（field/op/value/type）。
+            优先把用户的对象、设备、来源、关键词和业务日期条件传给数据库，不先取整表再筛选。
+            例如filters=[{"field":"采集日期","op":"between","type":"date","value":["2026-11-01","2026-11-07"]}]。
+        mode=options 返回筛选范围内的数值字段和 object_field 的实际可选对象。
         summary: group 为一个实际分组字段，空为总体；operation=count/sum/avg/min/max，非count必须给measure。
         trend: object_field 为实际字段或$source_id/$document_name，object_values 精确对象值列表（最多8个）。
             period+span 指每N分钟/小时/天/周/月/年，最多500周期；自动计算较上期变化及变化率。
@@ -1079,11 +1083,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         params = {'kind': mode, 'op': operation, 'group': group, 'measure': measure,
                   'from': date_from, 'to': date_to, 'object_field': object_field,
                   'object_value': object_values or [], 'period': period, 'span': str(span),
-                  'chart_metric': chart_metric, 'feed': feed_id}
+                  'chart_metric': chart_metric, 'feed': feed_id, 'analysis_search': query,
+                  'analysis_filters': json.dumps(filters or [], ensure_ascii=False)}
         try:
             text = agent_analysis(actor, _dept_allowed, tracker_query, kb_slug, params, output)
         except (TypeError, ValueError, OverflowError) as exc:
-            return json.dumps({'error': str(exc)[:400]}, ensure_ascii=False)
+            return tracker_query.error(exc)
         _tracker_citations()
         return text
 
@@ -1091,9 +1096,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
                        filters: list[TrackerFilter] | None = None, order_by: list[TrackerOrder] | None = None,
                        metrics: list[TrackerMetric] | None = None, group_by: list[TrackerGroup] | None = None,
                        limit: int = 20, offset: int = 0, status: str = "done", cell_chars: int = 800) -> str:
-        """在数据库查询完整追踪表历史；先用 tracker_preview 确认字段，只查明确指定库的已完成记录。
+        """在数据库查询追踪表；字段已知时直接查询，不清楚结构才用 tracker_preview。明确指定库，默认已完成记录。
 
         query: 文档名、来源ID或已配置字段值中的关键词；筛选覆盖全部历史，不限最近200条。
+            先在数据库应用用户给出的对象/关键词/时间条件；只取所需columns，明细默认20条。
+            不为做统计连续翻页搬运整表，改用metrics或tracker_analyze；业务日期通过filters指定真实日期字段。
         columns: 返回的1至12个实际字段，默认前6列加采集日期；不影响统计范围。
         filters: 最多12个AND条件，如 [{"field":"采集日期","op":"between","value":["2025-01-01","2025-12-31"],"type":"date"}]。
             op支持eq/ne/contains/in/between/gt/gte/lt/lte/is_empty，type为text/number/date。
@@ -1230,11 +1237,24 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         if retrieval_state is not None:
             retrieval_state['input_context'] = overview_context
     system_prompt += (
+        '\n业务数据查询顺序：先复用本轮和历史上下文中已知的知识库、字段及结果，缺信息才调工具。'
+        '查询前提取用户明确的对象/设备/来源、关键词、时间窗口，并在数据库端用query、filters、'
+        'date_from/date_to筛选后再聚合或返回明细；可用实际标识精确匹配时优先eq，模糊关键词再用contains。'
+        '业务日期（发生/采样/营业日期等）用真实业务字段的日期filters；date_from/date_to和$updated_at'
+        '表示记录更新时间，不能冒充业务发生时间。多个条件用AND，不把多个不连续关键词拼成一个短语。'
+        '未指定范围且问题存在歧义时，先利用tracker_preview的条数、data_from/data_to了解覆盖，'
+        '再简短确认对象或时间；不要为避免追问而一次读取全部历史。用户明确要累计/全历史统计时，'
+        '保持全历史范围并直接数据库聚合，不能擅自截成最近7天或人为加入关键词漏掉记录。'
+        '统计、趋势、比较优先用metrics或tracker_analyze，不逐页拉明细到上下文自己计算；'
+        '需要明细时只选必要columns，先取5至20条，不因has_more就自动遍历全表。'
+        '仅当用户需要更多具体明细、当前结果不足且输出预算允许时继续精确查询。'
+        '业务工具每次最多返回10000字符，本轮共用20000字符；预算不足直接基于已有材料回答或询问范围，'
+        '不要重复调用同一查询。大量完整结果通过导出文件交付，只把摘要和下载链接留在会话中。'
         '\n追踪表汇总/周期比较及Excel、图表优先使用 tracker_analyze：直接查询完整数据库，'
         'output=excel/plot/both 返回真正生成的文件链接，普通与增强模式都支持。'
         '按已有真实字段选择分组、数值字段、时间范围和对象；mode=options可识别数值字段/查对象值。'
         '不要把tracker_preview/lookup/analyze的有限预览复制成声称完整的文件。'
-        'tracker_analyze的时间范围按记录更新时间；业务日期字段的多条件/多指标分析仍用tracker_lookup。'
+        'tracker_analyze支持query/filters和更新日期范围；多指标/多维度分析用tracker_lookup。'
         '拿到files后在最终回答给出其原样URL的Markdown下载链接；不要编造路径，也不要改为request_verified_export。'
         '只有需要这些工具不支持的自由分析时，普通模式才用write_analysis/check_analysis。'
     )

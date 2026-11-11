@@ -63,11 +63,7 @@ class TrackerQuery:
         """并行工具调用共用同一字符预算；不截断 JSON 或假装返回完整表格。"""
         with self.lock:
             if self.remaining < 1200:
-                notice = encode({'error': '本轮追踪表输出预算已用完，请基于已有结果回答或缩小范围后继续提问。', 'budget_exhausted': True})
-                if len(notice)>self.remaining:
-                    notice = '{}' if self.remaining>=2 else ''
-                self.remaining -= len(notice)
-                return notice
+                return self._budget_notice()
             cap = min(RESPONSE_CHARS, self.remaining)
             try:
                 result = getattr(self, method)(cap=cap, **params)
@@ -95,6 +91,23 @@ class TrackerQuery:
             self.remaining -= len(text)
             return text
 
+    def _budget_notice(self):
+        """Caller holds lock; even exhaustion notices spend the remaining budget."""
+        text = encode({'error': '本轮追踪表输出预算已用完，请基于已有结果回答或缩小范围后继续提问。',
+                       'budget_exhausted': True})
+        if len(text) > self.remaining:
+            text = '{}' if self.remaining >= 2 else ''
+        self.remaining -= len(text)
+        return text
+
+    def error(self, message):
+        with self.lock:
+            if self.remaining < 1200:
+                return self._budget_notice()
+            text = encode({'error': str(message)[:400]})
+            self.remaining -= len(text)
+            return text
+
     def tables(self, kb_slug):
         if not isinstance(kb_slug, str) or len(kb_slug) > 200:
             raise ValueError('kb_slug 格式无效。')
@@ -118,11 +131,15 @@ class TrackerQuery:
                   'notice': '样例仅帮助理解字段，不代表全量数据。正式查询请使用 tracker_lookup；默认只查已完成记录。'}
         for table in tables[offset:offset+3]:
             rows = TrackerRow.objects.filter(tracker=table)
-            stats = rows.aggregate(total=Count('pk'), completed=Count('pk', filter=Q(status='done')))
+            stats = rows.aggregate(total=Count('pk'), completed=Count('pk', filter=Q(status='done')),
+                                   data_from=Min('updated_at', filter=Q(status='done')),
+                                   data_to=Max('updated_at', filter=Q(status='done')))
             sample = list(rows.filter(status='done').order_by('-updated_at', '-pk').values('id', 'values')[:2])
             fields = table.fields[field_offset:field_offset+40]
             info = {'kb_slug': table.kb.slug, 'name': table.kb.name, 'enabled': table.enabled,
                     'row_count': stats['total'], 'completed_rows': stats['completed'], 'field_count': len(table.fields),
+                    'data_from': stats['data_from'].isoformat() if stats['data_from'] else None,
+                    'data_to': stats['data_to'].isoformat() if stats['data_to'] else None,
                     'fields': [{'name': f['label'], 'sample_types': sorted({type(row['values'][f['label']]).__name__
                         for row in sample if f['label'] in row['values']})} for f in fields],
                     'next_field_offset': field_offset+len(fields) if field_offset+len(fields)<len(table.fields) else None,
@@ -141,7 +158,7 @@ class TrackerQuery:
 
     def lookup(self, kb_slug='', query='', columns=None, filters=None, order_by=None, metrics=None,
                group_by=None, limit=20, offset=0, status='done', cell_chars=CELL_CHARS, cap=RESPONSE_CHARS,
-               _export=False):
+               _export=False, _matching_ids=False):
         integer(limit, 'limit', 1, 50000 if _export else 100)
         integer(offset, 'offset', 0, 1000000)
         integer(cell_chars, 'cell_chars', 80, 8000)
@@ -236,6 +253,10 @@ class TrackerQuery:
                 rows = rows.filter(~test if op=='ne' else test)
             else:
                 raise ValueError('op 支持 eq/ne/contains/in/between/gt/gte/lt/lte/is_empty。')
+        if _matching_ids:
+            # Internal SQL subquery for analysis filters. Never materialize IDs
+            # or expose an unbounded row result to the model.
+            return rows.order_by().values('pk')
         total = rows.count()
         applied = {'kb_slug':kb_slug, 'query':query, 'filters':filters or [], 'status':status,
                    'metrics':metrics or [], 'group_by':group_by or []}

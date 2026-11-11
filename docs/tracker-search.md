@@ -36,6 +36,16 @@ date-only ends include that calendar day. Missing periods stay blank, and a zero
 previous value has no percentage change. `chart_metric` selects `value`, `change`
 or `change_pct` for trend plots.
 
+Use `query` for keyword matching and `filters` (the same typed AND conditions as
+`tracker_lookup`) for specific objects, sources, values and business-date ranges.
+These predicates run in SQL **before** options, summaries, trends and file creation;
+they never require loading raw rows into the model. Keep business dates in field
+filters separate from `date_from`/`date_to`, which filter record update times.
+Reuse known schema and results; request only necessary columns and 5–20 detail
+rows initially. Statistics should use database aggregates rather than paging the
+entire dataset into the conversation. Explicit all-history questions stay all-history.
+`tracker_preview` includes completed-row counts and update-time coverage bounds.
+
 `output="excel"`, `"plot"` or `"both"` creates real files and returns `files` with
 authenticated download URLs (24-hour lifetime, bound to the requesting account).
 Excel includes all matching groups, up to 50,000, regardless of JSON preview or

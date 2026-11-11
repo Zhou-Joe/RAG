@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, time
 import bisect
+import json
 import math
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from uuid import UUID
@@ -238,7 +239,6 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
     time_scope = _time_scope(first, last)
     row_scope &= time_scope
     analysis_base_scope = trend_scope if trend_scope is not None else record_scope
-    analysis_scope = analysis_base_scope & time_scope
 
     fields = [field["label"] for field in (tracker.fields if tracker else [])]
     kind = request.GET.get("kind", "rows")
@@ -248,14 +248,29 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
         return JsonResponse({"ok": False, "message": "仅汇总与周期对比支持导出，格式为 xlsx/svg。"}, status=400)
     if kind not in ("rows", "summary", "record", "trend", "options"):
         return JsonResponse({"ok": False, "message": "视图无效。"}, status=400)
+    if kind in ("summary", "trend", "options"):
+        try:
+            raw_filters = request.GET.get("analysis_filters", "[]")
+            if len(raw_filters) > 30000:
+                raise ValueError("分析筛选条件过长。")
+            filters = json.loads(raw_filters)
+            if not isinstance(filters, list):
+                raise ValueError("分析筛选条件必须为列表。")
+            search = request.GET.get("analysis_search", "")
+            if search or filters:
+                ids = TrackerQuery(lambda library: library.pk == kb.pk, row_scope=analysis_base_scope).lookup(
+                    kb_slug=slug, query=search, filters=filters, _matching_ids=True)
+                analysis_base_scope &= Q(pk__in=ids)
+                row_scope &= Q(pk__in=ids)
+        except (TypeError, ValueError, OverflowError) as exc:
+            return JsonResponse({"ok": False, "message": str(exc)[:400]}, status=400)
+    analysis_scope = analysis_base_scope & time_scope
     if kind == "options":
         return _analysis_options(request, tracker, analysis_scope, fields, first, last, zone,
                                  analysis_base_scope)
     if kind == "trend":
-        response = _trend_data(request, tracker, trend_scope if trend_scope is not None else record_scope,
-                               fields, first, last, str(zone))
+        response = _trend_data(request, tracker, analysis_base_scope, fields, first, last, str(zone))
         if export_format and response.status_code == 200:
-            import json
             return _analysis_response(request, kb, json.loads(response.content))
         return response
     if kind == "record":

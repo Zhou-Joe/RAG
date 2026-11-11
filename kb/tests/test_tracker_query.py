@@ -52,6 +52,18 @@ class TrackerQueryTests(TrackerFixture, TestCase):
         self.assertLess(len(json.dumps(result,ensure_ascii=False)),3000)
         self.assertEqual(self.service.evidence,[])
 
+    def test_preview_reports_completed_update_time_coverage_without_returning_history(self):
+        first = self.row()
+        last = self.row()
+        before = timezone.now() - timedelta(days=365)
+        TrackerRow.objects.filter(pk=first.pk).update(updated_at=before)
+        TrackerRow.objects.create(tracker=self.tracker, status='proposed', values={'场次数': 999})
+        data = json.loads(self.service.call('preview', kb_slug=self.kb.slug))['tables'][0]
+        self.assertEqual(data['completed_rows'], 2)
+        self.assertEqual(data['data_from'], before.isoformat())
+        self.assertEqual(data['data_to'], last.updated_at.isoformat())
+        self.assertEqual(len(data['samples']), 2)
+
     def test_full_history_unicode_search_and_filters_happen_before_pagination(self):
         old = self.row(项目名称='仅历史记录中有的项目',采集日期='2024-11-06')
         TrackerRow.objects.filter(pk=old.pk).update(updated_at=timezone.now()-timedelta(days=365))

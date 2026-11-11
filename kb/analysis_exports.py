@@ -67,11 +67,16 @@ def query_analysis(user, slug, params):
         message = json.loads(response.content).get('message', '无法分析此追踪表。') if response.status_code == 400 else '无权访问。'
         raise ValueError(message)
     data = json.loads(response.content)
+    criteria = {'query': query.get('analysis_search', ''),
+                'filters': json.loads(query.get('analysis_filters', '[]'))}
+    if criteria['query'] or criteria['filters']:
+        data['criteria'] = criteria
     # Run status and UI pagination metadata are not facts in an analysis snapshot.
     keys = ('kind', 'groups', 'total_matched', 'total_groups', 'applied_query', 'series',
             'bucket_count', 'period_unit', 'span', 'period_label', 'operation', 'measure',
             'object_field', 'object_values', 'timezone', 'range_from', 'range_to', 'notice',
-            'fields', 'numeric_fields', 'object_has_more', 'object_next_offset')
+            'fields', 'numeric_fields', 'object_has_more', 'object_next_offset',
+            'criteria', 'data_from', 'data_to')
     return kb, {key: data[key] for key in keys if key in data}
 
 
@@ -327,7 +332,7 @@ def agent_analysis(user, allowed, service, slug, params, output):
     with service.lock:
         cap = min(RESPONSE_CHARS, service.remaining)
         if cap < 2500:
-            return encode({'error': '本轮追踪表输出预算已用完，请基于已有结果回答。', 'budget_exhausted': True})
+            return service._budget_notice()
         kb, data = query_analysis(user, slug, params)
         params = dict(params)
         if data['kind'] == 'trend':

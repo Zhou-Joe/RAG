@@ -157,6 +157,59 @@ class AnalysisExportTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('50', response.json()['message'])
 
+    def test_keyword_and_business_date_filters_apply_before_all_analysis_and_exports(self):
+        self.tracker.fields.append({'label': 'Business date'})
+        self.tracker.save(update_fields=['fields'])
+        for name, number, business_date in [
+            ('Ride A', '10', '2026-11-03'), ('Ride A', '80', '2026-10-31'),
+            ('Other', '70', '2026-11-03'), ('Ride A', '2', '2026-11-03'),
+            ('Ride B', '90', '2026-11-03'),
+        ]:
+            row = self.row(name, number, 10)
+            TrackerRow.objects.filter(pk=row.pk).update(values={**row.values, 'Business date': business_date})
+        filters = [
+            {'field': 'Object', 'op': 'eq', 'value': 'Ride A'},
+            {'field': 'Number', 'op': 'gte', 'type': 'number', 'value': 5},
+            {'field': 'Business date', 'op': 'between', 'type': 'date',
+             'value': ['2026-11-01', '2026-11-07']},
+        ]
+        params = {**self.params, 'analysis_search': 'Ride', 'analysis_filters': json.dumps(filters)}
+        _, data = query_analysis(self.owner, self.kb.slug, params)
+        self.assertEqual(data['total_matched'], 1)
+        self.assertEqual(data['groups'][0]['metrics']['value'], 10)
+        self.assertEqual(data['criteria'], {'query': 'Ride', 'filters': filters})
+        book = self.workbook(self.client.get(self.url, {**params, 'export': 'xlsx'}))
+        self.assertEqual(list(book['Analysis'].values)[1:], [('Ride A', 10, 1)])
+        _, options = query_analysis(self.owner, self.kb.slug, {**params, 'kind': 'options', 'object_field': 'Object'})
+        self.assertEqual(options['object_values'], ['Ride A'])
+        self.assertEqual(options['data_from'], options['data_to'])
+        _, trend = query_analysis(self.owner, self.kb.slug, {**params, 'kind': 'trend',
+            'object_field': 'Object', 'object_value': ['Ride A'], 'period': 'minute', 'span': '10',
+            'from': '2026-11-10T10:00', 'to': '2026-11-10T10:30'})
+        self.assertEqual([point['value'] for point in trend['series'][0]['points']], [None, 10, None])
+        service = TrackerQuery(lambda kb: True)
+        result = json.loads(agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, params, 'excel'))
+        self.assertEqual(result['analysis']['total_matched'], 1)
+        self.assertTrue(validate_sources(service.evidence, self.owner.pk))
+
+    def test_invalid_analysis_filters_are_rejected(self):
+        self.row()
+        for filters in ('{}', 'null', 'not json', json.dumps([{'field': 'Unknown', 'op': 'eq', 'value': 'x'}]),
+                        json.dumps([{'field': 'Object', 'op': 'eq', 'value': 'A'}] * 13)):
+            response = self.client.get(self.url, {**self.params, 'analysis_filters': filters})
+            self.assertEqual(response.status_code, 400, response.content)
+
+    def test_repeated_analysis_exhaustion_notices_cannot_exceed_shared_budget(self):
+        service = TrackerQuery(lambda kb: True)
+        service.remaining = 100
+        with patch('kb.analysis_exports.query_analysis') as query:
+            results = [agent_analysis(self.owner, lambda kb: True, service, self.kb.slug,
+                                      self.params, 'preview') for _ in range(20)]
+        query.assert_not_called()
+        self.assertLessEqual(sum(map(len, results)), 100)
+        self.assertLessEqual(service.remaining, 1)  # One char cannot hold another valid JSON result.
+        self.assertGreaterEqual(service.remaining, 0)
+
     def test_file_fingerprint_is_verified_and_links_expire(self):
         self.row()
         service = TrackerQuery(lambda kb: True)
@@ -194,9 +247,14 @@ class AnalysisExportTests(TestCase):
         from langchain_core.utils.function_calling import convert_to_openai_tool
         schema = convert_to_openai_tool(tools['tracker_analyze'])['function']['parameters']
         self.assertIn('both', schema['properties']['output']['enum'])
+        self.assertIn('filters', schema['properties'])
+        self.assertIn('query', schema['properties'])
         result = json.loads(tools['tracker_analyze'](self.kb.slug, group='Object', operation='sum',
                                                     measure='Number', output='excel'))
         self.assertEqual(result['analysis']['groups'][0]['metrics']['value'], 3)
         self.assertEqual(len(result['files']), 1)
         self.assertEqual(citations[0]['kind'], 'tracker')
         self.assertTrue(validate_sources(evidence, self.owner.pk))
+        result = json.loads(tools['tracker_analyze'](self.kb.slug, group='Object', query='A',
+            filters=[{'field': 'Number', 'op': 'gte', 'type': 'number', 'value': 5}]))
+        self.assertEqual(result['analysis']['total_matched'], 0)
