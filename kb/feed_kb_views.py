@@ -242,15 +242,22 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
 
     fields = [field["label"] for field in (tracker.fields if tracker else [])]
     kind = request.GET.get("kind", "rows")
+    export_format = request.GET.get("export", "")
+    full = bool(export_format or getattr(request, "analysis_full_result", False))
+    if export_format and (export_format not in ("xlsx", "svg") or kind not in ("summary", "trend")):
+        return JsonResponse({"ok": False, "message": "仅汇总与周期对比支持导出，格式为 xlsx/svg。"}, status=400)
     if kind not in ("rows", "summary", "record", "trend", "options"):
         return JsonResponse({"ok": False, "message": "视图无效。"}, status=400)
     if kind == "options":
         return _analysis_options(request, tracker, analysis_scope, fields, first, last, zone,
                                  analysis_base_scope)
     if kind == "trend":
-        return _trend_data(request, tracker, trend_scope if trend_scope is not None else record_scope,
-                           fields, first, last,
-                           str(zone))
+        response = _trend_data(request, tracker, trend_scope if trend_scope is not None else record_scope,
+                               fields, first, last, str(zone))
+        if export_format and response.status_code == 200:
+            import json
+            return _analysis_response(request, kb, json.loads(response.content))
+        return response
     if kind == "record":
         try:
             row_id = int(request.GET.get("row", ""))
@@ -280,10 +287,9 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
         "range_to": last.isoformat() if last else None,
     }
     if not fields:
-        common.update({"kind": kind, "total_matched": 0, "rows": [], "groups": [], "has_more": False})
-        response = JsonResponse(common)
-        response["Cache-Control"] = "private, no-store"
-        return response
+        common.update({"kind": "tracker_summary" if kind == "summary" else kind,
+                       "total_matched": 0, "total_groups": 0, "rows": [], "groups": [], "has_more": False})
+        return _analysis_response(request, kb, common)
 
     query = TrackerQuery(lambda library: library.pk == kb.pk,
                          row_scope=analysis_scope if kind == "summary" and request.GET.get("scope") == "history"
@@ -313,11 +319,25 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
                        else {"op": operation, "field": measure, "as": "value"}]
             result = query.lookup(kb_slug=slug, query=search, filters=filters,
                                   metrics=metrics, group_by=[{"field": group}] if group else [],
-                                  limit=50, offset=offset, cap=250000)
+                                  limit=50000 if full else 50, offset=0 if full else offset,
+                                  cap=20_000_000 if full else 250000, _export=full)
+            if full and result.get("has_more"):
+                raise ValueError("导出最多 50,000 组，请缩小日期范围或减少分组。")
     except (TypeError, ValueError, OverflowError) as exc:
         return JsonResponse({"ok": False, "message": str(exc)[:400]}, status=400)
 
-    response = JsonResponse({**common, **result})
+    return _analysis_response(request, kb, {**common, **result})
+
+
+def _analysis_response(request, kb, data):
+    from .analysis_exports import export_response
+    try:
+        download = export_response(request, kb, data)
+    except (ValueError, TypeError, OverflowError) as exc:
+        return JsonResponse({"ok": False, "message": str(exc)[:400]}, status=400)
+    if download is not None:
+        return download
+    response = JsonResponse(data)
     response["Cache-Control"] = "private, no-store"
     return response
 

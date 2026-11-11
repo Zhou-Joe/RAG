@@ -1,13 +1,52 @@
 # Tracking-table tools for the chat agent
 
-The chat agent uses two read-only tools. Neither modifies records or starts a collector.
+The chat agent uses three analysis tools. None modifies records or starts a collector.
 
 - `tracker_preview`: inspect actual field names, sample types, two small examples and row counts.
 - `tracker_lookup`: filter all matching database history, select columns, sort, paginate or compute summaries.
+- `tracker_analyze`: use the same summary/period comparison as the KB page and generate Excel or SVG plots directly from the database, in both ordinary and enhanced modes.
 
-Both default to the current knowledge base. A library with its own tracking table uses that table;
+All tools require an explicit knowledge-base slug; chats never pick a default. For preview/lookup, a library with its own tracking table uses that table;
 otherwise the tool can find tables on its children or parent, within the caller's knowledge-base scope.
 The preview returns `kb_slug` so the agent can address a particular table directly.
+
+## Period analysis and files
+
+```json
+{
+  "kb_slug": "park-hours",
+  "mode": "trend",
+  "operation": "avg",
+  "measure": "等候时间",
+  "object_field": "项目名称",
+  "object_values": ["海盗演出", "飞越地平线"],
+  "date_from": "2026-11-01T00:00:00+08:00",
+  "date_to": "2026-11-08T00:00:00+08:00",
+  "period": "hour",
+  "span": 1,
+  "output": "both"
+}
+```
+
+`mode="options"` discovers numeric fields and exact object values. `summary` accepts
+one `group` field (blank means overall); `trend` compares up to 8 objects in up to
+500 periods. Time bounds filter **record update time**, not a business-date column.
+Local times use the selected feed/site timezone. Datetime ends are exclusive;
+date-only ends include that calendar day. Missing periods stay blank, and a zero
+previous value has no percentage change. `chart_metric` selects `value`, `change`
+or `change_pct` for trend plots.
+
+`output="excel"`, `"plot"` or `"both"` creates real files and returns `files` with
+authenticated download URLs (24-hour lifetime, bound to the requesting account).
+Excel includes all matching groups, up to 50,000, regardless of JSON preview or
+page pagination, with numeric values, validity counts, change/rate columns and
+query metadata. SVG summary plots allow up to 50 groups. Oversized exports fail
+explicitly instead of producing a silently partial file. Source text is written
+as Excel text, never as executable formulas. Enhanced publication rechecks both
+the database result and file fingerprints. Downloading rechecks current KB access.
+
+The KB page's **Export Excel** button exports the last successfully applied
+analysis settings. Changing settings disables it until the new analysis is applied.
 
 ## Preview
 

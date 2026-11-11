@@ -4,7 +4,7 @@
   const TOOLS = {list_knowledge_bases:'查看知识库',kb_relationships:'查看知识库关联',kb_graph_search:'查询已确认事实',
     kb_search:'检索知识库',kb_read_chunks:'读取原文片段',kb_select_evidence:'选择引用依据',kb_image_search:'查找图片',
     kb_fetch_doc:'查找文档内容',kb_neighbor_chunk:'读取相邻片段',tracker_preview:'查看追踪表',tracker_lookup:'查询追踪数据',
-    write_analysis:'生成分析',check_analysis:'等待分析结果',request_verified_export:'准备表格导出'};
+    tracker_analyze:'分析台账与生成报告',write_analysis:'生成分析',check_analysis:'等待分析结果',request_verified_export:'准备表格导出'};
   const CHECK = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m4 10 4 4 8-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const clean = value => String(value || '').replace(/[.…]+$/, '');
 

@@ -4,11 +4,12 @@ from django.urls import path
 
 from . import graph_views, hierarchy_views, feed_views, connector_views, tracker_analysis_views, feed_kb_views, kb_link_views, pin_views, views
 
-from . import report_views
+from . import report_views, analysis_exports
 
 app_name = "kb"
 
 urlpatterns = [
+    path('analysis/files/<str:token>/', analysis_exports.download_file, name='analysis_file'),
     path('feeds/<uuid:feed_id>/report/schedule/',report_views.schedule_control,name='report_schedule_control'),
     path('feeds/<uuid:feed_id>/report/settings/',report_views.configuration,name='report_configuration'),
     path('feeds/<uuid:feed_id>/report/configure/',report_views.configure,name='report_configure'),

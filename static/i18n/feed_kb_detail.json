@@ -1,5 +1,9 @@
 {
   "messages": {
+    "导出 Excel": "Export Excel",
+    "正在导出…": "Exporting…",
+    "导出全部匹配分组，不受表格分页影响": "Export all matching groups, including unloaded pages",
+    "导出失败，请重新登录后重试。": "Export failed. Please sign in again and retry.",
     "每分钟": "Every minute", "每年": "Yearly", "分钟": "minutes", "小时": "hours", "天": "days",
     "选择统计方式、时间范围和对比对象，在同一张表或图中查看结果。": "Choose a metric, time range and items to explore in one table or chart.",
     "分析方式": "Analysis mode",

@@ -1,6 +1,6 @@
 {% extends "kb/_base.html" %}{% load static %}
 {% block title %}{{ kb.name }} · 自动采集知识库{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=9">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=10">{% endblock %}
 {% block content %}
 <header class="page-head">
   <div class="page-head-main">
@@ -61,5 +61,5 @@
 {% block scripts %}
 <script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
 {% if can_manage %}<script src="{% static 'js/tracker_record_editor.js' %}?v=1" defer></script>{% endif %}
-<script src="{% static 'js/feed_kb_detail.js' %}?v=9" defer></script>
+<script src="{% static 'js/feed_kb_detail.js' %}?v=10" defer></script>
 {% endblock %}

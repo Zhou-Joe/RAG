@@ -140,8 +140,9 @@ class TrackerQuery:
         return result
 
     def lookup(self, kb_slug='', query='', columns=None, filters=None, order_by=None, metrics=None,
-               group_by=None, limit=20, offset=0, status='done', cell_chars=CELL_CHARS, cap=RESPONSE_CHARS):
-        integer(limit, 'limit', 1, 100)
+               group_by=None, limit=20, offset=0, status='done', cell_chars=CELL_CHARS, cap=RESPONSE_CHARS,
+               _export=False):
+        integer(limit, 'limit', 1, 50000 if _export else 100)
         integer(offset, 'offset', 0, 1000000)
         integer(cell_chars, 'cell_chars', 80, 8000)
         if not isinstance(query, str) or len(query)>300:
@@ -239,7 +240,8 @@ class TrackerQuery:
         applied = {'kb_slug':kb_slug, 'query':query, 'filters':filters or [], 'status':status,
                    'metrics':metrics or [], 'group_by':group_by or []}
         if metrics or group_by:
-            return self.summary(expression, lambda: rows, total, metrics, group_by, limit, offset, cap, applied)
+            return self.summary(expression, lambda: rows, total, metrics, group_by, limit, offset, cap, applied,
+                                exporting=_export)
         if columns is None:
             columns = labels[:6]
             if '采集日期' in labels and '采集日期' not in columns:
@@ -273,7 +275,7 @@ class TrackerQuery:
             result['notice'] = '本页字段过长，未返回记录；请选择更少 columns，或使用 metrics 在数据库统计。'
         return result
 
-    def summary(self, expression, get_rows, total, metrics, group_by, limit, offset, cap, applied):
+    def summary(self, expression, get_rows, total, metrics, group_by, limit, offset, cap, applied, *, exporting=False):
         """所有过滤后记录参与数据库汇总，分页仅限制返回的分组，不影响统计。"""
         metrics = metrics or [{'op':'count','as':'count'}]
         applied = {**applied,'metrics':metrics}
@@ -318,11 +320,17 @@ class TrackerQuery:
             return result
         grouped = rows.order_by().annotate(**{key:val[1] for key,val in groups.items()}).values(*groups).annotate(**aggregates,**numeric).order_by(*groups)
         result['total_groups'] = grouped.count()
-        for value in grouped[offset:offset+limit]:
-            record = {'by':{label:cell(value[key]) for key,(label,_) in groups.items()},
+        used = 0
+        for value in grouped[offset:offset+limit].iterator(chunk_size=1000):
+            record = {'by':{label:value[key] if exporting else cell(value[key]) for key,(label,_) in groups.items()},
                       'metrics':{name:cell(value[key]) for key,name in names.items()},
                       'valid_numeric_values':{names[key[:-6]]:value[key] for key in numeric}}
-            if len(encode({**result,'groups':result['groups']+[record]}))>cap-300:
+            # Full exports use a linear size check and preserve group labels.
+            # Interactive/tool responses retain their small, paginated budget.
+            used += len(encode(record))
+            if exporting and used > cap:
+                raise ValueError('导出数据过大，请缩小日期范围或减少分组。')
+            if not exporting and len(encode({**result,'groups':result['groups']+[record]}))>cap-300:
                 break
             result['groups'].append(record)
         consumed = len(result['groups'])
@@ -337,6 +345,9 @@ def validate_snapshot(snapshot, user):
     from .publication import digest
     if not getattr(user,'is_active',False) or not isinstance(snapshot, dict) or snapshot.get('kind')!='tracker':
         return False
+    if 'analysis_query' in snapshot:
+        from .analysis_exports import validate_analysis_snapshot
+        return validate_analysis_snapshot(snapshot, user)
     params = snapshot.get('query')
     cap = snapshot.get('response_chars')
     text = snapshot.get('text')

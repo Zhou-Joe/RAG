@@ -228,6 +228,8 @@
     $('feedKbApply').disabled = state.analysisLoading || state.optionsLoading || state.optionsError
       || !$('feedKbAnalysisFrom').value || !$('feedKbAnalysisTo').value
       || (needsNumber && !$('feedKbMeasure').value) || (periodMode() && !state.objects.length);
+    $('feedKbExport').disabled = state.exporting || state.analysisLoading || state.analysisDirty
+      || !state.analysisValid || !state.appliedSignature;
   }
 
   function markAnalysisChanged() {
@@ -678,8 +680,10 @@
       if (period) renderTrend(data);
       else renderSummary(data, append, snapshot);
       state.analysisDirty = false; state.appliedSignature = signature;
+      state.analysisValid = true;
     } catch (error) {
       if (token === state.summaryToken) {
+        state.analysisValid = false;
         $('feedKbAggregateNote').textContent = error.message;
         $('feedKbSummaryInfo').textContent = '';
         $('feedKbSummaryMore').hidden = true;
@@ -698,6 +702,33 @@
         state.analysisLoading = false; updateApplyState();
         $('feedKbSummaryMore').disabled = false;
       }
+    }
+  }
+
+  async function exportAnalysis() {
+    if ($('feedKbExport').disabled) return;
+    const query = new URLSearchParams(state.appliedSignature);
+    query.set('export', 'xlsx'); query.set('offset', '0');
+    state.exporting = true; updateApplyState();
+    $('feedKbExport').textContent = uiText('正在导出…');
+    try {
+      const response = await fetch(`${endpoint}?${query}`);
+      if (!response.ok || !response.headers.get('Content-Type')?.includes('spreadsheetml')) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || uiText('导出失败，请重新登录后重试。'));
+      }
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+      const plainName = disposition.match(/filename="([^"]+)"/i)?.[1];
+      const name = encodedName ? decodeURIComponent(encodedName) : plainName || 'EnGenie-analysis.xlsx';
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = name;
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      $('feedKbAggregateNote').textContent = error.message;
+    } finally {
+      state.exporting = false; $('feedKbExport').textContent = uiText('导出 Excel'); updateApplyState();
     }
   }
 
@@ -736,6 +767,7 @@
   }
   $('feedKbColumns').addEventListener('change', () => void loadRows());
   $('feedKbSummaryMore').addEventListener('click', () => void loadAnalysis(true));
+  $('feedKbExport').addEventListener('click', () => void exportAnalysis());
   document.querySelectorAll('[data-fkd-mode]').forEach(button => button.addEventListener('click', () => {
     $('feedKbAnalysisMode').value = button.dataset.fkdMode;
     syncPeriodControls(); markAnalysisChanged();

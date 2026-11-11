@@ -937,6 +937,8 @@
     "读取相邻片段": "Read nearby passages",
     "查询追踪数据": "Query tracker data",
     "生成分析": "Generate analysis",
+    "分析台账与生成报告": "Analyze records and create reports",
+    "分析台账并生成报告…": "Analyzing records and creating reports…",
     "等待分析结果": "Wait for analysis results",
     "准备表格导出": "Prepare table export",
     "正在准备回答": "Preparing an answer",

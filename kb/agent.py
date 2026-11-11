@@ -9,7 +9,7 @@ import json
 import traceback
 from functools import lru_cache
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Literal
 
 from django.conf import settings
 from .clocked_chat import ClockedChatOpenAI as ChatOpenAI
@@ -1043,6 +1043,50 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         if not kb_slug:return '请明确提供本次选择的 kb_slug；需要选库时调用 list_knowledge_bases。'
         return tracker_query.call('preview', kb_slug=kb_slug, offset=offset, field_offset=field_offset)
 
+    def _tracker_citations():
+        for snapshot in tracker_query.evidence:
+            if snapshot.get('kind') != 'tracker':
+                continue
+            if not any(c.get('kind') == 'tracker' and c.get('result_digest') == snapshot['result_digest'] for c in cite_sink):
+                cite_sink.append({'kind': 'tracker', 'kb_slug': snapshot['query']['kb_slug'],
+                                  'source': snapshot.get('source', '追踪表查询'),
+                                  'result_digest': snapshot['result_digest'], 'tracker_snapshot': snapshot})
+
+    def tracker_analyze(kb_slug: str, mode: Literal['options', 'summary', 'trend'] = 'summary',
+                        operation: Literal['count', 'sum', 'avg', 'min', 'max'] = 'count',
+                        group: str = '', measure: str = '', date_from: str = '', date_to: str = '',
+                        object_field: str = '', object_values: list[str] | None = None,
+                        period: Literal['minute', 'hour', 'day', 'week', 'month', 'year'] = 'day',
+                        span: int = 1, output: Literal['preview', 'excel', 'plot', 'both'] = 'preview',
+                        chart_metric: Literal['value', 'change', 'change_pct'] = 'value',
+                        feed_id: str = '') -> str:
+        """直接分析完整台账历史并生成真实 Excel/图表；普通和增强模式均可用，无需编写代码。
+
+        先 tracker_preview 确认 kb_slug/字段；mode=options 返回数值字段和 object_field 的实际可选对象。
+        summary: group 为一个实际分组字段，空为总体；operation=count/sum/avg/min/max，非count必须给measure。
+        trend: object_field 为实际字段或$source_id/$document_name，object_values 精确对象值列表（最多8个）。
+            period+span 指每N分钟/小时/天/周/月/年，最多500周期；自动计算较上期变化及变化率。
+        date_from/date_to 按【记录更新时间】筛选，建议明确提供；ISO日期或时间，时区按数据源/站点。
+            日期结束值包含当天，日期时间结束值不包含该时刻。未提供时summary用全部历史，trend用默认最近范围。
+        output=preview仅返回有界预览；excel导出全部匹配分组（最多50000组），plot生成可下载SVG；both同时生成。
+            图表summary最多50组，trend最多8对象。chart_metric仅控制趋势图口径，不改变Excel的完整列。
+        数值字符串参与计算，非数值排除并报告有效条数；缺失周期不补零，上期为0不算变化率。
+        feed_id可选，仅用于结构化采集表。文件直接来自数据库，返回真实下载URL，不把预览抄成全量Excel。
+        """
+        from .analysis_exports import agent_analysis
+        if not kb_slug:
+            return '请明确提供本次选择的 kb_slug。'
+        params = {'kind': mode, 'op': operation, 'group': group, 'measure': measure,
+                  'from': date_from, 'to': date_to, 'object_field': object_field,
+                  'object_value': object_values or [], 'period': period, 'span': str(span),
+                  'chart_metric': chart_metric, 'feed': feed_id}
+        try:
+            text = agent_analysis(actor, _dept_allowed, tracker_query, kb_slug, params, output)
+        except (TypeError, ValueError, OverflowError) as exc:
+            return json.dumps({'error': str(exc)[:400]}, ensure_ascii=False)
+        _tracker_citations()
+        return text
+
     def tracker_lookup(query: str = "", kb_slug: str = "", columns: list[str] | None = None,
                        filters: list[TrackerFilter] | None = None, order_by: list[TrackerOrder] | None = None,
                        metrics: list[TrackerMetric] | None = None, group_by: list[TrackerGroup] | None = None,
@@ -1068,12 +1112,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         if not kb_slug:return '请明确提供本次选择的 kb_slug；需要选库时调用 list_knowledge_bases。'
         text = tracker_query.call('lookup', kb_slug=kb_slug, query=query, columns=columns,
             filters=filters, order_by=order_by, metrics=metrics, group_by=group_by, limit=limit, offset=offset, status=status, cell_chars=cell_chars)
-        for snapshot in tracker_query.evidence:
-            if snapshot.get('kind')!='tracker':
-                continue
-            if not any(c.get('kind')=='tracker' and c.get('result_digest')==snapshot['result_digest'] for c in cite_sink):
-                cite_sink.append({'kind':'tracker', 'kb_slug':snapshot['query']['kb_slug'], 'source':'追踪表查询',
-                                  'result_digest':snapshot['result_digest'], 'tracker_snapshot':snapshot})
+        _tracker_citations()
         return text
 
     def write_analysis(code: str, filename: str = "analysis.xlsx") -> str:
@@ -1190,13 +1229,22 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
                           '只按所列目录与原文介绍主题，不自行展开未获取的条款，禁止用其他手册替代：\n' + '\n'.join(preload))
         if retrieval_state is not None:
             retrieval_state['input_context'] = overview_context
+    system_prompt += (
+        '\n追踪表汇总/周期比较及Excel、图表优先使用 tracker_analyze：直接查询完整数据库，'
+        'output=excel/plot/both 返回真正生成的文件链接，普通与增强模式都支持。'
+        '按已有真实字段选择分组、数值字段、时间范围和对象；mode=options可识别数值字段/查对象值。'
+        '不要把tracker_preview/lookup/analyze的有限预览复制成声称完整的文件。'
+        'tracker_analyze的时间范围按记录更新时间；业务日期字段的多条件/多指标分析仍用tracker_lookup。'
+        '拿到files后在最终回答给出其原样URL的Markdown下载链接；不要编造路径，也不要改为request_verified_export。'
+        '只有需要这些工具不支持的自由分析时，普通模式才用write_analysis/check_analysis。'
+    )
     return create_agent(
         middleware=[RetrievalBudget(max_rounds=7,selection=rag_selection)],
         model=_get_llm(llm_cfg),
-        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, request_verified_export]
+        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, request_verified_export]
                if llm_cfg.get("qa_enhance") else
-               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, write_analysis, check_analysis, request_verified_export]),
-        system_prompt=system_prompt + ("\n增强模式：可直接复用会话中已有的原文、工具结果或已核对的图谱事实，不要求每轮重新检索。历史回答可帮助理解，但核实时使用保存的原文依据。展示有出处的文本或 Markdown 表格。需导出时调用 request_verified_export 并在最终回答给出一个完整表格。仅在核对通过后生成 CSV，不得声称文件已经生成。此模式不执行自由生成脚本。" if llm_cfg.get("qa_enhance") else ""),
+               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, write_analysis, check_analysis, request_verified_export]),
+        system_prompt=system_prompt + ("\n增强模式：可直接复用会话中已有的原文、工具结果或已核对的图谱事实，不要求每轮重新检索。历史回答可帮助理解，但核实时使用保存的原文依据。展示有出处的文本或 Markdown 表格。台账Excel和图表使用tracker_analyze返回真实下载链接；来源数据在发布前复核。其它已核对Markdown表格可调用request_verified_export生成CSV。此模式不执行自由生成脚本。" if llm_cfg.get("qa_enhance") else ""),
         checkpointer=checkpointer,
         name="engenie",
     )
@@ -1587,6 +1635,7 @@ def _tool_label(name: str) -> str:
         "kb_graph_search": "查询已核对的图谱关系…",
         "tracker_preview": "查看追踪表字段与样例…",
         "tracker_lookup": "筛选或统计追踪表…",
+        "tracker_analyze": "分析台账并生成报告…",
         "kb_fetch_doc": "提取文档片段…",
         "write_analysis": "生成分析脚本…",
     }.get(name, f"调用工具 {name}…")
