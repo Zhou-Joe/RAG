@@ -4,10 +4,16 @@
   const $ = id => document.getElementById(id);
   const endpoint = panel.dataset.url;
   const trackerMode = panel.dataset.mode === 'tracker';
-  const state = {rowOffset: 0, summaryOffset: 0, rowToken: 0, summaryToken: 0, fields: [], visibleRows: [], selectedRows: new Set()};
+  const state = {rowOffset: 0, summaryOffset: 0, rowToken: 0, summaryToken: 0, fields: [],
+    visibleRows: [], selectedRows: new Set(), objects: [], trendSeries: [], trendMeta: {},
+    hiddenObjects: new Set()};
+  const MAX_SERIES = 8;
+  const SERIES_COLORS = ['#2f6f9f', '#c2410c', '#3d7a3f', '#7b3fa0', '#a16207', '#0f766e', '#b91c1c', '#334155'];
   const editable = Boolean($('feedKbRecordActions') && window.trackerRecordEditor);
   const uiText = source => window.FOSI18n?.t(source) || source;
   const periodMode = () => $('feedKbGroup').value.startsWith('$period:');
+  const periodUnit = () => $('feedKbGroup').value.slice('$period:'.length);
+  const periodSpan = () => Math.max(1, parseInt($('feedKbPeriodSpan').value, 10) || 1);
   const periodScopeNote = '周期统计使用上方日期范围和已保存历史，对象值精确匹配；搜索、字段筛选及最新/历史切换不影响结果。空周期不补零；覆盖更新仅保留当前快照。';
   const formatTime = value => value ? new Date(value).toLocaleString(document.documentElement.lang || 'zh-CN') : '—';
   const valueText = value => {
@@ -23,6 +29,42 @@
     return node;
   };
   const clear = node => node.replaceChildren();
+  // 对象值多选：一个对象一条曲线，图例按颜色对应
+  function renderChips() {
+    const host = $('feedKbTrendChips');
+    host.hidden = !state.objects.length;
+    clear(host);
+    state.objects.forEach((name, index) => {
+      const chip = element('span', 'fkd-chip notranslate');
+      const swatch = element('i', 'fkd-chip-color');
+      swatch.style.background = SERIES_COLORS[index % SERIES_COLORS.length];
+      const label = element('span', 'fkd-chip-name', name);
+      label.title = name;
+      const drop = element('button', 'fkd-chip-x');
+      drop.type = 'button'; drop.textContent = '×'; drop.dataset.object = name;
+      drop.setAttribute('aria-label', `${uiText('移除对象')}：${name}`);
+      chip.append(swatch, label, drop);
+      host.append(chip);
+    });
+  }
+  function addObject(value) {
+    const name = (value || '').trim();
+    if (!name) return true;
+    if (state.objects.includes(name)) { $('feedKbTrendValue').value = ''; return true; }
+    if (state.objects.length >= MAX_SERIES) {
+      $('feedKbAggregateNote').textContent = uiText('对比对象数量已达上限，先移除一个再加。');
+      return false;
+    }
+    state.objects.push(name);
+    $('feedKbTrendValue').value = '';
+    renderChips();
+    return true;
+  }
+  const pendingObject = () => {
+    const typed = $('feedKbTrendValue').value.trim();
+    if (typed) addObject(typed);
+    return state.objects.length > 0;
+  };
   const optionSync = (select, fields, blankLabel) => {
     const selected = select.value;
     clear(select);
@@ -76,8 +118,10 @@
       q.set('measure', $('feedKbMeasure').value);
     } else if (kind === 'trend') {
       q.set('object_field', $('feedKbTrendField').value);
-      q.set('object_value', $('feedKbTrendValue').value.trim());
-      q.set('period', $('feedKbGroup').value.slice('$period:'.length));
+      // 对象可多选：重复同名参数，值里的逗号不会被误拆
+      state.objects.forEach(name => q.append('object_value', name));
+      q.set('period', periodUnit());
+      q.set('span', String(periodSpan()));
       q.set('op', $('feedKbOperation').value);
       q.set('measure', $('feedKbMeasure').value);
     }
@@ -188,6 +232,23 @@
       if (values.size >= 100) break;
     }
     values.forEach(value => list.append(new Option(value, value)));
+    renderPicks(values);
+  }
+
+  // 已加载记录里的不同对象值做成按钮，点一下就加进对比（不用手打）
+  function renderPicks(values) {
+    const host = $('feedKbTrendPick');
+    if (!host) return;
+    clear(host);
+    const picks = [...values].filter(value => !state.objects.includes(value)).slice(0, 8);
+    host.hidden = !picks.length;
+    picks.forEach(value => {
+      const pick = element('button', 'fkd-pick notranslate', value);
+      pick.type = 'button';
+      pick.dataset.value = value;
+      pick.title = uiText('加入对比');
+      host.append(pick);
+    });
   }
 
   function renderRows(data, append) {
@@ -301,12 +362,49 @@
   const numberText = value => value === null || value === undefined ? '—'
     : new Intl.NumberFormat(document.documentElement.lang || 'zh-CN', {maximumFractionDigits: 8}).format(value);
 
-  function drawTrend(points) {
+  const chartField = () => $('feedKbChartMode').value;
+  const modeNames = {value: '数值', change: '较上期变化', change_pct: '变化率（%）'};
+  const pointMetric = point => {
+    const mode = chartField();
+    if (mode === 'change') return point.change;
+    if (mode === 'change_pct') return point.change_pct;
+    return point.value;
+  };
+  const number = value => (value === null || value === undefined || !Number.isFinite(Number(value))
+    ? null : Number(value));
+
+  function renderLegend() {
+    const legend = $('feedKbLegend');
+    clear(legend);
+    const series = state.trendSeries || [];
+    legend.hidden = !series.length || $('feedKbChart').hidden;
+    if (legend.hidden) return;
+    series.forEach((item, index) => {
+      const off = state.hiddenObjects.has(item.object_value);
+      const chip = element('button', `fkd-legend-item${off ? ' is-off' : ''}`);
+      chip.type = 'button';
+      chip.dataset.object = item.object_value;
+      chip.setAttribute('aria-pressed', String(!off));
+      chip.title = off ? uiText('点击在图里显示该对象') : uiText('点击从图里隐藏该对象');
+      const swatch = element('i', 'fkd-legend-color');
+      swatch.style.background = SERIES_COLORS[index % SERIES_COLORS.length];
+      const last = [...item.points].reverse().find(point => point.value !== null);
+      chip.append(swatch, element('span', 'fkd-legend-name notranslate', item.object_value),
+                  element('span', 'fkd-legend-value', last ? numberText(last.value) : '—'));
+      legend.append(chip);
+    });
+  }
+
+  function drawTrend() {
     const host = $('feedKbChart'); clear(host);
-    const valid = points.map((point, index) => ({index, value: Number(point.value)}))
-      .filter(({index, value}) => points[index].value !== null && Number.isFinite(value));
-    if (!valid.length) {
-      host.append(element('p', 'fkd-empty', '当前范围没有可绘制的数值。'));
+    renderLegend();
+    const all = state.trendSeries || [];
+    const shown = all.filter(item => !state.hiddenObjects.has(item.object_value));
+    const labels = all.length ? all[0].points.map(point => point.label) : [];
+    const lines = shown.map(item => item.points.map(point => number(pointMetric(point))));
+    const values = lines.flat().filter(value => value !== null);
+    if (!labels.length || !values.length) {
+      host.append(element('p', 'fkd-empty', uiText('当前范围或口径没有可绘制的数值。')));
       return;
     }
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -318,70 +416,111 @@
       parent.append(node);
       return node;
     };
-    const minValue = Math.min(...valid.map(item => item.value));
-    const maxValue = Math.max(...valid.map(item => item.value));
+    const minValue = Math.min(...values), maxValue = Math.max(...values);
     const padding = maxValue === minValue ? Math.max(1, Math.abs(maxValue) * 0.1) : 0;
     const low = minValue - padding, high = maxValue + padding;
-    const x = index => 52 + index / Math.max(1, points.length - 1) * 822;
+    const x = index => 52 + index / Math.max(1, labels.length - 1) * 822;
     const y = value => 216 - (value - low) / Math.max(1e-9, high - low) * 182;
     [0, 0.5, 1].forEach(fraction => {
       const ordinate = 216 - fraction * 182;
       add('line', {x1: 52, y1: ordinate, x2: 874, y2: ordinate, class: 'fkd-trend-grid'});
-      const label = add('text', {x: 47, y: ordinate + 4, 'text-anchor': 'end', class: 'fkd-trend-axis'});
-      label.textContent = numberText(low + (high - low) * fraction);
+      const tick = add('text', {x: 47, y: ordinate + 4, 'text-anchor': 'end', class: 'fkd-trend-axis'});
+      tick.textContent = numberText(low + (high - low) * fraction);
     });
-    let segment = [];
-    const flush = () => {
-      if (segment.length > 1) add('polyline', {points: segment.join(' '), class: 'fkd-trend-line'});
-      segment = [];
-    };
-    points.forEach((point, index) => {
-      if (point.value === null || !Number.isFinite(Number(point.value))) { flush(); return; }
-      segment.push(`${x(index)},${y(Number(point.value))}`);
+    if (low < 0 && high > 0) {
+      add('line', {x1: 52, y1: y(0), x2: 874, y2: y(0), class: 'fkd-trend-zero'});
+    }
+    lines.forEach((points, seriesIndex) => {
+      const color = SERIES_COLORS[(all.findIndex(item => item === shown[seriesIndex])) % SERIES_COLORS.length];
+      let segment = [];
+      const flush = () => {
+        if (segment.length > 1) {
+          const line = add('polyline', {points: segment.join(' '), class: 'fkd-trend-line'});
+          line.style.stroke = color;          // 类里的 stroke 优先级比表现属性高，写进 style
+        }
+        segment = [];
+      };
+      points.forEach((value, index) => {
+        if (value === null) { flush(); return; }
+        segment.push(`${x(index)},${y(value)}`);
+      });
+      flush();
+      points.forEach((value, index) => {
+        if (value === null) return;
+        const dot = add('circle', {cx: x(index), cy: y(value), r: labels.length > 150 ? 2.5 : 4,
+          class: 'fkd-trend-dot'});
+        dot.style.fill = color; dot.style.stroke = color;
+        const title = add('title', {}, dot);
+        title.textContent = `${labels[index]} · ${shown[seriesIndex].object_value}: ${numberText(value)}`;
+      });
     });
-    flush();
-    valid.forEach(({index, value}) => {
-      const dot = add('circle', {cx: x(index), cy: y(value), r: points.length > 150 ? 2.5 : 4, class: 'fkd-trend-dot'});
-      const title = add('title', {}, dot);
-      title.textContent = `${points[index].label}: ${numberText(value)}`;
-    });
-    [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])].forEach(index => {
+    [...new Set([0, Math.floor((labels.length - 1) / 2), labels.length - 1])].forEach(index => {
       const label = add('text', {x: x(index), y: 248,
-        'text-anchor': index === 0 ? 'start' : index === points.length - 1 ? 'end' : 'middle',
+        'text-anchor': index === 0 ? 'start' : index === labels.length - 1 ? 'end' : 'middle',
         class: 'fkd-trend-axis'});
-      label.textContent = points[index].label;
+      label.textContent = labels[index];
     });
     host.append(svg);
+    const note = element('p', 'fkd-subnote');
+    note.append(element('span', '', `${uiText('图表口径')}：${modeNames[chartField()] || ''}`));
+    note.append(element('span', '', ` · ${uiText('点击图例可显示或隐藏某个对象。')}`));
+    host.append(note);
+  }
+
+  function changeText(point) {
+    if (point.change === null) return '—';
+    const rate = point.change_pct === null ? '' : ` (${point.change_pct > 0 ? '+' : ''}${numberText(point.change_pct)}%)`;
+    return `${point.change > 0 ? '+' : ''}${numberText(point.change)}${rate}`;
   }
 
   function renderTrend(data) {
-    const points = data.points || [];
+    state.trendSeries = data.series && data.series.length
+      ? data.series : [{object_value: data.object_value || '对象', points: data.points || []}];
+    state.trendMeta = data;
+    state.hiddenObjects = new Set([...state.hiddenObjects]
+      .filter(name => state.trendSeries.some(item => item.object_value === name)));
+    const series = state.trendSeries;
+    const single = series.length === 1;
+    const points = series[0].points;
     const body = $('feedKbSummaryBody'); clear(body);
     const headings = element('tr');
-    ['周期', '统计值', '较上期变化', '变化率', '记录数', '有效数值']
-      .forEach(label => headings.append(element('th', '', label)));
+    headings.append(element('th', '', '周期'));
+    series.forEach(item => {
+      headings.append(element('th', 'notranslate', single ? '统计值' : `${item.object_value} 值`));
+      headings.append(element('th', '', single ? '较上期变化' : `${item.object_value} 环比`));
+    });
+    if (single) ['变化率', '记录数', '有效数值'].forEach(label => headings.append(element('th', '', label)));
     $('feedKbSummaryHead').replaceChildren(headings);
     for (const [index, point] of points.entries()) {
       const row = element('tr');
-      const change = point.change === null ? '—' : `${point.change > 0 ? '+' : ''}${numberText(point.change)}`;
-      let rate = point.change_pct === null ? '—' : `${point.change_pct > 0 ? '+' : ''}${numberText(point.change_pct)}%`;
-      if (point.comparison === 'zero_baseline') rate = '—（上期为 0）';
-      else if (point.comparison === 'no_previous_value' && index > 0) rate = '—（上期无数据）';
-      const cells = [
-        point.label, numberText(point.value), change, rate,
-        String(point.records), point.valid_numeric_values === null ? '—' : String(point.valid_numeric_values),
-      ];
-      cells.forEach((value, cellIndex) => row.append(element('td', cellIndex > 0 && cellIndex < 4
-        ? 'fkd-trend-number' : '', value)));
+      row.append(element('td', '', point.label));
+      series.forEach(item => {
+        const current = item.points[index] || {};
+        row.append(element('td', 'fkd-trend-number', numberText(current.value)));
+        row.append(element('td', 'fkd-trend-number', changeText(current)));
+      });
+      if (single) {
+        let rate = point.change_pct === null ? '—' : `${point.change_pct > 0 ? '+' : ''}${numberText(point.change_pct)}%`;
+        if (point.comparison === 'zero_baseline') rate = '—（上期为 0）';
+        else if (point.comparison === 'no_previous_value' && index > 0) rate = '—（上期无数据）';
+        row.append(element('td', 'fkd-trend-number', rate));
+        row.append(element('td', 'fkd-trend-number', String(point.records)));
+        row.append(element('td', 'fkd-trend-number',
+          point.valid_numeric_values === null ? '—' : String(point.valid_numeric_values)));
+      }
       body.append(row);
     }
     if (!points.length) {
-      const row = element('tr'), cell = element('td', 'fkd-empty', '该对象在当前日期范围内没有已完成记录。');
-      cell.colSpan = 6; row.append(cell); body.append(row);
+      const row = element('tr'), cell = element('td', 'fkd-empty',
+        uiText('这些对象在当前日期范围内没有已完成记录。'));
+      cell.colSpan = single ? 6 : 1 + series.length * 2; row.append(cell); body.append(row);
     }
-    drawTrend(points);
-    const count = points.reduce((sum, point) => sum + point.records, 0);
-    $('feedKbSummaryInfo').textContent = `${data.object_value} · ${points.length} 个周期 · ${count} 条记录 · ${data.timezone}`;
+    drawTrend();
+    const records = series.reduce((sum, item) => sum + item.points.reduce((total, point) => total + point.records, 0), 0);
+    const unitName = $('feedKbGroup').selectedOptions[0]?.textContent || '';
+    $('feedKbSummaryInfo').textContent = `${uiText('每')} ${periodSpan()} ${unitName} · `
+      + `${series.length} ${uiText('个对象')} · ${points.length} ${uiText('个周期')} · `
+      + `${records} ${uiText('条记录')} · ${data.timezone}`;
     $('feedKbAggregateNote').textContent = periodScopeNote;
     $('feedKbSummaryMore').hidden = true;
     $('feedKbSummaryTableWrap').setAttribute('aria-label', '周期对比表，可横向滚动');
@@ -393,6 +532,8 @@
     $('feedKbTrendFieldWrap').hidden = !period;
     $('feedKbTrendValueWrap').hidden = !period;
     $('feedKbMeasureWrap').hidden = $('feedKbOperation').value === 'count';
+    // 图表口径只对周期曲线有意义（汇总表是柱状条）
+    $('feedKbChartModeWrap').hidden = !period;
   }
 
   function promptForObject() {
@@ -400,7 +541,8 @@
     ['周期', '统计值', '较上期变化', '变化率', '记录数', '有效数值']
       .forEach(label => headings.append(element('th', '', label)));
     $('feedKbSummaryHead').replaceChildren(headings);
-    const row = element('tr'), cell = element('td', 'fkd-empty', '输入对象值后应用分析。');
+    const row = element('tr'), cell = element('td', 'fkd-empty',
+      uiText('输入或点选至少一个对象值，再应用分析。'));
     cell.colSpan = 6; row.append(cell); $('feedKbSummaryBody').replaceChildren(row);
     clear($('feedKbChart'));
     $('feedKbChart').append(element('p', 'fkd-empty', '输入对象值后应用分析。'));
@@ -429,11 +571,14 @@
   async function loadAnalysis(append = false) {
     const token = ++state.summaryToken;
     const period = periodMode();
-    if (period && !$('feedKbTrendValue').value.trim()) {
-      $('feedKbApply').disabled = false;
-      $('feedKbSummaryMore').disabled = false;
-      promptForObject();
-      return;
+    if (period) {
+      pendingObject();                       // 输入框里还没回车的对象也算选了
+      if (!state.objects.length) {
+        $('feedKbApply').disabled = false;
+        $('feedKbSummaryMore').disabled = false;
+        promptForObject();
+        return;
+      }
     }
     const apply = $('feedKbApply'); apply.disabled = true;
     $('feedKbSummaryMore').disabled = true;
@@ -494,17 +639,45 @@
   $('feedKbColumns').addEventListener('change', () => void loadRows());
   $('feedKbSummaryMore').addEventListener('click', () => void loadAnalysis(true));
   $('feedKbGroup').addEventListener('change', () => { syncPeriodControls(); void loadAnalysis(); });
+  $('feedKbPeriodSpan').addEventListener('change', () => void loadAnalysis());
+  $('feedKbChartMode').addEventListener('change', () => drawTrend());
+  $('feedKbTrendChips').addEventListener('click', event => {
+    const drop = event.target.closest('.fkd-chip-x');
+    if (!drop) return;
+    state.objects = state.objects.filter(name => name !== drop.dataset.object);
+    renderChips();
+    void loadAnalysis();
+  });
+  $('feedKbTrendPick').addEventListener('click', event => {
+    const pick = event.target.closest('.fkd-pick');
+    if (!pick) return;
+    if (addObject(pick.dataset.value)) void loadAnalysis();
+  });
+  $('feedKbLegend').addEventListener('click', event => {
+    const chip = event.target.closest('.fkd-legend-item');
+    if (!chip) return;
+    const name = chip.dataset.object;
+    if (state.hiddenObjects.has(name)) state.hiddenObjects.delete(name); else state.hiddenObjects.add(name);
+    drawTrend();
+  });
   $('feedKbOperation').addEventListener('change', () => {
     syncPeriodControls();
     void loadAnalysis();
   });
   $('feedKbMeasure').addEventListener('change', () => void loadAnalysis());
   $('feedKbApply').addEventListener('click', () => void loadAnalysis());
+  // 回车（或从 datalist 选完再回车）＝加入已选对象，可以继续加下一个
   $('feedKbTrendValue').addEventListener('keydown', event => {
-    if (event.key === 'Enter') { event.preventDefault(); void loadAnalysis(); }
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (addObject(event.target.value)) void loadAnalysis();
   });
   $('feedKbTrendField').addEventListener('change', () => {
+    // 换对象字段＝换一批对象，之前选的值不再适用
     $('feedKbTrendValue').value = '';
+    state.objects = [];
+    state.hiddenObjects = new Set();
+    renderChips();
     trendSuggestions();
     void loadAnalysis();
   });
@@ -513,6 +686,7 @@
     const chartView = button.dataset.fkdView === 'chart';
     $('feedKbChart').hidden = !chartView;
     $('feedKbSummaryTableWrap').hidden = chartView;
+    renderLegend();
     document.querySelectorAll('[data-fkd-view]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
   }));
 

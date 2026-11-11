@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, time
+import bisect
 import math
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from uuid import UUID
@@ -10,7 +11,8 @@ from uuid import UUID
 from django.conf import settings
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.db.models import Case, Count, F, FloatField, Max, Min, Q, Sum, TextField, Value, When
-from django.db.models.functions import Cast, TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek
+from django.db.models.functions import (
+    Cast, TruncDay, TruncHour, TruncMinute, TruncMonth, TruncWeek, TruncYear)
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -212,47 +214,116 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
     return response
 
 
-_TREND_PERIODS = {
-    "10min": (TruncMinute, timedelta(days=1)),
+# 周期：单位 + 步长（每 N 个单位），单位决定 SQL 先截断到哪一层，步长决定一个周期多长。
+_TREND_UNITS = {
+    "minute": (TruncMinute, timedelta(days=1)),
     "hour": (TruncHour, timedelta(days=14)),
     "day": (TruncDay, timedelta(days=180)),
     "week": (TruncWeek, timedelta(days=730)),
     "month": (TruncMonth, timedelta(days=365 * 5)),
+    "year": (TruncYear, timedelta(days=365 * 40)),
 }
+_TREND_UNIT_LABELS = {"minute": "分钟", "hour": "小时", "day": "天",
+                      "week": "周", "month": "月", "year": "年"}
+# 步长上限按单位收着给：避免“每分钟 × 99999”这种把 500 桶上限绕过去的输入
+_TREND_SPAN_MAX = {"minute": 180, "hour": 72, "day": 92, "week": 26, "month": 60, "year": 20}
 _TREND_LIMIT = 500
+_TREND_SERIES_MAX = 8          # 一个对象一条曲线，超过就画不清了
+# 旧的固定周期名（前端旧链接、既有测试还在用）
+_LEGACY_PERIODS = {"10min": ("minute", 10), "hour": ("hour", 1), "day": ("day", 1),
+                   "week": ("week", 1), "month": ("month", 1)}
 
 
-def _trend_floor(value, period):
+def _trend_period(request):
+    """解析 `period` + `span` → (单位, 步长)；无效返回 None。
+
+    新调用传 period=minute|hour|day|week|month|year 与 span=N（每 N 个单位）；
+    旧的 period=10min/hour/day/week/month 仍然接受（span 缺省按旧含义）。
+    """
+    raw = (request.GET.get("period") or "day").strip()
+    span_raw = (request.GET.get("span") or "").strip()
+    if raw in _LEGACY_PERIODS and not span_raw:
+        return _LEGACY_PERIODS[raw]
+    unit = _LEGACY_PERIODS[raw][0] if raw in _LEGACY_PERIODS else raw
+    if unit not in _TREND_UNITS:
+        return None
+    try:
+        span = int(span_raw or 1)
+    except ValueError:
+        return None
+    return (unit, span) if 1 <= span <= _TREND_SPAN_MAX[unit] else None
+
+
+def _trend_floor(value, unit):
+    """截到该单位的起点对齐处（步长再单独按窗口锚点算）。"""
     value = value.replace(second=0, microsecond=0)
-    if period == "10min":
-        return value.replace(minute=value.minute // 10 * 10)
-    if period == "hour":
+    if unit == "minute":
+        return value
+    if unit == "hour":
         return value.replace(minute=0)
     value = value.replace(hour=0, minute=0)
-    if period == "week":
+    if unit == "week":
         return value - timedelta(days=value.weekday())
-    if period == "month":
+    if unit == "month":
         return value.replace(day=1)
+    if unit == "year":
+        return value.replace(month=1, day=1)
     return value
 
 
-def _trend_next(value, period):
-    if period == "month":
-        return value.replace(year=value.year + 1, month=1) if value.month == 12 else value.replace(month=value.month + 1)
+def _trend_next(value, unit, span):
+    if unit == "month":
+        months = value.month - 1 + span
+        return value.replace(year=value.year + months // 12, month=months % 12 + 1, day=1)
+    if unit == "year":
+        return value.replace(year=value.year + span, month=1, day=1)
     return value + {
-        "10min": timedelta(minutes=10), "hour": timedelta(hours=1),
-        "day": timedelta(days=1), "week": timedelta(days=7),
-    }[period]
+        "minute": timedelta(minutes=span), "hour": timedelta(hours=span),
+        "day": timedelta(days=span), "week": timedelta(weeks=span),
+    }[unit]
 
 
-def _trend_label(value, period):
-    if period == "month":
+def _trend_steps(start, end, unit, span):
+    """窗口内的周期起点列表；超过 _TREND_LIMIT 个周期返回 None（调用方报 400）。
+
+    锚点是窗口起点，所以“每 30 分钟”从当天 00:00 起就是 :00/:30；用户改了日期范围
+    就等于换了锚点，这是有意的（不然同一个周期会随查询窗口移动）。
+    """
+    cursor, steps = _trend_floor(start, unit), []
+    while cursor < end:
+        steps.append(cursor)
+        if len(steps) > _TREND_LIMIT:
+            return None
+        cursor = _trend_next(cursor, unit, span)
+    return steps
+
+
+def _trend_step_of(value, steps):
+    """把 SQL 截出来的时间归到它所属的那个自定义周期。"""
+    index = bisect.bisect_right(steps, value) - 1
+    return steps[index] if index >= 0 else None
+
+
+def _trend_label(value, unit):
+    if unit == "year":
+        return value.strftime("%Y")
+    if unit == "month":
         return value.strftime("%Y-%m")
-    if period == "week":
+    if unit == "week":
         return value.strftime("%Y-%m-%d") + " 当周"
-    if period == "day":
+    if unit == "day":
         return value.strftime("%Y-%m-%d")
     return value.strftime("%Y-%m-%d %H:%M")
+
+
+_TREND_EVERY_ONE = {"minute": "每分钟", "hour": "每小时", "day": "每天",
+                    "week": "每周", "month": "每月", "year": "每年"}
+
+
+def _trend_period_label(unit, span):
+    if span == 1:
+        return _TREND_EVERY_ONE[unit]
+    return f"每 {span} {_TREND_UNIT_LABELS[unit]}"
 
 
 def _finite(value):
@@ -266,18 +337,31 @@ def _finite(value):
 
 
 def _trend_data(request, tracker, record_scope, fields, first, last, timezone_name):
-    """Compare one exact entity across collection-time buckets over all saved snapshots."""
-    period = request.GET.get("period", "day")
+    """把若干个对象按自定义周期（每 N 个单位）对比，每个对象返回一条曲线。"""
+    parsed = _trend_period(request)
+    if parsed is None:
+        return JsonResponse({"ok": False,
+                             "message": "对比周期无效：单位限分钟/小时/天/周/月/年，"
+                                        "周期长度要在允许范围内。"}, status=400)
+    unit, span = parsed
     operation = request.GET.get("op", "count")
     object_field = request.GET.get("object_field", "")
-    object_value = request.GET.get("object_value", "").strip()
     measure = request.GET.get("measure", "")
-    if period not in _TREND_PERIODS or operation not in ("count", "sum", "avg", "min", "max"):
-        return JsonResponse({"ok": False, "message": "对比周期或统计方式无效。"}, status=400)
+    # 对象可多选：前端重复发 object_value=A&object_value=B（值里可能带逗号，所以不用分隔符）
+    objects = [value.strip() for value in dict.fromkeys(request.GET.getlist("object_value"))
+               if value.strip()]
+    if operation not in ("count", "sum", "avg", "min", "max"):
+        return JsonResponse({"ok": False, "message": "统计方式无效。"}, status=400)
     if object_field not in fields and object_field not in ("$source_id", "$document_name"):
         return JsonResponse({"ok": False, "message": "请选择有效的对象字段。"}, status=400)
-    if not object_value or len(object_value) > 200:
+    if not objects:
         return JsonResponse({"ok": False, "message": "请输入要对比的对象，最多 200 字。"}, status=400)
+    if any(len(value) > 200 for value in objects):
+        return JsonResponse({"ok": False, "message": "对象内容最多 200 字。"}, status=400)
+    if len(objects) > _TREND_SERIES_MAX:
+        return JsonResponse({"ok": False,
+                             "message": f"最多同时对比 {_TREND_SERIES_MAX} 个对象，"
+                                        f"当前选了 {len(objects)} 个。"}, status=400)
     if operation != "count" and measure not in fields:
         return JsonResponse({"ok": False, "message": "请选择数值字段。"}, status=400)
     try:
@@ -288,50 +372,55 @@ def _trend_data(request, tracker, record_scope, fields, first, last, timezone_na
         end = (datetime.combine(last + timedelta(days=1), time.min, tzinfo=zone)
                if last else timezone.now().astimezone(zone))
         start = (datetime.combine(first, time.min, tzinfo=zone)
-                 if first else end - _TREND_PERIODS[period][1])
+                 if first else end - _TREND_UNITS[unit][1])
         if start >= end:
             raise ValueError
-        cursor = _trend_floor(start, period)
-        bucket_count = 0
-        while cursor < end:
-            bucket_count += 1
-            if bucket_count > _TREND_LIMIT:
-                return JsonResponse({"ok": False, "message": "时间范围超过 500 个周期，请缩小日期范围或选择更长的周期。"}, status=400)
-            cursor = _trend_next(cursor, period)
     except (ValueError, OverflowError):
         return JsonResponse({"ok": False, "message": "日期范围无效。"}, status=400)
+    steps = _trend_steps(start, end, unit, span)
+    if steps is None:
+        return JsonResponse({"ok": False,
+                             "message": f"时间范围超过 {_TREND_LIMIT} 个周期，请缩小日期范围或拉长周期。"},
+                            status=400)
 
     rows = TrackerRow.objects.filter(
         record_scope, tracker=tracker, status=TrackerRow.Status.DONE,
         updated_at__gte=start, updated_at__lt=end,
     )
     if object_field == "$source_id":
-        rows = rows.filter(external_id=object_value)
+        rows = rows.filter(external_id__in=objects).annotate(
+            trend_object=Cast(F("external_id"), TextField()))
     elif object_field == "$document_name":
-        rows = rows.filter(document__original_name=object_value)
+        rows = rows.filter(document__original_name__in=objects).annotate(
+            trend_object=Cast(F("document__original_name"), TextField()))
     else:
-        rows = rows.annotate(trend_object=Cast(TrackerText(object_field, "values"), TextField())).filter(trend_object=object_value)
+        rows = rows.annotate(trend_object=Cast(TrackerText(object_field, "values"), TextField()))
+        rows = rows.filter(trend_object__in=objects)
 
-    truncate = _TREND_PERIODS[period][0]
+    truncate = _TREND_UNITS[unit][0]
     rows = rows.order_by().annotate(trend_bucket=truncate("updated_at", tzinfo=zone))
     if operation == "count":
-        grouped = rows.values("trend_bucket").annotate(records=Count("pk")).order_by("trend_bucket")
+        grouped = rows.values("trend_object", "trend_bucket").annotate(records=Count("pk"))
     else:
         rows = rows.annotate(trend_raw=Cast(TrackerText(measure, "values"), TextField()))
         rows = rows.annotate(trend_number=Case(
             When(trend_raw__regex=NUMERIC, then=Cast(F("trend_raw"), FloatField())),
             default=Value(None), output_field=FloatField(),
         ))
-        grouped = rows.values("trend_bucket").annotate(
+        grouped = rows.values("trend_object", "trend_bucket").annotate(
             records=Count("pk"), valid=Count("trend_number"),
             total=Sum("trend_number"), minimum=Min("trend_number"), maximum=Max("trend_number"),
-        ).order_by("trend_bucket")
+        )
 
+    # SQL 只截到基本单位（例如每分钟）；自定义步长在这里按窗口锚点再归一次
     buckets = {}
     for group in grouped:
-        key = _trend_floor(group["trend_bucket"].astimezone(zone), period)
-        current = buckets.setdefault(key, {"records": 0, "valid": 0, "total": 0.0,
-                                           "minimum": None, "maximum": None})
+        step = _trend_step_of(group["trend_bucket"].astimezone(zone), steps)
+        if step is None:
+            continue
+        current = buckets.setdefault((group["trend_object"], step),
+                                     {"records": 0, "valid": 0, "total": 0.0,
+                                      "minimum": None, "maximum": None})
         current["records"] += group["records"]
         if operation != "count":
             current["valid"] += group["valid"]
@@ -343,52 +432,52 @@ def _trend_data(request, tracker, record_scope, fields, first, last, timezone_na
                 current["maximum"] = (group["maximum"] if current["maximum"] is None
                                       else max(current["maximum"], group["maximum"]))
 
-    points = []
-    if buckets or first or last:
-        cursor = _trend_floor(start, period) if first or last else min(buckets)
-        final = _trend_floor(end - timedelta(microseconds=1), period) if first or last else max(buckets)
-        previous = None
-        while cursor <= final:
-            data = buckets.get(cursor)
-            if data is None:
-                value = None
-            elif operation == "count":
-                value = data["records"]
-            elif not data["valid"]:
-                value = None
-            elif operation == "sum":
-                value = _finite(data["total"])
-            elif operation == "avg":
-                value = _finite(data["total"] / data["valid"])
-            else:
-                value = _finite(data["minimum" if operation == "min" else "maximum"])
+    def value_of(data):
+        if data is None:
+            return None
+        if operation == "count":
+            return data["records"]
+        if not data["valid"]:
+            return None
+        if operation == "sum":
+            return _finite(data["total"])
+        if operation == "avg":
+            return _finite(data["total"] / data["valid"])
+        return _finite(data["minimum" if operation == "min" else "maximum"])
+
+    series = []
+    for name in objects:
+        points, previous = [], None
+        for cursor in steps:
+            data = buckets.get((name, cursor))
+            value = value_of(data)
             change = _finite(value - previous) if value is not None and previous is not None else None
             if change is not None and previous != 0:
-                change_pct = _finite(change / abs(previous) * 100)
-                comparison = "available"
+                change_pct, comparison = _finite(change / abs(previous) * 100), "available"
             elif value is None:
-                change_pct = None
-                comparison = "no_value"
+                change_pct, comparison = None, "no_value"
             elif previous is None:
-                change_pct = None
-                comparison = "no_previous_value"
+                change_pct, comparison = None, "no_previous_value"
             else:
-                change_pct = None
-                comparison = "zero_baseline"
+                change_pct, comparison = None, "zero_baseline"
             points.append({
-                "bucket": cursor.isoformat(), "label": _trend_label(cursor, period),
+                "bucket": cursor.isoformat(), "label": _trend_label(cursor, unit),
                 "value": value, "records": data["records"] if data else 0,
                 "valid_numeric_values": data["valid"] if data and operation != "count" else None,
                 "change": change, "change_pct": change_pct, "comparison": comparison,
             })
             previous = value
-            cursor = _trend_next(cursor, period)
+        series.append({"object_value": name, "points": points,
+                       "records": sum(point["records"] for point in points)})
 
     response = JsonResponse({
-        "ok": True, "kind": "trend", "period": period, "operation": operation,
-        "object_field": object_field, "object_value": object_value, "measure": measure,
-        "timezone": str(zone), "range_from": start.isoformat(), "range_to": end.isoformat(),
-        "points": points, "bucket_count": len(points),
+        "ok": True, "kind": "trend", "period": unit, "period_unit": unit, "span": span,
+        "period_label": _trend_period_label(unit, span), "operation": operation,
+        "object_field": object_field, "object_value": objects[0], "object_values": objects,
+        "series": series, "points": series[0]["points"], "bucket_count": len(series[0]["points"]),
+        "measure": measure, "timezone": str(zone),
+        "range_from": start.isoformat(), "range_to": end.isoformat(),
+        "span_max": _TREND_SPAN_MAX[unit], "series_max": _TREND_SERIES_MAX,
         "notice": "按记录更新时间比较已完成记录；缺失周期不补零。覆盖更新的数据源只保留当前快照。",
     })
     response["Cache-Control"] = "private, no-store"

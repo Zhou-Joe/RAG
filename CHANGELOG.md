@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-11 — 周期对比：自定义步长（每 N 个单位）、对象多选、图表口径
+
+- 需求：「汇总与周期对比」只有 10 分钟/每小时/每天/每周/每月五个固定周期，看不了「每 30 分钟」「每 2 天」；一次只能对比一个对象，多条曲线没法叠在一张图里；图里只画数值，想看相邻周期的涨跌还得回表格看。
+- 后端 `kb/feed_kb_views.py`：固定 `_TREND_PERIODS` 换成 `_TREND_UNITS`（minute/hour/day/week/month/year，各自带默认回看窗口）+ `_TREND_SPAN_MAX`（按单位收上限，防“每分钟 × 99999”绕过桶数上限）；`_trend_period(request)` 解析 `period`+`span`，**旧的 `period=10min/hour/day/week/month` 继续可用**（`10min` 映射成 minute×10）。步长用 `_trend_steps()` 从**窗口起点**按 `_trend_next()` 切出周期边界（>500 桶仍 400），SQL 只 `Trunc*` 到基本单位，再在 Python 里 `_trend_step_of()` 按边界归桶——Django 的 Trunc 不支持步长，月/年的“每 N 个”也只能按日历走。锚点取窗口起点是有意的：换日期范围等于换锚点，否则同一个桶会随窗口移动。
+- 多对象：一次请求允许重复 `object_value=A&object_value=B`（**不用逗号分隔**，对象名里本来就有逗号），去重保序、上限 `_TREND_SERIES_MAX=8`（超了 400 带人数）；`$source_id`/`$document_name` 走 `__in`，普通字段仍用 `TrackerText` 精确匹配。响应新增 `series:[{object_value,points,records}]`、`period_unit`/`span`/`period_label`/`object_values`/`span_max`/`series_max`，同时**保留** `points`＝第一条曲线、`object_value`＝第一个对象，旧调用与既有测试不用改。`period_label` 在 span=1 时给“每天/每小时…”，否则“每 30 分钟”。
+- 前端 `static/js/feed_kb_detail.js` + 两个模板：周期控件改成「每 [数字] [单位]」；对象值改多选——已选做成带颜色的 chips（× 移除），下面列出已加载记录里的候选值做成一键添加按钮（不用手打），回车也收（输入框里没回车的值在“应用分析”时也算已选）；表格在 1 个对象时仍是旧的 6 列，多对象时变「周期 + 每对象（值 / 环比）」；`图表口径` 下拉（数值 / 较上期变化 / 变化率%）**纯前端重画，不重新请求**；多曲线各配一色 + 图例（点图例可显示/隐藏该条，隐藏时划线置灰）；变 0 轴虚线、`.fkd-chips/.fkd-picks/.fkd-legend` 等样式进 `feed_kb_detail.css`。**踩坑**：`.fkd-trend-line/.fkd-trend-dot` 的 `stroke/fill` 写在 CSS 类里，优先级高于 SVG 表现属性，per-series 颜色必须写进 `style`，`setAttribute('stroke', …)` 会被盖掉。
+- 缓存：脚本 `?v=5 → ?v=7`、样式 `?v=5 → ?v=6`（三处 JS 引用、两处 CSS 引用都要改），否则浏览器拿旧文件等于没改。
+- i18n：`feed_kb_detail.json` +20 条（单位、每、图表口径、变化率（%）、图例/候选提示等），JS 里动态造的文案全部走 `uiText()`，否则语言切换后仍是中文；`scripts/i18n_check.py` 扫详情页只剩库名这类数据。
+- 测试：新增 `kb/tests/test_tracker_trend_periods.py`（6 项）：每 30 分钟归桶（10:02/10:14→10:00，10:31/10:45→10:30，11:01→11:00）与桶数 48、每 2 天跨窗口锚点、年单位 7 桶、旧 `10min` 与新 `minute×10` 结果逐点相同、多对象返回 N 条 series 且 `points` 仍等于第一条、超过 8 个对象/步长越界/非法单位/对象为空一律 400、桶数超限仍 400。相关 4 个模块 + `accounts` 共 72 项通过。真实数据实测：`每 30 分钟` 49 桶 3 条曲线、`每 4 小时` 85 桶、`每 1 天` 181 桶（11-09 环比 −2）、`10min` 兼容、`fortnight` → 400 带说明。
+- 部署：无迁移；`runserver 0.0.0.0:8010 --noreload` 重启两次（模板/JS 是即时读的，**Python 改了必须重启**）。
+
 ## ⚠ WIP（未完工，下一个接手的人请看这里）— 逐部门级别（同一个人可以在 A 部门当管理员、在 B 部门只是成员）
 
 已写完的部分：`UserDepartment`（M2M through，带 `role`）、`accounts/models.py` 里的
