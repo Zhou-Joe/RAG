@@ -110,6 +110,7 @@
     "观察": "Observations",
     "自主数据引擎 · SHDR RAG": "Automated data engine · SHDR RAG",
     "资料上传中心": "Document upload center",
+    "知识库名称": "Knowledge base name",
     "自主数据引擎": "Automated data engine",
     "告诉 EnGenie 数据来源和更新时间，先查看采集样例，确认后自动更新到知识库。": "Tell EnGenie where the data is and when to refresh it. Review a sample, then confirm to update your knowledge base automatically.",
     "用 EnGenie 创建自动任务": "Create an automated task with EnGenie",
@@ -175,9 +176,11 @@
     "正在提取检查项…": "Extracting inspection requirements…",
     "提取失败：": "Extraction failed:",
     "资料上传中心 · SHDR RAG": "Document upload center · SHDR RAG",
+    "知识库中心 · SHDR RAG": "Knowledge Library · SHDR RAG",
     "管理各部门的手册库与业务数据；上传后自动解析、分块并建立索引。": "Manage departmental manuals and business data. Uploaded files are parsed, split into passages, and indexed automatically.",
     "＋ 新建手册库": "＋ New manual library",
     "手册库": "Manual libraries",
+    "网格": "Grid",
     "PDF / MD / TXT / 图片（JPG·PNG·WebP）· xlsx / csv 自动识别为业务数据": "PDF / MD / TXT / images (JPG · PNG · WebP) · XLSX / CSV files are recognized as business data",
     "新建手册库": "New manual library",
     "手册库名称": "Manual library name",
@@ -204,6 +207,7 @@
     "业务数据": "Business data",
     "自动采集的数据与导入的 xlsx / csv 在这里管理。": "Manage automatically collected data and imported XLSX / CSV files here.",
     "个采集库": "collection libraries",
+    "条采集记录": "collection records",
     "个导入表": "imported tables",
     "自动采集 ·": "Automatic collection ·",
     "条记录": "records",
@@ -779,7 +783,9 @@
     "没有匹配记录。请检查关键词，或确认业务表已识别出图纸号、部件号、G-code、设备号、APEX 等关联列。": "No matching records. Check your keywords or confirm that drawing number, part number, G-code, equipment number, and APEX columns were recognized in the business tables.",
     "需要上传或更新资料？": "Need to upload or update source material?",
     "手册和所有 CSV/XLSX 业务数据现已统一到资料上传中心。": "Manuals and all CSV/XLSX business data are now managed in the document upload center.",
+    "手册和所有 CSV/XLSX 业务数据现已统一到知识库中心。": "Manuals and all CSV/XLSX business data are now managed in Knowledge Library.",
     "前往资料上传中心": "Go to document upload center",
+    "前往知识库中心": "Go to Knowledge Library",
     "请联系管理员上传": "Ask an administrator to upload",
     "当前数据集": "Current datasets",
     "个": "items",
@@ -1295,6 +1301,18 @@
       "target": "{count} read-only libraries"
     },
     {
+      "source": "{count} 份文档",
+      "target": "{count} documents"
+    },
+    {
+      "source": "{count} 个向量块",
+      "target": "{count} vector chunks"
+    },
+    {
+      "source": "{count}条记录格式变化，已保留原文，请查看文档的采集提示。",
+      "target": "{count} records changed format. Their original content was retained; see collection notices in the documents."
+    },
+    {
       "source": "{count} 个采集库",
       "target": "{count} collection libraries"
     },
@@ -1320,7 +1338,7 @@
     },
     {
       "source": "共 {count} 份文档",
-      "target": "{count} documents"
+      "target": "Total: {count} documents"
     },
     {
       "source": "{count} 个片段",
@@ -2088,5 +2106,8 @@
       "source": "第 {current} 轮请求已发出，正在等待模型。",
       "target": "Round {current} request sent; waiting for the model."
     }
-  ]
+  ],
+  "englishSource": {
+    "My Favorite": "我的收藏"
+  }
 }

@@ -43,9 +43,16 @@
     "预览使用当前已有数据；发送时会重新计算选定日期范围。": "The preview uses currently saved data; the selected date range is recalculated at delivery time.",
     "目标日期范围目前暂无数据；可确认规则，发送时将重新读取已保存的数据。": "The selected date range has no data yet. You can confirm the rules; saved data will be read again at delivery time.",
     "告诉 EnGenie 报告的数据范围、处理方式和发送时间…": "Tell EnGenie the report data range, processing rules and delivery time…",
-    "可选信息暂不补充，请继续。": "Skip the optional details for now and continue."
+    "可选信息暂不补充，请继续。": "Skip the optional details for now and continue.",
+    "请刷新页面后重试发送报告。": "Refresh the page and try sending the report again.",
+    "发送结果尚未确认，请检查工作流记录；使用同一按钮重试不会重复发送。": "Delivery has not been confirmed. Check the workflow history; retrying with the same button will not send a duplicate.",
+    "工作流链接在编辑配置中保存，报告内容和发送时间可在对话中调整。发送测试仅发送一次，不会启用定时报告。工作流接收请求后仍需查看邮件/Teams或工作流运行记录。": "Save workflow URLs in Edit settings. Adjust the report content and delivery time in chat. A test sends once and does not enable scheduled reports. After the workflow accepts the request, check email, Teams, or the workflow run history."
   },
   "patterns": [
+    {
+      "source": "回答内容过长，请缩短后再提交（最多{count}字）。",
+      "target": "Your answer is too long. Shorten it to {count} characters or fewer before submitting."
+    },
     {
       "source": "报告预览 · {count} 条 · {source}",
       "target": "Report preview · {count} rows · {source}"
