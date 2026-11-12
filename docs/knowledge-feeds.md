@@ -38,7 +38,7 @@ No OCR or LLM extraction is needed for this path. Feed records are stored direct
 
 ## Create a source
 
-Open **资料上传中心 → 自动更新知识库**. Create a new knowledge base or choose an existing folder, then select:
+Open **Knowledge Library → Data collection**. Create a new knowledge base or choose an existing folder, then select:
 
 - **定时拉取 API**: the project periodically GETs a `fos-rag-feed/v1` endpoint. Configure a five-field cron and IANA timezone.
 - **外部脚本推送**: run a connector using your own cron, Windows Task Scheduler, CI job or service. Generate a source-scoped token and POST JSON to its ingest URL.

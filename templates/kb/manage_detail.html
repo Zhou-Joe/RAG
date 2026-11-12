@@ -15,7 +15,7 @@
 </svg>
 <header class="page-head">
   <div class="page-head-main">
-    <a class="page-back" href="/kb/manage/">资料上传中心</a>
+    <a class="page-back" href="/kb/manage/">知识库中心</a>
     <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge" id="kbAccessBadge">{{ kb.access_label }}</span>{% if not can_manage %} <span class="ro-badge" title="通用库对所有部门开放：可浏览、可检索、可问答；上传与修改由全局管理员维护">只读</span>{% endif %}{% if kb.embedding_label %} <span class="emb-badge"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-sparkles"></use></svg>{{ kb.embedding_label }}</span>{% endif %}</h1>
     <p class="page-desc"><span id="kbDescText">{% if kb.description %}{{ kb.description }}{% else %}（无描述）{% endif %}</span>
       · 文档 <span id="kbDocCount">{{ docs_total }}</span>

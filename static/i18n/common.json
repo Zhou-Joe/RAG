@@ -3,6 +3,7 @@
     "知识库工作台": "Knowledge workspace",
     "工作台": "Workspace",
     "资料上传": "Upload documents",
+    "知识库中心": "Knowledge Library",
     "自主数据引擎": "Data collection",
     "综合搜索": "Search",
     "知识图谱": "Knowledge graph",
@@ -11,6 +12,10 @@
     "运营": "Activity",
     "运行日志": "Activity dashboard",
     "用户管理": "User management",
+    "筛选账号": "Filter accounts",
+    "级别": "Role",
+    "通用部门级别": "General department role",
+    "删除部门": "Delete department",
     "系统": "System",
     "站点配置": "Site settings",
     "检索评估": "Retrieval evaluation",
@@ -232,6 +237,10 @@
   },
   "patterns": [
     {
+      "source": "{name}部门级别",
+      "target": "Department role: {name}"
+    },
+    {
       "source": "近 {count} 天问答趋势",
       "target": "Questions and answers over {count} days"
     },
@@ -245,7 +254,7 @@
     },
     {
       "source": "共 {count} 份",
-      "target": "{count} documents"
+      "target": "Total: {count} files"
     },
     {
       "source": "{count} 个库",

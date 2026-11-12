@@ -4,7 +4,7 @@
 {% block content %}
 <header class="page-head">
   <div class="page-head-main">
-    <a class="page-back" href="{% url 'kb:manage_list' %}">资料上传中心</a>
+    <a class="page-back" href="{% url 'kb:manage_list' %}">知识库中心</a>
     <span class="fkd-kicker">自主数据引擎 · 自动采集知识库</span>
     <h1 data-i18n-preserve-text><span id="feedKbName">{{ kb.name }}</span> <span class="dept-badge" id="feedKbAccess">{{ kb.access_label }}</span>{% if not can_manage %} <span class="ro-badge">只读</span>{% endif %}</h1>
     <p class="page-desc"><span id="feedKbDescription"{% if kb.description %} translate="no"{% endif %}>{{ kb.description|default:"自动采集的数据会在这里持续更新。" }}</span> · <span id="feedKbTotal">{{ total_rows }}</span> 条采集记录</p>
