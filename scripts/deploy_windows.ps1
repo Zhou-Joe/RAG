@@ -32,6 +32,7 @@ foreach ($taskRequiredPath in @($taskPythonPath, $taskManagePath)) {
 }
 $taskPythonPath = (Resolve-Path -LiteralPath $taskPythonPath).Path
 $taskManagePath = (Resolve-Path -LiteralPath $taskManagePath).Path
+$taskBasePythonPath = $taskPythonPath
 
 function Test-SamePath([string]$Left, [string]$Right) {
     if (-not $Left -or -not $Right) { return $false }
@@ -41,8 +42,17 @@ function Test-SamePath([string]$Left, [string]$Right) {
     } catch { return $false }
 }
 
-function Get-VerifiedRunner($Process) {
-    if ($null -eq $Process -or -not (Test-SamePath ([string]$Process.ExecutablePath) $taskPythonPath)) {
+function Get-BasePythonPath {
+    $taskBasePaths = @(& $taskPythonPath -c 'import sys; print(sys._base_executable or sys.executable)')
+    if ($LASTEXITCODE -ne 0 -or $taskBasePaths.Count -ne 1 -or
+            -not (Test-Path -LiteralPath ([string]$taskBasePaths[0]) -PathType Leaf)) {
+        throw 'Could not identify the virtual environment base Python; no processes were stopped.'
+    }
+    return (Resolve-Path -LiteralPath ([string]$taskBasePaths[0])).Path
+}
+
+function Get-VerifiedRunner($Process, [string]$ExpectedPythonPath = $taskPythonPath) {
+    if ($null -eq $Process -or -not (Test-SamePath ([string]$Process.ExecutablePath) $ExpectedPythonPath)) {
         return
     }
     # Accept the existing launcher's bytecode, buffering and UTF-8 options.
@@ -82,13 +92,46 @@ function Get-VerifiedRunner($Process) {
 
     return [PSCustomObject]@{
         ProcessId = [int]$Process.ProcessId
+        LauncherProcessId = [int]$Process.ProcessId
         CreationDate = $Process.CreationDate
         ExecutablePath = [string]$Process.ExecutablePath
         CommandLine = [string]$Process.CommandLine
+        ManageArgument = $taskManageArgument
         PythonArguments = $taskPythonArguments
         Mode = $taskMode
         Arguments = $taskRunnerArguments
     }
+}
+
+function Get-VerifiedRunners([object[]]$Processes) {
+    $taskLaunchers = @($Processes | ForEach-Object {
+        $taskCandidate = Get-VerifiedRunner $_
+        if ($null -ne $taskCandidate) { $taskCandidate }
+    })
+    foreach ($taskLauncher in $taskLaunchers) {
+        $taskLauncher
+        if (Test-SamePath $taskBasePythonPath $taskPythonPath) { continue }
+        foreach ($taskProcess in $Processes) {
+            # Windows venv python.exe launches the base interpreter as a child.
+            # The shared base interpreter alone does not establish ownership.
+            if ($null -eq $taskProcess -or [int]$taskProcess.ParentProcessId -ne $taskLauncher.ProcessId -or
+                    $taskProcess.CreationDate -lt $taskLauncher.CreationDate) { continue }
+            $taskChild = Get-VerifiedRunner $taskProcess -ExpectedPythonPath $taskBasePythonPath
+            if ($null -ne $taskChild -and $taskChild.Mode -ceq $taskLauncher.Mode -and
+                    ($taskChild.Arguments -join ' ') -ceq ($taskLauncher.Arguments -join ' ') -and
+                    ($taskChild.PythonArguments -join ' ') -ceq ($taskLauncher.PythonArguments -join ' ')) {
+                $taskChild.LauncherProcessId = $taskLauncher.ProcessId
+                $taskChild
+            }
+        }
+    }
+}
+
+function Test-RunnerIdentity($Process, $Runner) {
+    return ($null -ne $Process -and $null -ne $Runner -and
+        $Process.CreationDate -eq $Runner.CreationDate -and
+        (Test-SamePath ([string]$Process.ExecutablePath) $Runner.ExecutablePath) -and
+        [string]$Process.CommandLine -ceq $Runner.CommandLine)
 }
 
 function Get-AppListeners {
@@ -101,10 +144,7 @@ function Get-DeploymentRunners {
     # Rejected processes must emit no pipeline item. An explicit $null would be
     # retained in @(...), then property access would fail under strict mode.
     $taskProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-    $taskRunners = @($taskProcesses | ForEach-Object {
-        $taskCandidate = Get-VerifiedRunner $_
-        if ($null -ne $taskCandidate) { $taskCandidate }
-    })
+    $taskRunners = @(Get-VerifiedRunners -Processes $taskProcesses)
     foreach ($taskListener in @(Get-AppListeners)) {
         $taskOwner = @($taskRunners | Where-Object { $_.ProcessId -eq $taskListener.OwningProcess -and $_.Mode -eq 'runserver' })
         if (-not $taskOwner.Count) {
@@ -112,7 +152,16 @@ function Get-DeploymentRunners {
         }
     }
     foreach ($taskProcess in $taskProcesses) {
-        if ((Test-SamePath ([string]$taskProcess.ExecutablePath) $taskPythonPath) -and
+        $taskUsesOwnPython = Test-SamePath ([string]$taskProcess.ExecutablePath) $taskPythonPath
+        if (-not $taskUsesOwnPython -and (Test-SamePath ([string]$taskProcess.ExecutablePath) $taskBasePythonPath)) {
+            $taskLinkedParent = @($taskRunners | Where-Object {
+                $_.ProcessId -eq $_.LauncherProcessId -and $_.ProcessId -eq $taskProcess.ParentProcessId
+            })
+            $taskBaseCandidate = Get-VerifiedRunner $taskProcess -ExpectedPythonPath $taskBasePythonPath
+            $taskUsesOwnPython = $taskLinkedParent.Count -gt 0 -or
+                ($null -ne $taskBaseCandidate -and (Test-SamePath $taskBaseCandidate.ManageArgument $taskManagePath))
+        }
+        if ($taskUsesOwnPython -and
             [string]$taskProcess.CommandLine -match '\b(?:run_feed_scheduler|run_report_scheduler)\b' -and
             -not (@($taskRunners | Where-Object { $_.ProcessId -eq $taskProcess.ProcessId }).Count)) {
             throw "An unrecognized scheduler uses this checkout's Python (PID $($taskProcess.ProcessId)); refusing to start a duplicate."
@@ -124,9 +173,7 @@ function Get-DeploymentRunners {
 function Stop-VerifiedRunner($Runner) {
     $taskCurrent = Get-CimInstance Win32_Process -Filter ("ProcessId = " + $Runner.ProcessId) -ErrorAction Stop
     if ($null -eq $taskCurrent) { return }
-    if ($taskCurrent.CreationDate -ne $Runner.CreationDate -or
-        -not (Test-SamePath ([string]$taskCurrent.ExecutablePath) $Runner.ExecutablePath) -or
-        [string]$taskCurrent.CommandLine -cne $Runner.CommandLine) {
+    if (-not (Test-RunnerIdentity $taskCurrent $Runner)) {
         throw "Process identity changed for PID $($Runner.ProcessId); refusing to stop it."
     }
     Stop-Process -Id $Runner.ProcessId -ErrorAction Stop
@@ -150,10 +197,16 @@ function Register-NewRunner($Handle, [string]$Mode) {
     $taskNewEntry = [PSCustomObject]@{ Handle = $Handle; Runner = $null }
     $taskNewHandles.Add($taskNewEntry)
     for ($taskAttempt = 0; $taskAttempt -lt 10; $taskAttempt++) {
-        $taskNewProcess = Get-CimInstance Win32_Process -Filter ("ProcessId = " + $Handle.Id) -ErrorAction Stop
-        $taskVerified = Get-VerifiedRunner $taskNewProcess
-        if ($taskVerified -and $taskVerified.Mode -eq $Mode) {
-            $taskNewEntry.Runner = $taskVerified
+        $taskNewProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+        $taskOwned = @(Get-VerifiedRunners -Processes $taskNewProcesses |
+            Where-Object { $_.LauncherProcessId -eq $Handle.Id -and $_.Mode -eq $Mode })
+        $taskVerified = @($taskOwned | Where-Object { $_.ProcessId -eq $Handle.Id })
+        if ($taskVerified.Count) { $taskNewEntry.Runner = $taskVerified[0] }
+        $taskChildren = @($taskOwned | Where-Object { $_.ProcessId -ne $Handle.Id })
+        if ($taskVerified.Count -and ((Test-SamePath $taskBasePythonPath $taskPythonPath) -or $taskChildren.Count)) {
+            foreach ($taskChild in $taskChildren) {
+                $taskNewHandles.Add([PSCustomObject]@{ Handle = $Handle; Runner = $taskChild })
+            }
             return
         }
         Start-Sleep -Milliseconds 100
@@ -196,10 +249,12 @@ try {
         [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
 
     # Complete all process/port inspection before stopping anything.
+    $taskBasePythonPath = Get-BasePythonPath
     $taskRunners = @(Get-DeploymentRunners)
     $null = New-Item -ItemType Directory -Path $taskBackupDirectory -Force
     $null = New-Item -ItemType Directory -Path $taskLogDirectory -Force
-    foreach ($taskRunner in @($taskRunners | Sort-Object { if ($_.Mode -eq 'runserver') { 1 } else { 0 } })) {
+    foreach ($taskRunner in @($taskRunners | Sort-Object @{ Expression = { if ($_.Mode -eq 'runserver') { 1 } else { 0 } } },
+            @{ Expression = { if ($_.ProcessId -ne $_.LauncherProcessId) { 0 } else { 1 } } })) {
         Write-Host "Stopping verified $($taskRunner.Mode), PID $($taskRunner.ProcessId)."
         $taskStoppedRunners.Add($taskRunner)
         Stop-VerifiedRunner $taskRunner
@@ -232,6 +287,7 @@ finally:
     Register-NewRunner $taskApp 'runserver'
     $taskDeadline = [DateTime]::UtcNow.AddSeconds($HealthTimeoutSeconds)
     $taskHealthy = $false
+    $taskHealthError = 'The app did not respond.'
     while ([DateTime]::UtcNow -lt $taskDeadline) {
         try {
             $taskResponse = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/accounts/login/' `
@@ -241,19 +297,23 @@ finally:
                 if (-not $taskHealthListeners.Count) { throw 'The responding app has no inspectable port listener.' }
                 foreach ($taskListener in $taskHealthListeners) {
                     $taskOwnerProcess = Get-CimInstance Win32_Process -Filter ("ProcessId = " + $taskListener.OwningProcess) -ErrorAction Stop
-                    $taskVerifiedOwner = Get-VerifiedRunner $taskOwnerProcess
-                    if (-not $taskVerifiedOwner -or $taskVerifiedOwner.Mode -ne 'runserver') {
-                        throw 'The responding port is not owned by this checkout.'
+                    $taskExpectedOwner = @($taskNewHandles | Where-Object {
+                        $null -ne $_.Runner -and $_.Runner.Mode -eq 'runserver' -and
+                            $_.Runner.ProcessId -eq $taskListener.OwningProcess
+                    })
+                    if (-not $taskExpectedOwner.Count -or
+                            -not (Test-RunnerIdentity $taskOwnerProcess $taskExpectedOwner[0].Runner)) {
+                        throw 'The responding port is not owned by the newly launched app.'
                     }
                 }
                 $taskHealthy = $true
                 break
             }
-        } catch { }
+        } catch { $taskHealthError = $_.Exception.Message }
         $taskRemaining = ($taskDeadline - [DateTime]::UtcNow).TotalMilliseconds
         if ($taskRemaining -gt 0) { Start-Sleep -Milliseconds ([int][Math]::Min(1000, $taskRemaining)) }
     }
-    if (-not $taskHealthy) { throw "Local health check failed after $HealthTimeoutSeconds seconds. See $taskLogDirectory." }
+    if (-not $taskHealthy) { throw "Local health check failed after $HealthTimeoutSeconds seconds. $taskHealthError See $taskLogDirectory." }
 
     $taskScheduler = Start-RagRunner -Mode 'run_feed_scheduler' -RunnerArguments @('--interval', '30') -LogSuffix 'scheduler'
     Register-NewRunner $taskScheduler 'run_feed_scheduler'
@@ -265,7 +325,9 @@ finally:
     Write-Host "Web and scheduler logs: $taskLogDirectory"
 } catch {
     $taskFailure = $_
-    foreach ($taskEntry in $taskNewHandles) {
+    foreach ($taskEntry in @($taskNewHandles | Sort-Object {
+        if ($null -ne $_.Runner -and $_.Runner.ProcessId -ne $_.Runner.LauncherProcessId) { 0 } else { 1 }
+    })) {
         try {
             if ($null -ne $taskEntry.Runner) { Stop-VerifiedRunner $taskEntry.Runner }
             elseif (Get-Process -Id $taskEntry.Handle.Id -ErrorAction SilentlyContinue) {

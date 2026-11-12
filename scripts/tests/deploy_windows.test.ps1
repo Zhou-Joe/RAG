@@ -14,6 +14,7 @@ if ($taskParseErrors.Count) { throw ($taskParseErrors | Out-String) }
 
 # Load only production inspection functions, never the deployment entry point.
 foreach ($taskFunctionName in @('Test-SamePath', 'Get-VerifiedRunner', 'Get-AppListeners', 'Get-DeploymentRunners',
+        'Get-VerifiedRunners', 'Test-RunnerIdentity', 'Register-NewRunner', 'Stop-VerifiedRunner',
         'Start-RagRunner', 'Restore-PreviousRunners')) {
     $taskDefinition = $taskAst.Find({
         param($Node)
@@ -24,6 +25,7 @@ foreach ($taskFunctionName in @('Test-SamePath', 'Get-VerifiedRunner', 'Get-AppL
 }
 
 $taskPythonPath = 'C:\RAG test\.venv\Scripts\python.exe'
+$taskBasePythonPath = $taskPythonPath
 $taskManagePath = 'C:\RAG test\manage.py'
 $taskRepoRoot = 'C:\RAG test'
 $taskLogDirectory = 'C:\RAG test\logs'
@@ -33,13 +35,24 @@ $script:taskTestListeners = @()
 $script:taskTestCimFailure = $false
 $script:taskTestNetworkFailure = $false
 $script:taskTestLaunches = [Collections.Generic.List[object]]::new()
+$script:taskTestTreeMode = $false
+$script:taskTestFailFeedStart = $false
+$script:taskTestNextPid = 80000
+$script:taskTestStops = [Collections.Generic.List[int]]::new()
+$script:taskTestManageCalls = [Collections.Generic.List[string]]::new()
+$script:taskTestHealthCalls = 0
 $taskPassed = 0
 
 function Get-CimInstance {
     [CmdletBinding()]
-    param([string]$ClassName)
+    param([string]$ClassName, [string]$Filter)
     if ($ClassName -ne 'Win32_Process') { throw 'Unexpected CIM class.' }
     if ($script:taskTestCimFailure) { throw 'Process inspection denied.' }
+    if ($Filter) {
+        if ($Filter -notmatch '^ProcessId = (\d+)$') { throw 'Unexpected process filter.' }
+        $taskRequestedPid = [int]$Matches[1]
+        return @($script:taskTestProcesses | Where-Object { $_.ProcessId -eq $taskRequestedPid })
+    }
     return $script:taskTestProcesses
 }
 
@@ -62,16 +75,58 @@ function Start-Process {
         WorkingDirectory = $WorkingDirectory
         WindowStyle = $WindowStyle
     })
+    if ($script:taskTestFailFeedStart -and $ArgumentList -contains 'run_feed_scheduler') {
+        throw 'Mock scheduler startup failed.'
+    }
+    if ($script:taskTestTreeMode) {
+        $script:taskTestNextPid += 2
+        $taskRootId = $script:taskTestNextPid
+        $taskRoot = New-TestProcess $taskRootId $taskPythonPath ('"' + $taskPythonPath + '" ' + ($ArgumentList -join ' '))
+        $taskChild = New-TestProcess ($taskRootId + 1) $taskBasePythonPath ('"' + $taskBasePythonPath + '" ' + ($ArgumentList -join ' ')) $taskRootId
+        $script:taskTestProcesses = @($script:taskTestProcesses) + @($taskRoot, $taskChild)
+        if ($ArgumentList -contains 'runserver') {
+            $script:taskTestListeners = @([PSCustomObject]@{ LocalPort = 8000; OwningProcess = $taskChild.ProcessId })
+        }
+        $taskHandle = [PSCustomObject]@{ Id = $taskRootId; HasExited = $false }
+        $taskHandle | Add-Member -MemberType ScriptMethod -Name Refresh -Value { }
+        return $taskHandle
+    }
     return [PSCustomObject]@{ Id = 50001 }
 }
 
-function New-TestProcess([int]$ProcessId, [string]$ExecutablePath, [string]$CommandLine) {
+function New-TestProcess([int]$ProcessId, [string]$ExecutablePath, [string]$CommandLine, [int]$ParentProcessId = 0) {
     [PSCustomObject]@{
         ProcessId = $ProcessId
+        ParentProcessId = $ParentProcessId
         ExecutablePath = $ExecutablePath
         CommandLine = $CommandLine
         CreationDate = [datetime]'2026-11-12T12:00:00Z'
     }
+}
+
+function Stop-Process {
+    [CmdletBinding()]
+    param([int]$Id)
+    $script:taskTestStops.Add($Id)
+    $script:taskTestProcesses = @($script:taskTestProcesses | Where-Object { $_.ProcessId -ne $Id })
+    $script:taskTestListeners = @($script:taskTestListeners | Where-Object { $_.OwningProcess -ne $Id })
+}
+
+function Wait-Process {
+    [CmdletBinding()]
+    param([int]$Id, [int]$Timeout)
+}
+
+function Get-BasePythonPath { return $taskBasePythonPath }
+
+function Invoke-RagManage([string[]]$Arguments) { $script:taskTestManageCalls.Add($Arguments[0]) }
+
+function Invoke-WebRequest {
+    [CmdletBinding()]
+    param([string]$Uri, [switch]$UseBasicParsing, [int]$MaximumRedirection, [int]$TimeoutSec)
+    if ($Uri -cne 'http://127.0.0.1:8000/accounts/login/') { throw 'Unexpected health endpoint.' }
+    $script:taskTestHealthCalls++
+    return [PSCustomObject]@{ StatusCode = 200 }
 }
 
 function Assert-Throws([ScriptBlock]$Action, [string]$Expected) {
@@ -190,5 +245,96 @@ foreach ($taskOriginal in @($taskFlaggedScheduler, $taskScheduler)) {
     }
     $taskPassed++
 }
+
+# Windows venv launcher and listening interpreter have different executable paths.
+$taskBasePythonPath = 'C:\Python314\python.exe'
+$taskBaseWeb = New-TestProcess 301 $taskBasePythonPath ('"' + $taskBasePythonPath + '" "' + $taskManagePath + '" runserver 127.0.0.1:8000 --noreload') $taskWeb.ProcessId
+$script:taskTestProcesses = @($taskUnrelated, $taskWeb, $taskBaseWeb)
+$script:taskTestListeners = @([PSCustomObject]@{ LocalPort = 8000; OwningProcess = 301 })
+$taskResult = @(Get-DeploymentRunners)
+if ($taskResult.Count -ne 2 -or $taskResult[1].ProcessId -ne 301 -or
+        $taskResult[1].LauncherProcessId -ne $taskWeb.ProcessId) { throw 'The verified venv runtime child was lost.' }
+$taskPassed++
+
+foreach ($taskBadChild in @(
+    (New-TestProcess 302 $taskBasePythonPath $taskBaseWeb.CommandLine 999),
+    (New-TestProcess 303 'C:\Another Python\python.exe' $taskBaseWeb.CommandLine $taskWeb.ProcessId),
+    (New-TestProcess 304 $taskBasePythonPath ($taskBaseWeb.CommandLine + ' --insecure') $taskWeb.ProcessId)
+)) {
+    $taskResult = @(Get-VerifiedRunners -Processes @($taskWeb, $taskBadChild))
+    if ($taskResult.Count -ne 1) { throw 'An unrelated runtime child was accepted.' }
+    $taskPassed++
+}
+$taskOldChild = New-TestProcess 305 $taskBasePythonPath $taskBaseWeb.CommandLine $taskWeb.ProcessId
+$taskOldChild.CreationDate = $taskWeb.CreationDate.AddSeconds(-1)
+if (@(Get-VerifiedRunners -Processes @($taskWeb, $taskOldChild)).Count -ne 1) { throw 'A stale parent PID was trusted.' }
+$taskPassed++
+
+# A base interpreter alone never grants ownership, including an orphan scheduler.
+$taskOrphan = New-TestProcess 306 $taskBasePythonPath ('"' + $taskBasePythonPath + '" "' + $taskManagePath + '" run_report_scheduler --interval 30') 999
+$script:taskTestProcesses = @($taskOrphan)
+$script:taskTestListeners = @()
+Assert-Throws { Get-DeploymentRunners } '*unrecognized scheduler*306*'
+$taskPassed++
+
+$taskExpectedChild = @(Get-VerifiedRunners -Processes @($taskWeb, $taskBaseWeb))[1]
+$taskReusedPid = New-TestProcess 301 $taskBasePythonPath $taskBaseWeb.CommandLine $taskWeb.ProcessId
+$taskReusedPid.CreationDate = $taskBaseWeb.CreationDate.AddSeconds(1)
+if (-not (Test-RunnerIdentity $taskBaseWeb $taskExpectedChild) -or
+        (Test-RunnerIdentity $taskReusedPid $taskExpectedChild)) { throw 'Runtime PID reuse was not rejected.' }
+$taskPassed++
+
+# Exercise the actual deployment try/catch/finally with all process, network and
+# Django commands mocked. Only temporary lock/log directories are created.
+$taskTestRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) ('output\review_tmp\deploy-flow-' + [Guid]::NewGuid().ToString('N'))
+$taskOutputPath = $taskTestRoot
+$taskBackupDirectory = Join-Path $taskTestRoot 'backups'
+$taskLogDirectory = Join-Path $taskTestRoot 'logs'
+$taskDatabasePath = Join-Path $taskTestRoot 'no-database.sqlite3'
+$taskDeployLock = $null
+$taskBackupPath = $null
+$taskStoppedRunners = [Collections.Generic.List[object]]::new()
+$taskNewHandles = [Collections.Generic.List[object]]::new()
+$HealthTimeoutSeconds = 1
+$script:taskTestTreeMode = $true
+$script:taskTestLaunches.Clear()
+$script:taskTestStops.Clear()
+$taskBaseReport = New-TestProcess 13901 $taskBasePythonPath ('"' + $taskBasePythonPath + '" -B -u -X utf8 manage.py run_report_scheduler --interval 30') 13900
+$script:taskTestProcesses = @($taskUnrelated, $taskFlaggedScheduler, $taskBaseReport)
+$script:taskTestListeners = @()
+$taskMainTry = @($taskAst.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.TryStatementAst] })
+if ($taskMainTry.Count -ne 1) { throw 'Could not identify deployment entry point.' }
+. ([ScriptBlock]::Create($taskMainTry[0].Extent.Text)) 6>$null
+if (-not $taskHealthy -or $script:taskTestHealthCalls -ne 1 -or
+        ($script:taskTestStops -join '|') -cne '13901|13900' -or
+        ($script:taskTestManageCalls -join '|') -cne 'migrate|collectstatic|check' -or
+        $script:taskTestLaunches.Count -ne 2 -or $taskNewHandles.Count -ne 4) {
+    throw 'The complete venv deployment workflow failed.'
+}
+$taskPassed++
+
+# A failed new scheduler must clean up both web processes and restore just one
+# copy of the original report scheduler with its original Python options.
+$taskOutputPath = Join-Path $taskTestRoot 'rollback'
+$taskBackupDirectory = Join-Path $taskOutputPath 'backups'
+$taskLogDirectory = Join-Path $taskOutputPath 'logs'
+$taskDatabasePath = Join-Path $taskOutputPath 'no-database.sqlite3'
+$taskDeployLock = $null
+$taskBackupPath = $null
+$taskStoppedRunners = [Collections.Generic.List[object]]::new()
+$taskNewHandles = [Collections.Generic.List[object]]::new()
+$script:taskTestLaunches.Clear()
+$script:taskTestStops.Clear()
+$script:taskTestProcesses = @($taskUnrelated, $taskFlaggedScheduler, $taskBaseReport)
+$script:taskTestListeners = @()
+$script:taskTestFailFeedStart = $true
+Assert-Throws { . ([ScriptBlock]::Create($taskMainTry[0].Extent.Text)) 3>$null 6>$null } '*Mock scheduler startup failed*'
+$taskRemaining = @(Get-VerifiedRunners -Processes $script:taskTestProcesses)
+if ($script:taskTestStops.Count -ne 4 -or $script:taskTestListeners.Count -ne 0 -or
+        $taskRemaining.Count -ne 2 -or @($taskRemaining | Where-Object { $_.Mode -ne 'run_report_scheduler' }).Count -or
+        ($script:taskTestLaunches[2].Arguments[0..3] -join '|') -cne '-B|-u|-X|utf8') {
+    throw 'Venv cleanup or restoration after scheduler failure was incorrect.'
+}
+$taskPassed++
 
 Write-Host "$taskPassed deployment regression checks passed on PowerShell $($PSVersionTable.PSVersion)."
