@@ -37,7 +37,10 @@
    if(type&&!type.includes('application/json'))throw Error('会话已失效或请求被拒绝，请刷新页面后重试。');
    const data=await reply.json();
    if(!reply.ok||!data.ok){if(data.status==='failed'){requests.delete(url);delete button.dataset.requestKey;}throw Error(data.error||'发送未完成');}
-   state.accepted=true;button.textContent='工作流已接收测试报告';hint.textContent=data.message;
+   if(data.status==='skipped'){
+    requests.delete(url);delete button.dataset.requestKey;button.disabled=false;
+    button.textContent='重新检查触发条件';hint.textContent=data.message||'当前数据未满足触发条件，本次未发送。';
+   }else{state.accepted=true;button.textContent='工作流已接收测试报告';hint.textContent=data.message;}
   }catch(error){hint.textContent=error.name==='AbortError'?'发送结果尚未确认，请检查工作流记录；使用同一按钮重试不会重复发送。':error.message;button.textContent='查看发送状态 / 重试';button.disabled=false;}
   finally{clearTimeout(timeout);if(state)state.pending=false;}
  });

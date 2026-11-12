@@ -48,8 +48,10 @@ def test_send(request,job_id):
         key=data.get('request_key')
         if not isinstance(key,str) or not 8<=len(key)<=100:raise ValueError('请使用有效的发送请求编号。')
         delivery=reports.send(feed.report_plan,spec=job.spec,selection=reports.delivery_selection(job),request_key='test:'+str(job.pk)+':'+key)
-        return JsonResponse({'ok':delivery.status=='accepted','status':delivery.status,'error':delivery.error,
-            'message':'工作流已接收请求，请检查邮件/Teams及工作流运行记录。'},status=200 if delivery.status=='accepted' else 400)
+        skipped = delivery.status == 'skipped'
+        return JsonResponse({'ok':delivery.status in ('accepted', 'skipped'),'status':delivery.status,'error':delivery.error,
+            'message':'当前数据未满足触发条件，本次未发送。' if skipped else '工作流已接收请求，请检查邮件/Teams及工作流运行记录。'},
+            status=200 if delivery.status in ('accepted', 'skipped') else 400)
     except (ValueError,TypeError,AttributeError,KnowledgeFeed.report_plan.RelatedObjectDoesNotExist) as exc:
         return JsonResponse({'ok':False,'error':str(exc)},status=400)
 

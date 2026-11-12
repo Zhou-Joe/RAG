@@ -59,10 +59,11 @@
   <div class="field" data-report-frequency="custom" hidden><label for="feedReportCron">Cron（分 时 日 月 星期）</label><input id="feedReportCron" name="cron" maxlength="100" placeholder="0 9 * * *" required></div>
   <div class="field"><label for="feedReportTimezone">时区</label><input id="feedReportTimezone" name="timezone" value="Asia/Shanghai" maxlength="100" required></div>
   <p class="dialog-hint">仅调整 M365 报告发送，不改变数据采集。已暂停的报告保存后仍保持暂停。</p>
+  <p class="dialog-hint">条件触发报告按此频率检查；只有满足条件时才发送。通过 EnGenie 对话调整条件。</p>
   <p id="feedReportError" class="dialog-err" role="alert"></p>
   <div class="dialog-actions"><button type="button" class="btn outline" data-close="feedReportEditor">取消</button><button type="submit" class="btn primary" id="feedReportSave">保存报告频率</button></div>
 </form></dialog>
 <dialog class="fos-dialog feed-dialog" id="feedToken"><h2>脚本推送接入</h2><p>此令牌只显示一次；生成后旧令牌立即失效。</p><label>推送地址<input id="feedIngestUrl" readonly></label><label>Bearer 令牌<textarea id="feedTokenValue" readonly rows="2"></textarea></label><p>将令牌放入脚本运行环境，按接入包示例调用。暂停数据源或轮换令牌可停用旧接入。</p><button type="button" class="btn outline" data-close="feedToken">已保存，关闭</button></dialog>
 <link rel="stylesheet" href="{% static 'css/feeds.css' %}?v=3-report-controls">
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=1" defer></script><script src="{% static 'js/feeds.js' %}?v=10-document-mode" defer></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/report_trigger.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=2-condition-delivery" defer></script><script src="{% static 'js/feeds.js' %}?v=10-document-mode" defer></script>{% endblock %}

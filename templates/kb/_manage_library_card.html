@@ -2,9 +2,9 @@
 {% with counts=kb.aggregate_counts %}
 <article class="kb-list-card{% if kb.is_pinned %} is-pinned{% endif %}" data-slug="{{ kb.slug }}">
   <div class="kb-list-card-head">
-    <span class="kb-list-glyph" aria-hidden="true">{{ kb.name|first|upper }}</span>
+    <span class="kb-list-glyph"{% if kb.auto_collected %} title="自动采集" aria-label="自动采集"{% else %} aria-hidden="true"{% endif %}>{% if kb.auto_collected %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:26px;height:26px" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9"/></svg>{% else %}{{ kb.name|first|upper }}{% endif %}</span>
     <div class="kb-list-identity">
-      <small>{% if kb.category == 'business' %}自动采集{% else %}手册库{% endif %} · {{ kb.access_label }}{% if not kb.can_manage %} · 只读{% endif %}</small>
+      <small><span>{% if kb.auto_collected %}自动采集{% elif kb.category == 'business' %}业务数据{% else %}手册库{% endif %}</span> · <span>{{ kb.access_label }}</span>{% if not kb.can_manage %} · <span>只读</span>{% endif %}</small>
       <strong title="{{ kb.name }}" translate="no">{{ kb.name }}</strong>
     </div>
     <button type="button" class="kb-pin-toggle{% if kb.is_pinned %} is-active{% endif %}"
@@ -19,7 +19,7 @@
   {% if kb.is_pinned and kb.description %}<p class="kb-list-desc" title="{{ kb.description }}" translate="no">{{ kb.description }}</p>{% endif %}
   <div class="kb-list-meta">
     {% if kb.category == 'business' %}<span>{{ kb.business_row_count }} 条记录</span>
-    {% else %}<span>{{ counts.0 }} 份文档</span><span>{{ counts.1 }} 个向量块</span>{% if kb.embedding_label %}<span title="Embedding">{{ kb.embedding_label }}</span>{% endif %}{% endif %}
+    {% else %}<span>{{ counts.0 }} 份文档</span>{% endif %}
   </div>
   <div class="kb-list-actions">
     <a class="btn sm primary" href="{% url 'kb:manage_detail' kb.slug %}">知识库主页</a>

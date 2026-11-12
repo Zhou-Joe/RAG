@@ -224,6 +224,8 @@ def summary(feed,selection=None):
         'site_address_available':address['available'],'site_address_note':address['reason'],
         'title':current_name(feed) if plan else '',
         'schedule':plan.spec.get('schedule',{'mode':plan.schedule_mode,'cron':plan.cron,'timezone':plan.timezone}) if plan else {},
+        'trigger':plan.spec.get('trigger') if plan else None,
+        'trigger_state':plan.trigger_state if plan else {},
         'next_run_at':plan.next_run_at.isoformat() if plan and plan.next_run_at else None, 'last_status':last.status if last else '',
         'last_error':last.error if last else ''}
 
@@ -305,6 +307,11 @@ def normalize(spec,feed,*,legacy=False):
     if len({a['label'] for a in aggregates})!=len(aggregates) or group and not aggregates:raise ValueError('分组需设置汇总计算，汇总列名不能重复。')
     schedule=report_schedule(spec.get('schedule',{'mode':'after_collection'} if legacy else None),feed)
     result={'kind':'report','title':title,'columns':clean,'range':scope,'filters':filters,'group_by':group,'aggregates':aggregates,'schedule':schedule}
+    if 'trigger' in spec:
+        from .report_conditions import normalize_trigger
+        if schedule['mode']=='after_collection':raise ValueError('条件触发报告需使用独立的检查频率或按需检查。')
+        headers=group+[item['label'] for item in aggregates] if aggregates else [column['label'] for column in clean]
+        result['trigger']=normalize_trigger(spec['trigger'],headers)
     if spec.get('delivery'):
         delivery=select_destination({},spec['delivery']);result['delivery']={'kind':delivery['kind']}
         if delivery['kind']=='email' and 'recipient' in delivery:result['delivery']['recipient']=delivery['recipient']
@@ -434,9 +441,16 @@ def preview(job,spec):
     if delivery.get('kind'):
         spec['delivery']={'kind':delivery['kind']}
         if delivery['kind']=='email':spec['delivery']['recipient']=delivery['recipient']
+    trigger=spec.get('trigger')
+    if trigger:
+        from .report_conditions import evaluate_trigger
+        evaluation=evaluate_trigger(trigger,rows)
+    else:evaluation=None
+    next_at=CronSchedule(spec['schedule']['cron'],spec['schedule']['timezone']).next_after(at).isoformat() if spec['schedule']['mode']=='cron' else None
     return spec,{'valid':True,'report':True,'items':len(rows),'headers':headers,'preview':rows[:10],
         'delivery':delivery,'transformation_audit':audit,'source_feed':spec['title'],'preview_as_of':at.isoformat(),'preview_timezone':spec['schedule']['timezone'],
-        'next_send_at':CronSchedule(spec['schedule']['cron'],spec['schedule']['timezone']).next_after(at).isoformat() if spec['schedule']['mode']=='cron' else None,'warning':'目标日期范围目前暂无数据；可确认规则，发送时将重新读取已保存的数据。' if not rows else '预览使用当前已有数据；发送时会重新计算选定日期范围。','schedule':spec['schedule'],'range':spec['range'],'processing':'aggregate' if spec['aggregates'] else 'raw','note':'报告使用已保存的数据，按自己的发送计划运行；不触发或修改采集任务。'}
+        'trigger':trigger,'trigger_evaluation':evaluation,'next_check_at':next_at if trigger else None,
+        'next_send_at':None if trigger else next_at,'warning':'目标日期范围目前暂无数据；可确认规则，发送时将重新读取已保存的数据。' if not rows else '预览使用当前已有数据；发送时会重新计算选定日期范围。','schedule':spec['schedule'],'range':spec['range'],'processing':'aggregate' if spec['aggregates'] else 'raw','note':'报告使用已保存的数据，按自己的发送计划运行；不触发或修改采集任务。'}
 
 def approve(job,user):
     from .models import ConnectorDraft
@@ -452,6 +466,7 @@ def approve(job,user):
         missing=summary(feed,selection)['missing']
         if missing:raise ValueError('请先补充发送设置：'+'、'.join({'workflow_url':'工作流链接','kind':'邮件或Teams','public_base':'本站公开地址','recipient':'收件邮箱'}[key] for key in missing))
         plan.spec=normalize(current.spec,feed)
+        plan.trigger_state={}
         if selection:plan.spec['delivery']=selection
         schedule=plan.spec['schedule']
         plan.schedule_mode=schedule['mode'];plan.cron=schedule.get('cron','');plan.timezone=schedule['timezone']
@@ -470,9 +485,10 @@ def download_link(delivery,base):
 
 def payload(config,spec,headers,rows,url,audit=None):
     title=spec['title'];count=len(rows)
+    alert='Condition matched / 触发条件已满足' if spec.get('trigger') else ''
     quality='；'.join(name+'：'+str(state['converted'])+'条有效，'+str(state['missing'])+'条缺失/未解析，原始数据保留' for name,state in (audit or {}).items())
     if config['kind']=='email':
-        body='<h2>'+escape(title)+'</h2><p>EnGenie report · '+str(count)+' records</p><table border="1" cellpadding="6"><tr>'+''.join('<th>'+escape(h)+'</th>' for h in headers)+'</tr>'
+        body='<h2>'+escape(title)+'</h2><p>EnGenie report · '+str(count)+' records</p>'+('<p>'+alert+'</p>' if alert else '')+'<table border="1" cellpadding="6"><tr>'+''.join('<th>'+escape(h)+'</th>' for h in headers)+'</tr>'
         for row in rows[:10]:body+='<tr>'+''.join('<td>'+escape(str(row.get(h,''))[:1000])+'</td>' for h in headers)+'</tr>'
         body+='</table>'
         if quality:body+='<p>'+escape(quality)+'</p>'
@@ -483,6 +499,7 @@ def payload(config,spec,headers,rows,url,audit=None):
                 {'type':'TextBlock','text':f'{count} records · EnGenie','wrap':True}],
         'actions':[{'type':'Action.OpenUrl','title':'Download Excel / 下载报告','url':url}]}
     if quality:card['body'].append({'type':'TextBlock','text':quality[:2000],'wrap':True})
+    if alert:card['body'].append({'type':'TextBlock','text':alert,'wrap':True})
     for row in rows[:3]:card['body'].append({'type':'FactSet','facts':[{'title':str(h)[:100],'value':str(row.get(h,''))[:300]} for h in headers[:8]]})
     return {'type':'message','attachments':[{'contentType':'application/vnd.microsoft.card.adaptive','contentUrl':None,'content':card}]}
 
@@ -509,20 +526,37 @@ def send(plan,*,run=None,spec=None,request_key=None,delivery=None,as_of=None,sel
         delivery,created=FeedReportDelivery.objects.get_or_create(plan=plan,request_key=key,defaults={'run':run})
         if not created:return delivery
     if not FeedReportDelivery.objects.filter(pk=delivery.pk,status='pending').update(status='preparing'):return FeedReportDelivery.objects.get(pk=delivery.pk)
+    delivery.status='preparing';trigger=None
     try:
         spec=normalize(spec or plan.spec,plan.feed,legacy=plan.schedule_mode=='after_collection')
         if as_of is None and run is None and not scheduled:as_of=preview_time(spec)
-        audit={};headers,rows=table(plan.feed,spec,run=run,as_of=as_of,diagnostics=audit)
+        trigger=spec.get('trigger')
+        audit={};headers,rows=table(plan.feed,spec,run=run,as_of=as_of,allow_empty=bool(trigger),diagnostics=audit)
+        if trigger:
+            from .report_conditions import evaluate_trigger,claim_trigger
+            evaluation=evaluate_trigger(trigger,rows)
+            reason=claim_trigger(plan,delivery,trigger,evaluation,as_of or timezone.now()) if scheduled else '' if evaluation['matched'] else 'condition_not_met'
+            if reason:
+                delivery.status='skipped';delivery.error=reason
+                delivery.save(update_fields=['status','error']);return delivery
         config=select_destination(destination(plan),selection or spec.get('delivery'));config['url']=selected_workflow(config);address=site_address(config)
         if not address['available']:raise ValueError(address['reason'])
         base=address['public_base']
         delivery.content=workbook(spec['title'],headers,rows,audit);delivery.filename='EnGenie-report.xlsx'
-        delivery.expires_at=timezone.now()+timedelta(days=7);delivery.save()
+        delivery.expires_at=timezone.now()+timedelta(days=7);delivery.save(update_fields=['content','filename','expires_at'])
         link=download_link(delivery,base);body=payload(config,spec,headers,rows,link,audit)
         if scheduled and not FeedReportPlan.objects.filter(pk=plan.pk,enabled=True,updated_at=plan.updated_at).exists():raise ValueError('报告配置已变更或停用，本次发送已取消。')
-        delivery.status='sending';delivery.save(update_fields=['status'])
+        if scheduled and trigger:
+            from .report_conditions import start_trigger_send
+            start_trigger_send(plan,delivery)
+        elif not FeedReportDelivery.objects.filter(pk=delivery.pk,status='preparing').update(status='sending'):
+            raise ValueError('报告发送已取消，本次未发送。')
+        delivery.status='sending'
         post_workflow(config,body);delivery.status='accepted'
     except Exception as exc:
+        if scheduled and trigger and delivery.status!='sending':
+            from .report_conditions import release_trigger
+            release_trigger(plan,delivery)
         delivery.status='unknown' if delivery.status=='sending' else 'failed'
         delivery.error=str(exc)[:400] if isinstance(exc,ValueError) else '报告发送未完成（'+type(exc).__name__+'）。'
     delivery.save(update_fields=['status','error']);return delivery

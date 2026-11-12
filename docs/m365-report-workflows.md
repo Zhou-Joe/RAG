@@ -1,6 +1,6 @@
-# Scheduled reports through Microsoft 365 Workflows
+# Scheduled and conditional delivery through Microsoft 365 Workflows
 
-Open an enabled data collection task in EnGenie and describe the report in the existing chat. Paste the workflow's HTTP trigger URL, say whether to send email or a Teams card, and provide the email recipient when needed. Report download links automatically use this Django application's deployment address; users do not need to supply a separate report site. You can provide everything in one message or continue the conversation.
+Open an enabled data collection task in EnGenie and describe the report in the existing chat. Save the email or Teams workflow's HTTP trigger URL in the source's **Edit settings**, then select email or Teams delivery in chat and provide an email recipient when needed. Report download links automatically use this Django application's deployment address; users do not need to supply a separate report site. You can continue refining the report in the same conversation.
 
 There is no separate setup form. EnGenie checks the saved task and delivery details, then asks only for missing information using `ask_user_questions`. Its short form appears inside the conversation; users may fill it in or answer directly in the chat. Form answers use the same conversation and preserve its prior context. The supported input types are text, email, URL, date, number, selection and multiline text, with at most eight questions at a time.
 
@@ -11,6 +11,18 @@ Numeric post-processing preserves the source track-sheet cells. `parse_number` a
 All EnGenie chat model requests receive one shared runtime date/time/timezone, including the main/floating assistant and both workbench chats. The clock is appended only at the request boundary so stored messages and reusable prompt prefixes remain unchanged.
 
 Ordinary questions are answered in the same chat without generating a new connector or report preview. Replies remain in saved context, and users can continue editing afterward. Each turn includes the runtime clock in the application timezone; `get_current_time` can refresh it, and `inspect_task_history` explains saved failures without refetching data.
+
+## Condition-based delivery
+
+In the same EnGenie conversation, describe the data window, processing, condition, checking frequency and destination. For example: **“Every 15 minutes, check today's saved ride data. Parse wait time as minutes, filter to operating rides, and send a Teams chat message when any wait exceeds 60 minutes. Alert again only after the condition clears; allow at least an hour between alerts.”** EnGenie produces a preview with the exact condition, current match result and next check time. Confirm the preview to enable checking. The existing unconditional scheduled delivery remains available.
+
+Each check recalculates the requested date range, row filters, derived columns and aggregates from saved data. Conditions compare the final output fields, with numeric/text comparisons, explicit missing/present checks and bounded AND/OR groups. Numeric strings are accepted for numeric comparisons; missing, invalid and nonfinite readings never become zero. `row_count` means final output rows, including groups after aggregation; compare a count aggregate when the intended threshold is source-record count. An explicit `row_count == 0` rule can notify that the selected window has no data; ordinary field conditions do not match an empty dataset.
+
+The default repeat policy sends when a condition first becomes true, suppresses further matching checks, and re-arms after a successful check finds the condition false. Users may request a message on every matching check and set a cooldown in minutes. Failed checks do not clear the alert state. A workflow request with an unknown outcome is not automatically retried. Nonmatching or suppressed checks are recorded as skipped. Pausing or changing an approved configuration cancels pending sends. A manual test observes the condition and reports when nothing was sent, without changing the automatic alert state.
+
+Email uses the existing saved HTTP workflow and recipient. For Teams, configure the saved workflow to post its Adaptive Card to the desired **chat or channel**; EnGenie reuses that workflow rather than asking for a Teams chat ID. See [Microsoft's workflow webhook instructions](https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook).
+
+Trigger definitions are validated data, never executable Python or JavaScript. Their conditions run deterministically without model calls or recrawling. Trigger state is stored separately from the approved report spec; apply migration `0057_feedreportplan_trigger_state` before running the new scheduler.
 
 ## Automatic app address
 

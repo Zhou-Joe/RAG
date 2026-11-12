@@ -1,12 +1,17 @@
 /* 实际模型文本与抽取活动的 SSE 订阅；所有模型内容均以纯文本渲染。 */
 (function () {
   'use strict';
-  const labels = {pending:'排队中',running:'正在生成',completed:'已完成 · 待人工确认',failed:'抽取失败'};
+  const labels = {pending:'Queued',running:'Generating',completed:'Completed · awaiting review',failed:'Extraction failed'};
+  const activityMessage = (value, fallback='Activity update') => window.FosToolText?.message(value,fallback)
+    || (/[\u3400-\u9fff]/.test(String(value || '')) ? fallback : String(value || fallback));
   function element(tag, text, className) {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
     if (className) node.className = className;
     return node;
+  }
+  function activityElement(tag, text, className) {
+    const node = element(tag,text,className);node.setAttribute('translate','no');return node;
   }
   window.createGraphLive = function ({scope, run, onComplete, onRetry}) {
     const panel = document.getElementById('graphLive');
@@ -28,6 +33,8 @@
     const coverageLabel = document.getElementById('graphLiveCoverage');
     const coverageMeter = document.getElementById('graphLiveCoverageMeter');
     const coverageBatches = document.getElementById('graphLiveCoverageBatches');
+    [badge,waiting,errorText,coverageLabel,coverageMeter,coverageBatches].filter(Boolean)
+      .forEach(node=>node.setAttribute('translate','no'));
     let coverageFingerprint = '';
     let source, selected = null, cursor = 0, lastTurn = null, candidates = 0, events = 0, failureMessage = null, disposed = false;
     let waitTimer, waitStarted = null, waitTurn = null, terminal = false;
@@ -39,14 +46,19 @@
       if (!waiting || !Number.isFinite(started)) return;
       if (waitStarted===started && waitTurn===turn) return;
       stopWaiting();waitStarted=started;waitTurn=turn;
-      const update=()=>{waiting.textContent='第 '+turn+' 轮模型请求 · 已等待 '+Math.max(0,Math.floor((Date.now()-started)/1000))+' 秒';};
+      const update=()=>{waiting.textContent='Model request '+turn+' · waiting '+Math.max(0,Math.floor((Date.now()-started)/1000))+' s';};
       update();waitTimer=setInterval(update,1000);
     }
     function applyStatus(data) {
       terminal=['completed','failed'].includes(data.status);
       state(statusText(data),data.status==='failed');
       if (failure) failure.hidden=data.status!=='failed';
-      if (errorText) errorText.textContent=data.status==='failed' ? (data.error || '本次抽取未完成，已保存的候选保留。') : '';
+      if (errorText) errorText.textContent=data.status==='failed' ? activityMessage(data.error,'Extraction failed; saved candidates are retained. See the activity log for details.') : '';
+      if (data.status==='failed' && data.error && data.error!==failureMessage) {
+        const item=activityElement('li',activityMessage(data.error,'Extraction failed'),'graph-stale');
+        const details=element('details');details.appendChild(element('summary','Diagnostic details'));
+        details.appendChild(element('pre',data.error));item.appendChild(details);activity.appendChild(item);failureMessage=data.error;
+      }
       if (terminal) stopWaiting();
       else if (data.coverage?.request_in_flight) startWaiting(data.coverage.request_started_at,data.coverage.model_calls);
       else if (data.coverage?.request_in_flight===false) stopWaiting();
@@ -65,52 +77,53 @@
     function showCoverage(data) {
       if (!coverageLabel) return;
       if (data?.mode === 'focused') {
-        coverageLabel.textContent = '已读取 ' + data.chunks_read + ' 段 · 模型调用 ' + data.model_calls + '/' + data.limits.model_calls + ' 次 · 补查 ' + data.tool_calls + '/' + data.limits.tool_calls + ' 次';
+        coverageLabel.textContent = 'Read ' + data.chunks_read + ' passages · model calls ' + data.model_calls + '/' + data.limits.model_calls + ' · follow-up reads ' + data.tool_calls + '/' + data.limits.tool_calls;
         coverageMeter.max = data.limits.model_calls; coverageMeter.value = data.model_calls;
-        coverageMeter.setAttribute('aria-label','本次已用模型调用次数');
-        coverageBatches.replaceChildren(element('li','按关注主题召回，再按需补读邻文；本次读取范围不代表全文覆盖。'));
+        coverageMeter.setAttribute('aria-label','Model calls used');
+        coverageBatches.replaceChildren(activityElement('li','Relevant passages and neighboring context are read on demand; this does not establish full-document coverage.'));
         const usage = data.usage_calls
-          ? '服务端已回报 ' + data.usage_calls + '/' + data.model_calls + ' 轮用量：输入 ' + data.input_tokens + '、输出 ' + data.output_tokens + ' token。'
-          : '服务端未回报 token 用量；已记录实际调用次数和累计输入、输出字符数。';
-        coverageBatches.appendChild(element('li',usage),element('li','累计输入 ' + data.input_chars + ' 字符 · 输出 ' + data.output_chars + ' 字符。'));
+          ? 'Usage reported for ' + data.usage_calls + '/' + data.model_calls + ' calls: input ' + data.input_tokens + ', output ' + data.output_tokens + ' tokens.'
+          : 'Token usage was not reported; actual calls and cumulative input/output characters are recorded.';
+        coverageBatches.appendChild(activityElement('li',usage));
+        coverageBatches.appendChild(activityElement('li','Total input ' + data.input_chars + ' characters · output ' + data.output_chars + ' characters.'));
         return;
       }
       if (!data || data.mode !== 'systematic') {
-        coverageLabel.textContent = '此任务未记录读取范围。';
+        coverageLabel.textContent = 'No reading coverage was recorded for this task.';
         return;
       }
       const fingerprint = JSON.stringify(data);
       if (fingerprint === coverageFingerprint) return;
       coverageFingerprint = fingerprint;
-      coverageLabel.textContent = '已检查 ' + data.chunks_done + '/' + data.chunks_total + ' 段 · 完成 ' + data.batches_done + '/' + data.batches_total + ' 批';
+      coverageLabel.textContent = 'Checked ' + data.chunks_done + '/' + data.chunks_total + ' passages · completed ' + data.batches_done + '/' + data.batches_total + ' batches';
       coverageMeter.max = data.chunks_total || 1; coverageMeter.value = data.chunks_done;
-      coverageMeter.setAttribute('aria-label','已检查正文片段');
+      coverageMeter.setAttribute('aria-label','Checked source passages');
       coverageBatches.replaceChildren();
       (data.batches || []).forEach(batch => {
-        const names = {pending:'等待检查',running:'正在抽取 / 查漏',complete:'已抽取并查漏',failed:'未完成'};
-        const item = element('li','第 ' + batch.index + ' 批 · ' + names[batch.status] + ' · ' + batch.sections.join('、') + (batch.error ? ' · ' + batch.error : ''));
+        const names = {pending:'Awaiting review',running:'Extracting / checking gaps',complete:'Extracted and checked',failed:'Incomplete'};
+        const item = activityElement('li','Batch ' + batch.index + ' · ' + (names[batch.status] || batch.status) + ' · ' + batch.sections.join(' / ') + (batch.error ? ' · ' + activityMessage(batch.error,'Batch failed') : ''));
         if (batch.status === 'failed') item.classList.add('graph-stale');
         coverageBatches.appendChild(item);
       });
     }
     function statusText(data) {
       if (data.coverage?.mode === 'focused') {
-        if (data.status === 'failed') return (data.coverage.stage === 'limited' ? '达到本次预算' : '抽取未完成') + ' · 已保存 ' + data.created + ' 条候选';
-        if (data.status === 'completed') return '主题抽取已结束 · 待人工确认';
+        if (data.status === 'failed') return (data.coverage.stage === 'limited' ? 'Budget reached' : 'Extraction incomplete') + ' · ' + data.created + ' candidates saved';
+        if (data.status === 'completed') return 'Topic extraction completed · awaiting review';
       }
       if (data.coverage?.mode === 'systematic') {
-        if (data.status === 'failed') return '未全部完成 · 已保存 ' + data.created + ' 条候选';
-        if (data.status === 'completed') return '全篇扫描与查漏完成 · 待人工确认';
+        if (data.status === 'failed') return 'Partially completed · ' + data.created + ' candidates saved';
+        if (data.status === 'completed') return 'Document scan and gap check completed · awaiting review';
       }
       return labels[data.status] || data.status;
     }
-    function chunkLinks(parent, chunks) {
+    function chunkLinks(parent, chunks, activityMode=false) {
       (chunks || []).forEach(chunk => {
         const details = element(chunk.text ? 'details' : 'div');
-        if (chunk.text) details.appendChild(element('summary',chunk.page || '正文片段'));
+        if (chunk.text) details.appendChild(element('summary',chunk.page || (activityMode ? 'Source passage' : '正文片段')));
         if (chunk.text) details.appendChild(element('p',chunk.text,'graph-live-excerpt'));
         if (chunk.chunk_id) {
-          const button = element('button',(chunk.page || '正文片段') + ' · 查看原文圈注','btn sm outline');
+          const button = element('button',(chunk.page || (activityMode ? 'Source passage' : '正文片段')) + (activityMode ? ' · View source annotation' : ' · 查看原文圈注'),'btn sm outline');
           button.type = 'button'; button.dataset.graphChunk = chunk.chunk_id;
           details.appendChild(button);
         }
@@ -123,8 +136,8 @@
       const data = event.payload;
       if (event.kind === 'coverage') { showCoverage(data); return; }
       if (event.kind === 'model_request') startWaiting(event.at,data.turn);
-      if (event.kind === 'model_timing') stopWaiting(data.message);
-      if (event.kind === 'tool_start') stopWaiting('正在按需读取原文…');
+      if (event.kind === 'model_timing') stopWaiting(activityMessage(data.message,'Model request completed'));
+      if (event.kind === 'tool_start') stopWaiting('Reading source passages on demand…');
       if (event.kind === 'token') {
         if (lastTurn !== data.turn) {
           output.appendChild(document.createTextNode((lastTurn === null ? '' : '\n\n') + '—— 第 ' + data.turn + ' 轮模型输出 ——\n'));
@@ -143,11 +156,17 @@
         chunkLinks(card,data.chunks); previews.appendChild(card);
         return;
       }
-      const item = element('li');
-      item.appendChild(element('time',new Date(event.at).toLocaleTimeString(window.FOSI18n?.locale || 'zh-CN',{hour12:false})));
-      item.appendChild(element('span',data.message || event.kind));
+      const item = activityElement('li');
+      item.appendChild(element('time',new Date(event.at).toLocaleTimeString('en-US',{hour12:false})));
+      const fallback={phase:'Processing',model_request:'Waiting for model',model_timing:'Model request completed',tool_end:'Tool completed',complete:'Extraction completed',failed:'Extraction failed'}[event.kind] || 'Activity update';
+      const message=event.kind==='tool_start' ? (window.FosToolText?.name(data.name,data.message) || data.name || 'Using tool') : activityMessage(data.message,fallback);
+      item.appendChild(element('span',message));
+      if (data.message && message!==data.message && /[\u3400-\u9fff]/.test(data.message) && (event.kind==='failed' || data.ok===false)) {
+        const details=element('details');details.appendChild(element('summary','Diagnostic details'));
+        details.appendChild(element('pre',data.message));item.appendChild(details);
+      }
       if (event.kind === 'tool_start') item.appendChild(element('pre',data.name + '(' + JSON.stringify(data.arguments) + ')'));
-      chunkLinks(item,data.chunks);
+      chunkLinks(item,data.chunks,true);
       activity.appendChild(item);
       while (activity.children.length > 120) activity.firstElementChild.remove();
       scroll(activity);
@@ -158,8 +177,8 @@
     function connect() {
       close();
       if (!selected || disposed) return;
-      if (!window.EventSource) { state('浏览器不支持实时连接，请查看下方任务进度。',true); return; }
-      state('正在连接…');
+      if (!window.EventSource) { state('Live connections are unavailable in this browser. Check task progress below.',true); return; }
+      state('Connecting…');
       const query = new URLSearchParams({kb:scope(),after:String(cursor)});
       const connection = new EventSource('/kb/graph/extraction/' + encodeURIComponent(selected) + '/events/?' + query);
       source = connection;
@@ -168,7 +187,8 @@
         if (!current()) return;
         const data = JSON.parse(event.data);
         applyStatus(data); showCoverage(data.coverage);
-        document.getElementById('graphLiveFocus').textContent = data.document + ' · 关注：' + (data.focus || '旧版全书抽取');
+        const focus=document.getElementById('graphLiveFocus');focus.setAttribute('translate','no');
+        focus.textContent = data.document + ' · Focus: ' + (data.focus || 'Legacy full-document extraction');
       });
       connection.addEventListener('progress', event => { if (current()) progress(JSON.parse(event.data)); });
       connection.addEventListener('done', event => {
@@ -179,18 +199,19 @@
         if (!events) note.textContent = '此任务没有保存实时输出；升级前的任务仅保留抽取结果。';
         else if (lastTurn === null) note.textContent = '模型未返回公开文本输出。请查看左侧工具活动与任务状态。';
         if (data.error && data.error !== failureMessage) {
-          const item = element('li',data.error,'graph-stale'); activity.appendChild(item);
+          const item = activityElement('li',activityMessage(data.error,'Extraction failed'),'graph-stale');
+          const details=element('details');details.appendChild(element('summary','Diagnostic details'));details.appendChild(element('pre',data.error));item.appendChild(details);activity.appendChild(item);
           failureMessage = data.error;
         }
         notifyComplete(data);
       });
       connection.addEventListener('unavailable', event => {
-        if (current()) { close(); state(JSON.parse(event.data).message,true); }
+        if (current()) { close(); state(activityMessage(JSON.parse(event.data).message,'This task is unavailable.'),true); }
       });
       connection.onerror = () => {
         if (!current()) return;
-        if (connection.readyState === EventSource.CLOSED) { close(); if (!terminal) state('无法读取此任务，请检查登录状态及权限。',true); }
-        else if (!terminal) state('日志连接中断，正在重连；后台任务独立运行。',true);
+        if (connection.readyState === EventSource.CLOSED) { close(); if (!terminal) state('Unable to read this task. Check your session and access.',true); }
+        else if (!terminal) state('Log connection interrupted; reconnecting. The background task is still running.',true);
       };
     }
     function choose(id) {
@@ -203,12 +224,12 @@
       select.value = id;
       cursor = candidates = events = 0; lastTurn = null; failureMessage = null;
       coverageFingerprint = '';
-      if (coverageLabel) { coverageLabel.textContent = '正在加载本次读取范围…'; coverageMeter.value = 0; coverageBatches.replaceChildren(); }
+      if (coverageLabel) { coverageLabel.textContent = 'Loading reading coverage…'; coverageMeter.value = 0; coverageBatches.replaceChildren(); }
       output.replaceChildren(); activity.replaceChildren(); previews.replaceChildren(); count.textContent = '0';
       steps.forEach(step => step.classList.remove('done','active'));
       note.textContent = id ? '正在等待模型输出…' : '生成任务后，可在这里查看模型输出和读取、校验活动。';
       reconnect.disabled = !id;
-      if (id) connect(); else state('暂无抽取任务');
+      if (id) connect(); else state('No extraction task');
     }
     function updateJobs(jobs) {
       const previous = selected;

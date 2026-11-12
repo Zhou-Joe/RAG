@@ -72,6 +72,11 @@ test_browser_connector实际取数后会直接进入用户审核；默认缺失�
 API脚本使用标准库，网页脚本使用已安装的Playwright和Chromium或Edge。系统将验证后的步骤生成可独立运行的Python脚本与依赖说明；不输出任意Python或JavaScript代码。
 """
 
+INSTRUCTION += """
+条件触发发送：用户说“当/如果/超过/低于/满足…才发邮件或Teams消息”时，创建带trigger的报告，使用preview_triggered_report；普通定时报告不加trigger。条件检查频率独立于采集频率，schedule.mode=cron的cron/timezone表示检查频率，不承诺每次检查都会发送。日期窗口、筛选、派生计算和汇总每次检查重新读取已保存数据并计算；先确定range、columns/filters/group_by/aggregates，再对最终输出列写trigger条件。复杂数据处理复用computed，不执行用户或模型生成的代码。trigger.condition为{field:最终输出列名,op:gt/gte/lt/lte/eq/ne/contains,value:比较值}，或{metric:row_count,op:gte,value:1}，可用{all:[条件]}或{any:[条件]}嵌套。大小比较必须使用数值；缺失检查用{field:列名,op:is_missing/is_present}，不要用未知值冒充0。row_count指最终输出行数，汇总后的总量应引用汇总输出列，而非把分组数当记录数。
+trigger.match=any/all决定任一/所有输出行满足；notify默认on_enter（首次满足后发送，解除后可再次触发），用户明确要求持续提醒时用every_match；cooldown_minutes为0至525600分钟。只询问缺失的业务条件、日期范围、检查频率及投递方式；若未指定重复策略，明确说明默认仅首次满足发送，不强迫用户配置。预览要说明当前是否满足、检查频率与重复策略，不能把预览或一次发送测试当作启用；仍由用户点击确认启用。测试发送也遵守条件，不满足时显示未发送。空数据默认不会满足字段条件；只有明确的row_count=0规则可告警无数据。使用已保存的email或teams工作流；Teams聊天或频道的实际收件目标在M365工作流中选择，本应用不要求聊天ID、频道名或另一套Graph权限，也不宣称任意聊天地址可直接发送。用户要去掉条件时生成不含trigger的新报告预览，不能静默清除旧触发条件。
+"""
+
 RESPONSE_STYLE_INSTRUCTION = """
 答复风格：先用第一句直接回答当前问题或说明任务结果，再给用户需要的下一步。普通问答默认一两句话；有多个关键点时用短列表。界面已展示工具活动和预览卡片，最终答复不复述操作流水、全部样例数据或已经确认的要求。缺少信息时只问实际缺失项。用户明确要求完整报告、详细说明或步骤时提供完整内容；安全条件、失败原因与必要的核对信息不能省略。此规则只约束给用户看的自然语言，不删减工具参数或连接器配置。
 """
@@ -638,7 +643,7 @@ def run(job_id) -> ConnectorDraft:
         if delivery.get('untyped_workflow_saved') and not delivery.get('workflow_saved'):
             return {**result,'instruction':'用户链接已安全保存。先调用configure_report_delivery选择对应类型，不要重复询问链接。'}
         missing=delivery['missing']
-        if 'kind' in missing:fields.append({'key':'delivery_kind','label':'通过邮件还是Teams频道发送？','type':'select','options':['邮件','Teams频道'],'required':True})
+        if 'kind' in missing:fields.append({'key':'delivery_kind','label':'通过邮件还是 Teams 聊天或频道发送？','type':'select','options':['邮件','Teams 聊天或频道'],'required':True})
         if 'workflow_url' in missing:
             result.update(setup_required=True,setup_hint=delivery['workflow_setup_hint'],settings_url=delivery['settings_url'])
             preview_ready=(spec,result);return result
@@ -647,7 +652,14 @@ def run(job_id) -> ConnectorDraft:
         if fields:result['question_fields']=fields
         preview_ready=(spec,result);return result
 
-    tools = {fn.name:fn for fn in (ask_user_questions,configure_report_delivery,get_current_time,inspect_task_history,get_report_site_address,inspect_report_data,preview_report_calculation,preview_scheduled_report,search_api_docs,read_api_documentation,probe_api,inspect_api_sample,set_source_access,inspect_connector_environment,test_mapping,show_data_preview,preview_calculation,
+    @tool
+    def preview_triggered_report(report: dict) -> dict:
+        """预览条件触发报告，不发送或启用。report包含columns:[{label,field或computed}]、range:{mode:all/latest/today/yesterday/days/dates/last_week/last_month,field,days/start/end}、filters:[{field,op:eq/contains/gte/lte,value}]、可选group_by和aggregates:[{field,op:count/sum/avg/min/max,label}]、schedule:{mode:cron/manual,cron:独立检查频率,timezone}。必需trigger:{condition:{field:最终输出列名,op:eq/ne/gt/gte/lt/lte/contains,value}或{metric:row_count,op,value}或{all:[条件]}/{any:[条件]},match:any/all,notify:on_enter/every_match,cooldown_minutes:0..525600}。is_missing/is_present无需value。条件应用于日期范围和处理后的输出，缺失不当0；row_count是输出行数。返回真实数据预览、trigger_evaluation和next_check_at。默认首次满足通知，解除后重新触发；用户明确要求才持续提醒。"""
+        if not isinstance(report, dict) or 'trigger' not in report:
+            raise ValueError('条件触发报告需要明确的触发条件。')
+        return preview_scheduled_report.invoke({'report': report})
+
+    tools = {fn.name:fn for fn in (ask_user_questions,configure_report_delivery,get_current_time,inspect_task_history,get_report_site_address,inspect_report_data,preview_report_calculation,preview_scheduled_report,preview_triggered_report,search_api_docs,read_api_documentation,probe_api,inspect_api_sample,set_source_access,inspect_connector_environment,test_mapping,show_data_preview,preview_calculation,
         browser_open,browser_snapshot,browser_action,browser_network,browser_read_response,browser_extract,test_browser_connector)}
     try:
         checkpoint()

@@ -43,7 +43,7 @@
   <thead>
     <tr>
       <th class="c-doc">文档</th>
-      {% for f in tracker.fields %}<th class="c-field">{{ f.label }}</th>{% endfor %}
+      {% for label in displayed_fields %}<th class="c-field" translate="no">{{ label }}</th>{% endfor %}
       <th class="c-status">状态</th>
       <th class="c-time">时间</th>
     {% if can_manage %}<th class="c-acts">操作</th>{% endif %}

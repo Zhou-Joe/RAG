@@ -18,6 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .models import Conversation, Document, KnowledgeBase, Message
+from .active_fields import field_options, validate_selection, visible_fields
 
 
 # ------------------------------------------------------------------
@@ -283,7 +284,7 @@ def manage_list(request):
     _visible = kb_access.visible_kbs(request.user)
     _visible_pks = [kb.pk for kb in _visible]
     _writable = {kb.pk for kb in _visible if kb.can_manage}
-    from .models import KnowledgeBasePin
+    from .models import KnowledgeBasePin, KnowledgeFeed
     _pinned_rank = {kb_id: rank for rank, kb_id in enumerate(
         KnowledgeBasePin.objects.filter(user=request.user, kb_id__in=_visible_pks)
         .order_by('-created_at', '-pk').values_list('kb_id', flat=True))}
@@ -292,10 +293,12 @@ def manage_list(request):
                       KnowledgeBase.objects.filter(pk__in=_visible_pks, category='business')
                       .annotate(business_row_count=Count(
                           'tracker__rows', filter=Q(tracker__rows__status='done')))}
+    _auto_kbs = set(KnowledgeFeed.objects.filter(kb_id__in=_visible_pks).values_list('kb_id', flat=True))
     pinned_kbs, kbs, business_kbs, read_kbs = [], [], [], []
     for kb in _visible:
         kb.can_manage = kb.pk in _writable
         kb.business_row_count = _business_rows.get(kb.pk, 0)
+        kb.auto_collected = kb.pk in _auto_kbs
         kb.is_pinned = kb.pk in _pinned_rank
         if kb.is_pinned:
             pinned_kbs.append(kb)
@@ -384,7 +387,9 @@ def manage_detail(request, slug):
             "kb": kb,
             "feeds": kb.feeds.order_by("created_at"),
             "total_rows": TrackerRow.objects.filter(feed__kb=kb, status=TrackerRow.Status.DONE).count(),
-            "tracker_fields": [field["label"] for field in (tracker.fields if tracker else [])],
+            "tracker_fields": visible_fields(kb, tracker),
+            "active_field_options": field_options(kb, tracker),
+            "active_fields_all": kb.active_fields is None,
             "tracker_enabled": bool(tracker and tracker.enabled),
             "can_manage": can_manage,
             "is_global_admin": kb_access.is_global_admin(request.user),
@@ -410,7 +415,9 @@ def manage_detail(request, slug):
         "chunks_total": chunks_total,
         "show_tracker_data": show_tracker_data,
         "is_document_feed": document_feed,
-        "tracker_fields": [field["label"] for field in tracker.fields] if show_tracker_data else [],
+        "tracker_fields": visible_fields(kb, tracker) if show_tracker_data else [],
+        "active_field_options": field_options(kb, tracker),
+        "active_fields_all": kb.active_fields is None,
         "tracker_rows_count": tracker_rows_count,
         "doc_list_count": docs.count() if show_tracker_data else None,
         "is_global_admin": kb_access.is_global_admin(request.user),
@@ -478,6 +485,19 @@ def kb_rename(request, slug):
         return JsonResponse({"ok": False, "message": "名称不能为空"}, status=400)
     if len(name)>100:
         return JsonResponse({"ok": False, "message": "请填写不超过100字符的知识库名称。"}, status=400)
+    selected_fields = kb.active_fields
+    active_fields_supplied = "active_fields" in request.POST or "active_fields_mode" in request.POST
+    if active_fields_supplied:
+        from .models import KbTracker
+        try:
+            raw = request.POST.get("active_fields", "null")
+            mode = request.POST.get("active_fields_mode")
+            if kb.category != "business" or len(raw) > 30000 or mode not in (None, 'all', 'selected'):
+                raise ValueError('展示字段配置无效。')
+            value = (None if mode == 'all' else request.POST.getlist('active_field')) if mode else json.loads(raw)
+            selected_fields = validate_selection(value, KbTracker.objects.filter(kb=kb).first())
+        except (TypeError, ValueError) as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=400)
     if 'access_level' in request.POST:
         try:
             level=request.POST['access_level']
@@ -487,6 +507,9 @@ def kb_rename(request, slug):
         except ValueError as exc:return JsonResponse({'ok':False,'message':str(exc)},status=400)
     kb.name = name
     update_fields = ["name", "updated_at"]
+    if active_fields_supplied:
+        kb.active_fields = selected_fields
+        update_fields.append("active_fields")
     if "description" in request.POST:
         kb.description = (request.POST.get("description") or "").strip()
         update_fields.append("description")
@@ -510,7 +533,8 @@ def kb_rename(request, slug):
     if is_ajax:
         kb.refresh_from_db()
         return JsonResponse({"ok": True, "name": kb.name, "department": kb.department,
-                             "description": kb.description,"access_level":kb.access_level,"access_label":kb.access_label})
+                             "description": kb.description,"access_level":kb.access_level,"access_label":kb.access_label,
+                             "active_fields": kb.active_fields})
     messages.success(request, f"已更新「{kb.name}」。")
     return redirect("kb:manage_list")
 
@@ -714,6 +738,7 @@ def tracker_view(request, slug):
         if tr is None:
             raise Http404("追踪表不存在")
     docs_qs = Document.objects.filter(kb_id__in=_scope_kb_ids(kb,request.user))
+    displayed_fields = visible_fields(kb, tr)
     _json_dumps = lambda obj: json.dumps(obj, ensure_ascii=False)  # noqa: E731
 
     # 回收卡死的行：daemon 线程随进程退出被杀，行会永久停在 running。
@@ -954,7 +979,7 @@ def tracker_view(request, slug):
         ws = wb.active
         ws.title = "追踪表"
         # 表头同样过 _safe_cell：字段名可以以 = + - @ 开头（sanitize 只剥尖括号）
-        headers = (["文档名"] + [_safe_cell(f["label"]) for f in tr.fields]
+        headers = (["文档名"] + [_safe_cell(label) for label in displayed_fields]
                    + ["状态", "字段已变更", "记录时间", "错误"])
         ws.append(headers)
         head_fill = PatternFill("solid", fgColor="1F2937")
@@ -969,7 +994,7 @@ def tracker_view(request, slug):
 
         for r in tr.rows.select_related("document").order_by("-created_at","-pk"):
             ws.append([_safe_cell(r.record_name)]
-                      + [_safe_cell(r.values.get(f["label"], "")) for f in tr.fields]
+                      + [_safe_cell(r.values.get(label, "")) for label in displayed_fields]
                       + [smap.get(r.status, r.status),
                          "是" if r.schema_version < tr.schema_version else "",
                          r.updated_at.strftime("%Y-%m-%d %H:%M"),
@@ -996,7 +1021,7 @@ def tracker_view(request, slug):
 
     done_doc_ids = list(tr.rows.filter(status=TrackerRow.Status.DONE)
                         .values_list("document_id", flat=True))
-    field_labels = [f["label"] for f in tr.fields]
+    field_labels = displayed_fields
     # 追跟表可能上千行（每行还要渲染字段 chip、明细行与确认弹窗 JSON），
     # 整表输出是几 MB 的 HTML，浏览器解析/展开/轮询刷新都卡 → 服务端分页。
     # Excel 导出不受影响（上面那个分支本来就是全量）。
@@ -1038,6 +1063,7 @@ def tracker_view(request, slug):
     return render(request, "kb/tracker.html", {
         "kb": kb,
         "tracker": tr,
+        "displayed_fields": displayed_fields,
         "rows": rows,
         "can_manage": can_manage,
         # 趋势分析不跑模型（只是表内已完成采集行的 DB 聚合），能看追跟表就能用；

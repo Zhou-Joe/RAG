@@ -24,6 +24,7 @@ function setup(){
  const make=()=>({dataset:{},children:[],events:{},value:'',append(...nodes){this.children.push(...nodes);},addEventListener(type,fn){this.events[type]=fn;},focus(){},querySelectorAll(){return [];}});
  const frequency=make(),legacy=make();frequency.querySelector=()=>legacy;
  const form=make();form.elements={frequency};for(const name of ['time','weekday','interval','minute','cron','timezone'])form.elements[name]=make();form.reset=()=>{};
+ const labels={};form.querySelector=selector=>labels[selector]||(labels[selector]=make());
  const dialog=make();dialog.showModal=()=>dialog.open=true;dialog.close=()=>{dialog.open=false;dialog.events.close?.();};
  const error=make(),save=make(),title=make(),list=make(),message=make();let refreshes=0;
  const feed={id:'feed',can_edit:true,timezone:zone,report:{has_report:true,can_edit:true,enabled:true,configured:true,kind:'teams',title:'Report',control_url:'/feeds/feed/report/schedule/',schedule:{mode:'cron',cron:'0 9 * * *',timezone:zone}}};
@@ -33,7 +34,7 @@ function setup(){
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../../static/js/feed_report_controls.js'),'utf8'),scope);
  scope.FeedReportControls.init({list,message,getFeed:id=>id==='feed'?feed:null,csrf:()=> 'csrf',refresh:async()=>refreshes++});
  const click=action=>list.events.click({target:{closest:()=>({dataset:{reportAction:action,feedId:'feed'},disabled:false})}});
- return {feed,form,dialog,error,calls,click,render:()=>scope.FeedReportControls.render(feed),refreshes:()=>refreshes};
+ return {feed,form,dialog,error,calls,click,labels,render:()=>scope.FeedReportControls.render(feed),refreshes:()=>refreshes};
 }
 function buttons(node){return [node,...node.children.flatMap(buttons)].filter(node=>node.dataset.reportAction);}
 
@@ -58,4 +59,15 @@ test('saved workflow links without a confirmed report show setup guidance rather
  const h=setup();h.feed.report.has_report=false;h.feed.report.saved_workflow_types=['teams'];h.feed.ai_edit_url='/kb/feeds/builder/?feed=feed';
  const section=h.render();assert.ok(section);assert.equal(buttons(section).length,0);
  assert.ok(section.children.some(node=>node.href===h.feed.ai_edit_url));
+});
+
+test('conditional report frequency editor describes checks and preserves conditions on save',async()=>{
+ const h=setup();h.feed.report.trigger={condition:{metric:'row_count',op:'gte',value:1}};
+ assert.equal(buttons(h.render()).find(node=>node.dataset.reportAction==='edit').textContent,'调整检查频率');
+ await h.click('edit');assert.equal(h.labels.h2.textContent,'调整条件检查频率');
+ assert.equal(h.labels['label[for="feedReportTime"]'].textContent,'检查时间');
+ h.form.elements.frequency.value='hourly';h.form.elements.interval.value='1';h.form.elements.minute.value='15';
+ await h.form.events.submit({preventDefault(){}});
+ assert.deepEqual(JSON.parse(h.calls[0].options.body),{action:'update_schedule',schedule:{mode:'cron',cron:'15 * * * *',timezone:zone}});
+ assert.equal(h.feed.report.trigger.condition.value,1);
 });

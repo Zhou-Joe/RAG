@@ -33,6 +33,8 @@ class KnowledgeBase(models.Model):
     is_folder = models.BooleanField("是否文件夹", default=False)
     category = models.CharField('资料分类', max_length=16,
         choices=[('manual','手册库'),('business','业务数据')], default='manual')
+    # None follows the complete schema; an explicit list is presentation-only.
+    active_fields = models.JSONField("展示字段", null=True, blank=True, default=None)
     # 部门可见性：「通用」= 所有部门可见；其它值 = 仅该部门可见。
     # 文件夹与其子库保持同值（改文件夹部门时级联更新子库，见 kb/access.py）。
     department = models.CharField(
@@ -937,6 +939,7 @@ class FeedReportPlan(models.Model):
     feed = models.OneToOneField(KnowledgeFeed, on_delete=models.CASCADE, related_name='report_plan')
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     spec = models.JSONField(default=dict, blank=True)
+    trigger_state = models.JSONField(default=dict, blank=True)
     destination = models.TextField(blank=True)
     schedule_mode = models.CharField(max_length=20, default='manual', choices=[('cron','独立定时'),('manual','按需发送'),('after_collection','采集后发送（兼容）')])
     cron = models.CharField(max_length=100, blank=True)

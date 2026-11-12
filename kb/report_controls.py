@@ -14,7 +14,7 @@ def selection(plan):
     if isinstance(saved,dict) and saved.get('kind') in ('email','teams'):return saved
     # Legacy approvals did not persist their channel in the plan. Recover only
     # from an exactly matching approved definition, never from a report title.
-    keys=('kind','title','columns','range','filters','group_by','aggregates','schedule')
+    keys=('kind','title','columns','range','filters','group_by','aggregates','schedule','trigger')
     for job in ConnectorDraft.objects.filter(feed=plan.feed,user_id=plan.created_by_id,status='enabled',spec__kind='report').order_by('-created_at')[:20]:
         if all(job.spec.get(key)==plan.spec.get(key) for key in keys):
             chosen=reports.delivery_selection(job)
@@ -59,6 +59,7 @@ def change(user,feed,data):
         schedule=reports.report_schedule(data.get('schedule') if action=='update_schedule' else
             {'mode':plan.schedule_mode,'cron':plan.cron,'timezone':plan.timezone},feed)
         if schedule['mode']=='after_collection' and plan.schedule_mode!='after_collection':raise ValueError('请选择独立的报告发送频率。')
+        if plan.spec.get('trigger') and schedule['mode']=='after_collection':raise ValueError('条件触发报告需使用独立的检查频率或按需检查。')
         if action=='resume' and schedule['mode']=='manual':raise ValueError('当前仅按需发送，请先设置定时频率。')
         enabled=(True if action=='resume' else plan.enabled) and schedule['mode']!='manual'
         if enabled:require_ready(plan,chosen)

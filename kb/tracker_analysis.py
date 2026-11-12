@@ -17,6 +17,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from .models import KbTracker, TrackerRow
+from .active_fields import visible_fields
 from .tracker_query import TrackerText
 
 PERIOD_LIMIT = 120
@@ -116,8 +117,7 @@ class Period:
 
 def parameters(tracker: KbTracker) -> list[str]:
     """仅列出业务参数，系统采集日期/来源等元信息不作为分析指标。"""
-    return list(dict.fromkeys(f['label'] for f in tracker.fields
-        if isinstance(f, dict) and f.get('label') and f['label'] not in METADATA_FIELDS))
+    return [label for label in visible_fields(tracker.kb, tracker) if label not in METADATA_FIELDS]
 
 
 def completed_rows(tracker: KbTracker):

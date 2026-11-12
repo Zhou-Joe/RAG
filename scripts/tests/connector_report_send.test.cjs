@@ -50,3 +50,10 @@ test('an expired HTML session response reports a useful error and permits retry'
  const h=setup(undefined,async()=>({ok:false,headers:{get:()=> 'text/html'}}));await h.click();
  assert.equal(h.button.disabled,false);assert.match(h.hint.textContent,/刷新页面/);
 });
+
+test('an unmet trigger is shown as not sent and can be checked again with a new key',async()=>{
+ let counter=0;const h=setup({randomUUID:()=> 'trigger-check-'+ ++counter},async()=>({ok:true,json:async()=>({ok:true,status:'skipped',message:'Condition not met; not sent'})}));
+ await h.click();assert.equal(h.button.disabled,false);assert.equal(h.button.textContent,'重新检查触发条件');
+ assert.equal(h.hint.textContent,'Condition not met; not sent');await h.click();
+ assert.equal(h.calls.length,2);assert.notEqual(h.calls[0].options.body,h.calls[1].options.body);
+});

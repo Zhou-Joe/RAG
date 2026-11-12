@@ -66,18 +66,18 @@
     const open = new Map();
     for (const ev of job.events || []) {
       const id=(ev.turn||0)+':'+ev.call_id;
-      if (ev.kind === 'tool_start') open.set(id, {id,name:ev.tool,note:'正在执行…',seconds:null,state:'running'});
-      else if (ev.kind === 'tool_end') { const row=open.get(id)||{id,name:ev.tool};row.note=ev.message||'';row.seconds=ev.seconds??null;row.state=ev.warning?'warning':ev.ok===false?'error':'done';open.set(id,row); }
+      if (ev.kind === 'tool_start') open.set(id, {id,name:ev.tool,note:'Running…',seconds:null,state:'running'});
+      else if (ev.kind === 'tool_end') { const row=open.get(id)||{id,name:ev.tool};row.seconds=ev.seconds??null;row.state=ev.warning?'warning':ev.ok===false?'error':'done';row.note=window.FosToolText?.message(ev.message,{warning:'Completed with a warning',error:'Failed',done:'Completed'}[row.state])||({warning:'Completed with a warning',error:'Failed',done:'Completed'})[row.state];open.set(id,row); }
     }
     const rows=[...open.values()];
-    if(job.status!=='running')for(const row of rows)if(row.state==='running'){row.state='warning';row.note='本轮已结束，工具未返回完成结果';}
+    if(job.status!=='running')for(const row of rows)if(row.state==='running'){row.state='warning';row.note='Round ended without a tool completion result';}
     if (!rows.length) return null;
-    const work = el('details', 'cx-work');work.dataset.nodeKey='tools';work.dataset.detailKey=job.id+':tools';
+    const work = el('details', 'cx-work');work.setAttribute('translate','no');work.setAttribute('lang','en');work.dataset.nodeKey='tools';work.dataset.detailKey=job.id+':tools';
     let disclosure=toolDisclosures.get(job.id);
     if(!disclosure){disclosure=new window.FosToolDisclosure();toolDisclosures.set(job.id,disclosure);}
     work.open=disclosure.update(window.FosToolDisclosure.builderPhase(job),detailStates.get(work.dataset.detailKey)??true);
     detailStates.set(work.dataset.detailKey,work.open);
-    work.append(el('summary', null, `工具活动 · ${rows.length} 次调用`));
+    work.append(el('summary', null, `Tool activity · ${rows.length} ${rows.length===1?'call':'calls'}`));
     const list = el('div', 'cx-tool-list');
     for (const row of rows) {
       const key=job.id+':'+row.id,fresh=row.state!=='running'&&!completedTools.has(key);
@@ -88,8 +88,8 @@
       if(row.state==='done')icon.innerHTML='<svg viewBox="0 0 20 20" fill="none"><path d="m4 10 4 4 8-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       else if(row.state==='error')icon.innerHTML='<svg viewBox="0 0 20 20" fill="none"><path d="M6 6l8 8m0-8-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
       else if(row.state==='warning')icon.innerHTML='<svg viewBox="0 0 20 20" fill="none"><path d="M10 5v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="10" cy="15" r="1.2" fill="currentColor"/></svg>';
-      const title=el('span','cx-tool-name',row.name);title.title=row.name;
-      line.append(icon,title,el('span','cx-tool-note',row.note||'执行完成'),el('span','cx-tool-time',row.seconds!=null?row.seconds+'s':row.state==='running'?'进行中':'已结束'));
+      const title=el('span','cx-tool-name',window.FosToolText?.name(row.name)||row.name||'Run tool');title.title=title.textContent;
+      line.append(icon,title,el('span','cx-tool-note',row.note||'Completed'),el('span','cx-tool-time',row.seconds!=null?row.seconds+'s':row.state==='running'?'Running':'Finished'));
       list.append(line);
     }
     work.append(list); return work;
@@ -98,24 +98,25 @@
   function previewCard(job) {
     const card = el('div', 'cx-preview');card.dataset.nodeKey='preview';
     if(job.spec?.kind==='report'){
-      card.classList.add('cx-report');card.append(el('h3',null,job.spec.title),el('p','cx-meta',job.status==='enabled'?(job.report_delivery&&!job.report_delivery.enabled?'报告发送已暂停，等待确认发送设置。':job.spec.schedule?.mode==='manual'?'报告设置已保存，可按需发送。':job.spec.schedule?.mode==='after_collection'||!job.spec.schedule?'报告已启用，采集成功后发送（原有设置）。':'报告已启用，按独立发送计划运行。'):`报告预览 · ${job.preview.items} 条 · ${job.preview.source_feed||''}`));
+      card.classList.add('cx-report');card.append(el('h3',null,job.spec.title),el('p','cx-meta',job.status==='enabled'?(job.report_delivery&&!job.report_delivery.enabled?'报告发送已暂停，等待确认发送设置。':job.spec.schedule?.mode==='manual'?'报告设置已保存，可按需发送。':job.spec.schedule?.mode==='after_collection'||!job.spec.schedule?'报告已启用，采集成功后发送（原有设置）。':job.spec.trigger?'条件检查已启用；满足条件时发送。':'报告已启用，按独立发送计划运行。'):`报告预览 · ${job.preview.items} 条 · ${job.preview.source_feed||''}`));
       const table=el('table'),head=el('tr');table.dataset.i18nIgnore='';card.querySelector('h3').dataset.i18nIgnore='';for(const label of job.preview.headers||[])head.append(el('th',null,label));table.append(head);
       for(const row of job.preview.preview||[]){const tr=el('tr');for(const label of job.preview.headers||[])tr.append(el('td',null,String(row[label]??'')));table.append(tr);}const scroll=el('div');scroll.style.overflowX='auto';scroll.append(table);card.append(scroll);
       const delivery=job.report_delivery||job.preview.delivery;
       if(delivery&&!delivery.configured){card.append(el('p','cx-note',delivery.missing?.includes('workflow_url')?delivery.workflow_setup_hint:'发送设置尚未齐全，请在对话中补充收件人或发送方式。'));}
       if(job.status==='enabled'&&delivery&&!delivery.enabled){card.append(el('p','cx-note','报告发送计划当前未启用，请补充发送设置并确认。'));}
-      if(job.preview.preview_as_of){const zone=job.preview.preview_timezone||job.spec.schedule?.timezone||'Asia/Shanghai';const dateText=value=>new Intl.DateTimeFormat(window.FOSI18n?.locale||'zh-CN',{timeZone:zone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));card.append(el('p','cx-meta','预览数据截至：'+dateText(job.preview.preview_as_of)+'（'+zone+'）'));if(job.preview.next_send_at)card.append(el('p','cx-meta','下次发送：'+dateText(job.preview.next_send_at)));}
+      if(job.spec.trigger&&window.ReportTriggerUI)card.append(window.ReportTriggerUI.render(job.spec.trigger,job.preview.trigger_evaluation));
+      if(job.preview.preview_as_of){const zone=job.preview.preview_timezone||job.spec.schedule?.timezone||'Asia/Shanghai';const dateText=value=>new Intl.DateTimeFormat(window.FOSI18n?.locale||'zh-CN',{timeZone:zone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));card.append(el('p','cx-meta','预览数据截至：'+dateText(job.preview.preview_as_of)+'（'+zone+'）'));if(job.preview.next_check_at)card.append(el('p','cx-meta','下次条件检查：'+dateText(job.preview.next_check_at)));else if(job.preview.next_send_at)card.append(el('p','cx-meta','下次发送：'+dateText(job.preview.next_send_at)));}
       for(const [name,audit] of Object.entries(job.preview.transformation_audit||{})){const details=el('details');details.append(el('summary',null,'后处理 · '+name+'：'+audit.converted+'条有效，'+audit.missing+'条缺失/未解析（原值保留）'));for(const sample of audit.examples||[])details.append(el('p','cx-note',JSON.stringify(sample.input)+' → '+(sample.output===null?'缺失':String(sample.output))));card.append(details);}
       if(job.preview.warning)card.append(el('p','cx-note',job.preview.warning));
       const reportSchedule=job.spec.schedule||{mode:'after_collection'};
-      card.append(el('p','cx-meta','发送计划：'+(reportSchedule.mode==='cron'?schedule(reportSchedule):reportSchedule.mode==='manual'?'仅按需发送':'每次采集成功后发送（原有设置）')));
+      card.append(el('p','cx-meta',(job.spec.trigger?'条件检查计划：':'发送计划：')+(reportSchedule.mode==='cron'?schedule(reportSchedule):reportSchedule.mode==='manual'?'仅按需发送':'每次采集成功后发送（原有设置）')));
       const scope=job.spec.range||{mode:'latest'},ranges={all:'全部已保存历史',latest:'最新一次',today:'当天',yesterday:'昨天',last_week:'上一个完整自然周',last_month:'上一个完整自然月'};
       card.append(el('p','cx-meta','数据范围：'+(ranges[scope.mode]||(scope.mode==='days'?'最近'+scope.days+'天'+(scope.include_today===false?'（不含当天）':''):scope.start+' 至 '+scope.end))+' · '+(job.spec.aggregates?.length?'汇总计算':'原始明细/所选字段')));
       const actions=el('div','cx-actions'),download=el('a','btn outline','下载 Excel 预览');download.href=job.report_download_url;download.setAttribute('download','');actions.append(download);
       if(job.status==='enabled'&&delivery&&!delivery.configured){const configure=el('button','btn primary','补充发送设置');configure.type='button';configure.dataset.cxContinue='report';actions.append(configure);}
       if(job.status==='ready'&&!job.spec.schedule){const continueReport=el('button','btn primary','补充报告发送计划');continueReport.type='button';continueReport.dataset.cxContinue='report';actions.append(continueReport);}
-      if(job.status==='ready'&&job.spec.schedule){const enable=el('button','btn primary',job.spec.schedule?.mode==='manual'?'确认报告设置':'确认并启用报告计划');enable.type='button';enable.dataset.cxEnable=job.id;actions.append(enable);}
-      const test=el('button','btn outline','发送测试报告');test.type='button';test.dataset.reportTest=job.report_test_url;test.disabled=!job.preview.valid||job.preview.items===0||!['ready','enabled','revised'].includes(job.status);actions.append(test);card.append(actions,el('p','cx-note','工作流链接在编辑配置中保存，报告内容和发送时间可在对话中调整。发送测试仅发送一次，不会启用定时报告。工作流接收请求后仍需查看邮件/Teams或工作流运行记录。'));
+      if(job.status==='ready'&&job.spec.schedule){const enable=el('button','btn primary',job.spec.schedule?.mode==='manual'?'确认报告设置':job.spec.trigger?'确认并启用条件触发':'确认并启用报告计划');enable.type='button';enable.dataset.cxEnable=job.id;actions.append(enable);}
+      const test=el('button','btn outline','发送测试报告');test.type='button';test.dataset.reportTest=job.report_test_url;test.disabled=!job.preview.valid||(!job.spec.trigger&&job.preview.items===0)||!['ready','enabled','revised'].includes(job.status);actions.append(test);card.append(actions,el('p','cx-note','工作流链接在编辑配置中保存，报告内容和发送时间可在对话中调整。发送测试仅发送一次，不会启用定时报告。工作流接收请求后仍需查看邮件/Teams或工作流运行记录。'));
       return card;
     }
     if (job.status === 'enabled' || job.first_run) {

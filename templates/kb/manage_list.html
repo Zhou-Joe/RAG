@@ -92,7 +92,7 @@
         {% if kb.category == 'business' %}
         · <span class="pl-num">{{ kb.business_row_count }}</span> <span>条记录</span>
         {% else %}
-        · <span class="pl-num">{{ counts.0 }}</span> <span>文档</span> · <span class="pl-num">{{ counts.1 }}</span> <span>向量块</span>
+        · <span class="pl-num">{{ counts.0 }}</span> <span>文档</span>
         {% endif %}
       </span>
       <a class="pl-open" href="{% url 'kb:manage_detail' kb.slug %}">打开</a>

@@ -1,0 +1,10 @@
+{
+  "messages": {
+    "选好指标和时间，即可查看结果。": "Choose a metric and time range to see your results.",
+    "统计指标": "Metric",
+    "自定义周期": "Custom interval",
+    "更多设置": "More options",
+    "其他统计方式": "Other metrics",
+    "调整后点击“应用分析”更新结果。": "Apply the analysis after changing your selections."
+  }
+}

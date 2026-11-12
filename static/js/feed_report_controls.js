@@ -61,10 +61,11 @@
   }
   const title=el('p',report.title,'feed-meta');title.translate='no';section.append(title);
   section.append(el('p',t(report.kind==='teams'?'Teams 频道':'邮件')+' · '+t(report.enabled?'报告计划已启用':report.schedule?.mode==='manual'?'仅按需发送':'报告已暂停'),'feed-report-status'));
-  section.append(el('p',scheduleText(report.schedule||{})+' · '+(report.schedule?.timezone||feed.timezone),'feed-meta'));
+  section.append(el('p',(report.trigger?t('条件检查计划')+': ':'')+scheduleText(report.schedule||{})+' · '+(report.schedule?.timezone||feed.timezone),'feed-meta'));
+  if(report.trigger&&global.ReportTriggerUI)section.append(global.ReportTriggerUI.render(report.trigger));
   if(report.enabled&&report.next_run_at){
    let next=report.next_run_at;try{next=new Date(next).toLocaleString(global.FOSI18n?.locale||'zh-CN',{timeZone:report.schedule.timezone});}catch(_error){}
-   section.append(el('p',t('下次报告发送')+': '+next,'feed-meta'));
+   section.append(el('p',t(report.trigger?'下次条件检查':'下次报告发送')+': '+next,'feed-meta'));
   }
   if(!report.configured){const note=el('p','需要补充发送设置','feed-meta');section.append(note);}
   if(feed.can_edit&&report.can_edit){
@@ -72,7 +73,7 @@
    const button=(text,action)=>{const node=el('button',text,'btn sm outline');node.type='button';node.dataset.reportAction=action;node.dataset.feedId=feed.id;node.disabled=pending.has(feed.id);return node;};
    if(report.enabled)actions.append(button('暂停报告发送','pause'));
    else if(report.schedule?.mode!=='manual')actions.append(button('启用报告发送','resume'));
-   actions.append(button('调整发送频率','edit'));section.append(actions);
+   actions.append(button(report.trigger?'调整检查频率':'调整发送频率','edit'));section.append(actions);
   }else section.append(el('p','仅创建者可编辑','feed-meta'));
   return section;
  }
@@ -88,6 +89,13 @@
   }
   function edit(feed){
    editing=feed;form.reset();error.textContent='';document.getElementById('feedReportTitle').textContent=feed.report.title;
+   const conditional=Boolean(feed.report.trigger);
+   const label=(selector,value)=>{const node=form.querySelector(selector);if(node)node.textContent=t(value);};
+   label('h2',conditional?'调整条件检查频率':'调整报告发送频率');
+   label('label[for="feedReportFrequency"]',conditional?'检查频率':'报告频率');
+   label('label[for="feedReportTime"]',conditional?'检查时间':'发送时间');
+   label('label[for="feedReportMinute"]',conditional?'检查分钟':'发送分钟');
+   save.textContent=t(conditional?'保存检查频率':'保存报告频率');
    const values=parseSchedule(feed.report.schedule||{mode:'manual',timezone:feed.timezone});
    for(const [key,value] of Object.entries(values))form.elements[key].value=value;
    form.elements.frequency.querySelector('[value=after_collection]').hidden=values.frequency!=='after_collection';
