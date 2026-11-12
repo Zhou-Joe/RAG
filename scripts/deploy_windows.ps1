@@ -45,10 +45,11 @@ function Get-VerifiedRunner($Process) {
     if ($null -eq $Process -or -not (Test-SamePath ([string]$Process.ExecutablePath) $taskPythonPath)) {
         return
     }
-    # Match an ordinary Python invocation, not a -c/-m command containing a script name.
+    # Accept the existing launcher's bytecode, buffering and UTF-8 options.
+    # Keep Python options case-sensitive: -X and -x have different meanings.
+    # A -c/-m wrapper containing a script name must not be treated as manage.py.
     $taskMatch = [regex]::Match([string]$Process.CommandLine,
-        '^(?:"[^"]+"|\S+)\s+(?:"(?<manage>[^"]+)"|(?<manage>\S+))\s+(?<mode>runserver|run_feed_scheduler|run_report_scheduler)(?:\s+(?<args>.*?))?\s*$',
-        [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        '^(?:"[^"]+"|\S+)\s+(?<python>(?:(?:-B|-u|-X\s+utf8)\s+)*)(?:"(?<manage>[^"]+)"|(?<manage>\S+))\s+(?<mode>runserver|run_feed_scheduler|run_report_scheduler)(?:\s+(?<args>.*?))?\s*$')
     if (-not $taskMatch.Success) { return }
     $taskManageArgument = $taskMatch.Groups['manage'].Value
     # Existing start_all.bat uses manage.py with this checkout's private Python.
@@ -60,6 +61,9 @@ function Get-VerifiedRunner($Process) {
     if ($taskArgumentText -match '["''\r\n]') { return }
     [string[]]$taskRunnerArguments = @()
     if ($taskArgumentText) { $taskRunnerArguments = @($taskArgumentText -split '\s+') }
+    [string[]]$taskPythonArguments = @()
+    $taskPythonArgumentText = $taskMatch.Groups['python'].Value.Trim()
+    if ($taskPythonArgumentText) { $taskPythonArguments = @($taskPythonArgumentText -split '\s+') }
 
     if ($taskMode -eq 'runserver') {
         $taskAddressSeen = $false
@@ -81,6 +85,7 @@ function Get-VerifiedRunner($Process) {
         CreationDate = $Process.CreationDate
         ExecutablePath = [string]$Process.ExecutablePath
         CommandLine = [string]$Process.CommandLine
+        PythonArguments = $taskPythonArguments
         Mode = $taskMode
         Arguments = $taskRunnerArguments
     }
@@ -131,8 +136,9 @@ function Stop-VerifiedRunner($Runner) {
     }
 }
 
-function Start-RagRunner([string]$Mode, [string[]]$RunnerArguments, [string]$LogSuffix) {
-    $taskLaunchArguments = @(('"' + $taskManagePath + '"'), $Mode) + @($RunnerArguments)
+function Start-RagRunner([string]$Mode, [string[]]$RunnerArguments, [string]$LogSuffix,
+        [string[]]$PythonArguments = @('-u', '-X', 'utf8')) {
+    $taskLaunchArguments = @($PythonArguments) + @(('"' + $taskManagePath + '"'), $Mode) + @($RunnerArguments)
     $taskOutLog = Join-Path $taskLogDirectory ("$taskRunStamp-$LogSuffix.out.log")
     $taskErrorLog = Join-Path $taskLogDirectory ("$taskRunStamp-$LogSuffix.err.log")
     return Start-Process -FilePath $taskPythonPath -ArgumentList $taskLaunchArguments `
@@ -178,7 +184,8 @@ function Restore-PreviousRunners {
                 Write-Warning 'Port 8000 is occupied; the previous web command was not restarted.'
                 continue
             }
-            $null = Start-RagRunner -Mode $taskRunner.Mode -RunnerArguments $taskRunner.Arguments -LogSuffix ('restore-' + $taskRunner.ProcessId)
+            $null = Start-RagRunner -Mode $taskRunner.Mode -RunnerArguments $taskRunner.Arguments `
+                -PythonArguments $taskRunner.PythonArguments -LogSuffix ('restore-' + $taskRunner.ProcessId)
         } catch { Write-Warning "Could not restore $($taskRunner.Mode). Inspect deployment logs and start that command manually." }
     }
 }

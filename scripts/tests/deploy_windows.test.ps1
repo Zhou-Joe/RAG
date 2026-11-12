@@ -13,7 +13,8 @@ $taskAst = [Management.Automation.Language.Parser]::ParseFile(
 if ($taskParseErrors.Count) { throw ($taskParseErrors | Out-String) }
 
 # Load only production inspection functions, never the deployment entry point.
-foreach ($taskFunctionName in @('Test-SamePath', 'Get-VerifiedRunner', 'Get-AppListeners', 'Get-DeploymentRunners')) {
+foreach ($taskFunctionName in @('Test-SamePath', 'Get-VerifiedRunner', 'Get-AppListeners', 'Get-DeploymentRunners',
+        'Start-RagRunner', 'Restore-PreviousRunners')) {
     $taskDefinition = $taskAst.Find({
         param($Node)
         $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -eq $taskFunctionName
@@ -24,10 +25,14 @@ foreach ($taskFunctionName in @('Test-SamePath', 'Get-VerifiedRunner', 'Get-AppL
 
 $taskPythonPath = 'C:\RAG test\.venv\Scripts\python.exe'
 $taskManagePath = 'C:\RAG test\manage.py'
+$taskRepoRoot = 'C:\RAG test'
+$taskLogDirectory = 'C:\RAG test\logs'
+$taskRunStamp = 'regression'
 $script:taskTestProcesses = @()
 $script:taskTestListeners = @()
 $script:taskTestCimFailure = $false
 $script:taskTestNetworkFailure = $false
+$script:taskTestLaunches = [Collections.Generic.List[object]]::new()
 $taskPassed = 0
 
 function Get-CimInstance {
@@ -44,6 +49,20 @@ function Get-NetTCPConnection {
     if ($State -ne 'Listen') { throw 'Unexpected socket inspection.' }
     if ($script:taskTestNetworkFailure) { throw 'Listener inspection denied.' }
     return $script:taskTestListeners
+}
+
+function Start-Process {
+    [CmdletBinding()]
+    param([string]$FilePath, [string[]]$ArgumentList, [string]$WorkingDirectory,
+        [string]$WindowStyle, [string]$RedirectStandardOutput, [string]$RedirectStandardError,
+        [switch]$PassThru)
+    $script:taskTestLaunches.Add([PSCustomObject]@{
+        FilePath = $FilePath
+        Arguments = $ArgumentList
+        WorkingDirectory = $WorkingDirectory
+        WindowStyle = $WindowStyle
+    })
+    return [PSCustomObject]@{ Id = 50001 }
 }
 
 function New-TestProcess([int]$ProcessId, [string]$ExecutablePath, [string]$CommandLine) {
@@ -121,5 +140,55 @@ $script:taskTestNetworkFailure = $true
 Assert-Throws { Get-DeploymentRunners } '*Listener inspection denied*'
 $script:taskTestNetworkFailure = $false
 $taskPassed++
+
+# Actual legacy invocation reported by the user: options precede manage.py.
+$taskFlaggedScheduler = New-TestProcess 13900 $taskPythonPath ('"' + $taskPythonPath + '" -B -u -X utf8 manage.py run_report_scheduler --interval 30')
+$script:taskTestProcesses = @($taskUnrelated, $taskFlaggedScheduler)
+$taskResult = @(Get-DeploymentRunners)
+if ($taskResult.Count -ne 1 -or $taskResult[0].ProcessId -ne 13900 -or
+        ($taskResult[0].PythonArguments -join '|') -cne '-B|-u|-X|utf8') {
+    throw 'Legacy scheduler options were not recognized and retained.'
+}
+$taskPassed++
+
+foreach ($taskOptions in @('-B', '-u', '-X utf8', '-u -B -X utf8')) {
+    $taskFlagged = New-TestProcess 201 $taskPythonPath ('"' + $taskPythonPath + '" ' + $taskOptions + ' "' + $taskManagePath + '" runserver 127.0.0.1:8000 --noreload')
+    if (@(Get-VerifiedRunner $taskFlagged).Count -ne 1) { throw "Unsupported valid options: $taskOptions" }
+    $taskPassed++
+}
+
+# Never mistake code/module wrappers or a different -x option for manage.py.
+foreach ($taskOptions in @('-c "import sys"', '-m django', '-x utf8', '-X presite=other')) {
+    $taskWrapped = New-TestProcess 202 $taskPythonPath ('"' + $taskPythonPath + '" ' + $taskOptions + ' manage.py run_report_scheduler --interval 30')
+    if (@(Get-VerifiedRunner $taskWrapped).Count) { throw "Unexpected wrapper recognition: $taskOptions" }
+    $taskPassed++
+}
+$taskOutside = New-TestProcess 203 $taskPythonPath ('"' + $taskPythonPath + '" -B -u -X utf8 "C:\Another project\manage.py" run_report_scheduler --interval 30')
+if (@(Get-VerifiedRunner $taskOutside).Count) { throw 'A different checkout was accepted.' }
+$taskPassed++
+
+# Launches are mocked: verify logging options, identity and hidden windows.
+$null = Start-RagRunner -Mode 'runserver' -RunnerArguments @('127.0.0.1:8000', '--noreload') -LogSuffix 'web'
+$taskLaunch = $script:taskTestLaunches[0]
+if (($taskLaunch.Arguments[0..2] -join '|') -cne '-u|-X|utf8' -or
+        $taskLaunch.FilePath -cne $taskPythonPath -or $taskLaunch.WorkingDirectory -cne $taskRepoRoot -or
+        $taskLaunch.WindowStyle -cne 'Hidden') { throw 'New runner launch options are incorrect.' }
+$taskPassed++
+
+# Rollback must preserve both flagged and unflagged original invocations.
+$script:taskTestProcesses = @($taskUnrelated)
+foreach ($taskOriginal in @($taskFlaggedScheduler, $taskScheduler)) {
+    $taskStoppedRunners = [Collections.Generic.List[object]]::new()
+    $taskOriginalRunner = Get-VerifiedRunner $taskOriginal
+    $taskStoppedRunners.Add($taskOriginalRunner)
+    $script:taskTestLaunches.Clear()
+    Restore-PreviousRunners 3>$null
+    $taskExpectedArguments = @($taskOriginalRunner.PythonArguments) + @(('"' + $taskManagePath + '"'), $taskOriginalRunner.Mode) + @($taskOriginalRunner.Arguments)
+    if ($script:taskTestLaunches.Count -ne 1 -or
+            ($script:taskTestLaunches[0].Arguments -join '|') -cne ($taskExpectedArguments -join '|')) {
+        throw 'Original Python options were changed during rollback.'
+    }
+    $taskPassed++
+}
 
 Write-Host "$taskPassed deployment regression checks passed on PowerShell $($PSVersionTable.PSVersion)."
