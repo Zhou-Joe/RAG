@@ -43,21 +43,21 @@ function Test-SamePath([string]$Left, [string]$Right) {
 
 function Get-VerifiedRunner($Process) {
     if ($null -eq $Process -or -not (Test-SamePath ([string]$Process.ExecutablePath) $taskPythonPath)) {
-        return $null
+        return
     }
     # Match an ordinary Python invocation, not a -c/-m command containing a script name.
     $taskMatch = [regex]::Match([string]$Process.CommandLine,
         '^(?:"[^"]+"|\S+)\s+(?:"(?<manage>[^"]+)"|(?<manage>\S+))\s+(?<mode>runserver|run_feed_scheduler|run_report_scheduler)(?:\s+(?<args>.*?))?\s*$',
         [Text.RegularExpressions.RegexOptions]::IgnoreCase)
-    if (-not $taskMatch.Success) { return $null }
+    if (-not $taskMatch.Success) { return }
     $taskManageArgument = $taskMatch.Groups['manage'].Value
     # Existing start_all.bat uses manage.py with this checkout's private Python.
     # Other relative script paths and scripts outside this checkout are rejected.
     if ($taskManageArgument -notin @('manage.py', '.\manage.py') -and
-        -not (Test-SamePath $taskManageArgument $taskManagePath)) { return $null }
+        -not (Test-SamePath $taskManageArgument $taskManagePath)) { return }
     $taskMode = $taskMatch.Groups['mode'].Value.ToLowerInvariant()
     $taskArgumentText = $taskMatch.Groups['args'].Value.Trim()
-    if ($taskArgumentText -match '["''\r\n]') { return $null }
+    if ($taskArgumentText -match '["''\r\n]') { return }
     [string[]]$taskRunnerArguments = @()
     if ($taskArgumentText) { $taskRunnerArguments = @($taskArgumentText -split '\s+') }
 
@@ -69,11 +69,11 @@ function Get-VerifiedRunner($Process) {
                 $taskAddressSeen = $true
                 continue
             }
-            return $null
+            return
         }
         # No explicit address means Django's default localhost:8000.
     } elseif ($taskArgumentText -and $taskArgumentText -notmatch '^--interval(?:=|\s+)(?:[5-9]|[1-5][0-9]|60)$') {
-        return $null
+        return
     }
 
     return [PSCustomObject]@{
@@ -90,6 +90,30 @@ function Get-AppListeners {
     # Enumerate successfully before filtering; an inspection failure must not look like a free port.
     return @(Get-NetTCPConnection -State Listen -ErrorAction Stop |
         Where-Object { $_.LocalPort -eq 8000 })
+}
+
+function Get-DeploymentRunners {
+    # Rejected processes must emit no pipeline item. An explicit $null would be
+    # retained in @(...), then property access would fail under strict mode.
+    $taskProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $taskRunners = @($taskProcesses | ForEach-Object {
+        $taskCandidate = Get-VerifiedRunner $_
+        if ($null -ne $taskCandidate) { $taskCandidate }
+    })
+    foreach ($taskListener in @(Get-AppListeners)) {
+        $taskOwner = @($taskRunners | Where-Object { $_.ProcessId -eq $taskListener.OwningProcess -and $_.Mode -eq 'runserver' })
+        if (-not $taskOwner.Count) {
+            throw "Port 8000 belongs to an unverified process (PID $($taskListener.OwningProcess)); no processes were stopped."
+        }
+    }
+    foreach ($taskProcess in $taskProcesses) {
+        if ((Test-SamePath ([string]$taskProcess.ExecutablePath) $taskPythonPath) -and
+            [string]$taskProcess.CommandLine -match '\b(?:run_feed_scheduler|run_report_scheduler)\b' -and
+            -not (@($taskRunners | Where-Object { $_.ProcessId -eq $taskProcess.ProcessId }).Count)) {
+            throw "An unrecognized scheduler uses this checkout's Python (PID $($taskProcess.ProcessId)); refusing to start a duplicate."
+        }
+    }
+    return $taskRunners
 }
 
 function Stop-VerifiedRunner($Runner) {
@@ -165,21 +189,7 @@ try {
         [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
 
     # Complete all process/port inspection before stopping anything.
-    $taskProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-    $taskRunners = @($taskProcesses | ForEach-Object { Get-VerifiedRunner $_ })
-    foreach ($taskListener in @(Get-AppListeners)) {
-        $taskOwner = @($taskRunners | Where-Object { $_.ProcessId -eq $taskListener.OwningProcess -and $_.Mode -eq 'runserver' })
-        if (-not $taskOwner.Count) {
-            throw "Port 8000 belongs to an unverified process (PID $($taskListener.OwningProcess)); no processes were stopped."
-        }
-    }
-    foreach ($taskProcess in $taskProcesses) {
-        if ((Test-SamePath ([string]$taskProcess.ExecutablePath) $taskPythonPath) -and
-            [string]$taskProcess.CommandLine -match '\b(?:run_feed_scheduler|run_report_scheduler)\b' -and
-            -not (@($taskRunners | Where-Object { $_.ProcessId -eq $taskProcess.ProcessId }).Count)) {
-            throw "An unrecognized scheduler uses this checkout's Python (PID $($taskProcess.ProcessId)); refusing to start a duplicate."
-        }
-    }
+    $taskRunners = @(Get-DeploymentRunners)
     $null = New-Item -ItemType Directory -Path $taskBackupDirectory -Force
     $null = New-Item -ItemType Directory -Path $taskLogDirectory -Force
     foreach ($taskRunner in @($taskRunners | Sort-Object { if ($_.Mode -eq 'runserver') { 1 } else { 0 } })) {
