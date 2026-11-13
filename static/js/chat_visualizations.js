@@ -1,8 +1,8 @@
 /* Safe inline EnGenie charts, using the offline HTML report renderer. */
 (function(root) {
   'use strict';
-  const TYPES = new Set(['line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut']);
-  const MAX_CHARTS = 8, MAX_SERIES = 8, MAX_POINTS = 500, mounted = new Set();
+  const TYPES = new Set(['line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut', 'metric']);
+  const MAX_CHARTS = 8, MAX_SERIES = 8, MAX_POINTS = 500, mounted = new Set(), sizes = new WeakMap();
   const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   function text(value, max = 4000) {
     if (typeof value !== 'string' || value.length > max) throw new TypeError('Invalid chart label');
@@ -17,6 +17,24 @@
   }
   function normalize(value, language) {
     if (!plain(value) || !TYPES.has(value.type)) throw new TypeError('Invalid chart type');
+    if (value.type === 'metric') {
+      const metric = {type: 'metric', title: text(value.title || '', 1200), value: number(value.value),
+        language: (language || value.language) === 'zh-hans' ? 'zh-hans' : 'en'};
+      for (const [key, limit] of [['unit', 80], ['subtitle', 500]])
+        if (value[key] !== undefined) metric[key] = text(value[key], limit);
+      if (value.quality !== undefined) {
+        const quality = value.quality;
+        if (!plain(quality) || !Number.isSafeInteger(quality.valid) || !Number.isSafeInteger(quality.records) ||
+            quality.valid < 0 || quality.records < quality.valid) throw new TypeError('Invalid metric quality');
+        metric.quality = {valid: quality.valid, records: quality.records};
+        if (quality.missing !== undefined) {
+          if (!Number.isSafeInteger(quality.missing) || quality.missing < 0 || quality.missing > quality.records)
+            throw new TypeError('Invalid metric quality');
+          metric.quality.missing = quality.missing;
+        }
+      }
+      return metric;
+    }
     if (!Array.isArray(value.labels) || !value.labels.length || value.labels.length > MAX_POINTS)
       throw new TypeError('Invalid chart points');
     const labels = value.labels.map(label => text(label));
@@ -105,18 +123,34 @@
     const document = container.ownerDocument || root.document;
     const region = document.createElement('section');
     region.className = 'chat-chart-grid'; region.setAttribute('aria-label', options.language === 'zh-hans' ? '交互图表' : 'Interactive Charts');
+    const expanded = sizes.get(container) || new Set(); sizes.set(container, expanded);
     const state = {container, region, canvases: [], charts: items, options: {...options}};
     let count = 0;
-    for (const item of items) {
+    for (const [index, item] of items.entries()) {
       let data;
       try { data = normalize(item, options.language); } catch (_error) { continue; }
-      const card = document.createElement('figure'); card.className = 'chat-chart-card notranslate'; card.setAttribute('translate', 'no');
-      if (data.title) {
-        const title = document.createElement('figcaption'); title.className = 'chat-chart-title';
-        title.textContent = data.title; card.appendChild(title);
+      const card = document.createElement('figure');
+      card.className = 'chat-chart-card notranslate' + (data.type === 'metric' ? ' chat-chart-metric' : '');
+      card.setAttribute('translate', 'no');
+      const header = document.createElement('figcaption'); header.className = 'chat-chart-header';
+      const title = document.createElement('span'); title.className = 'chat-chart-title';
+      title.textContent = data.title; header.appendChild(title);
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'chat-chart-size';
+      const key = index + ':' + data.type + ':' + data.title;
+      function setExpanded(value) {
+        if (value) { expanded.add(key); card.classList.add('is-expanded'); }
+        else { expanded.delete(key); card.classList.remove('is-expanded'); }
+        const label = data.language === 'zh-hans' ? (value ? '收起' : '展开') : (value ? 'Collapse' : 'Expand');
+        toggle.textContent = label; toggle.setAttribute('aria-label', label + (data.title ? ': ' + data.title : ''));
+        toggle.setAttribute('aria-expanded', String(value));
+        canvas._ercTooltip?.hide?.();
       }
+      toggle.addEventListener('click', event => { event.stopPropagation?.(); setExpanded(!expanded.has(key)); });
+      header.addEventListener('click', event => { if (event.target !== toggle) setExpanded(!expanded.has(key)); });
+      header.appendChild(toggle); card.appendChild(header);
       const canvas = document.createElement('div'); canvas.className = 'chat-chart-canvas';
       card.appendChild(canvas); region.appendChild(card); state.canvases.push(canvas);
+      setExpanded(expanded.has(key));
       try { root.EnGenieReportCharts.render(canvas, data); } catch (_error) {
         canvas._ercTooltip?.destroy(); card.remove(); state.canvases.pop(); continue;
       }
@@ -156,6 +190,26 @@ if not hasattr(_eg_plt, '_engenie_originals'):
 _eg_save, _eg_show, _eg_close, _eg_pie = _eg_plt._engenie_originals
 _eg_close('all')
 _eg_captured = {}
+_eg_metrics = []
+
+def engenie_metric(title, value, unit='', subtitle=''):
+    """Show a single actual scalar as an interactive EnGenie value card."""
+    if not isinstance(title, str) or not title.strip() or len(title) > 1200:
+        raise ValueError('A metric title must be nonempty text of up to 1200 characters')
+    if not isinstance(unit, str) or len(unit) > 80 or not isinstance(subtitle, str) or len(subtitle) > 500:
+        raise ValueError('Invalid metric unit or subtitle')
+    if value is not None:
+        if isinstance(value, bool):
+            raise ValueError('A metric value must be a finite number or None')
+        try:
+            value = float(value)
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError('A metric value must be a finite number or None') from None
+        if not _eg_math.isfinite(value):
+            raise ValueError('A metric value must be a finite number or None')
+    if len(_eg_metrics) >= 8:
+        raise ValueError('At most eight metric cards are supported')
+    _eg_metrics.append({'type': 'metric', 'title': title, 'value': value, 'unit': unit, 'subtitle': subtitle})
 def _eg_number(value):
     try:
         result = float(value)
@@ -375,7 +429,7 @@ _eg_Axes.pie = _eg_piechart
   const pythonCaptureRead = String.raw`
 for _eg_index in _eg_plt.get_fignums():
     _eg_capture(_eg_plt.figure(_eg_index))
-_eg_result = [chart for charts in _eg_captured.values() for chart in charts]
+_eg_result = _eg_metrics + [chart for charts in _eg_captured.values() for chart in charts]
 _eg_json.dumps(_eg_result if len(_eg_result) <= 8 else [], ensure_ascii=True, allow_nan=False)
 `;
   const api = {normalize, mount, destroy, pythonCaptureSetup, pythonCaptureRead};

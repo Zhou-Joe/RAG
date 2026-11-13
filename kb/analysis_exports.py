@@ -124,8 +124,8 @@ def interactive_chart(data, params, title):
     if data['kind'] != 'trend' and metric != 'value':
         raise ValueError('Change and change_pct charts require trend mode.')
     kind = params.get('chart_type', 'auto')
-    if kind not in ('auto', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'):
-        raise ValueError('Chart type must be auto, line, bar, pie, combo, area, scatter or doughnut.')
+    if kind not in ('auto', 'metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'):
+        raise ValueError('Chart type must be auto, metric, line, bar, pie, combo, area, scatter or doughnut.')
 
     def number(value):
         # Empty strings, booleans and warning dictionaries must not become zero.
@@ -135,6 +135,29 @@ def interactive_chart(data, params, title):
             return value if math.isfinite(value) else None
         except OverflowError:
             raise ValueError('An analysis chart value exceeds the drawable numeric range.') from None
+
+    groups = data.get('groups', [])
+    single_value = (data['kind'] == 'tracker_summary' and not params.get('group')
+                    and len(groups) == 1 and not groups[0].get('by')
+                    and set(groups[0].get('metrics', {})) == {'value'})
+    if kind == 'metric' or kind == 'auto' and single_value:
+        if not single_value:
+            raise ValueError('A value card requires one overall summary value. Remove grouping or use a chart for multiple results.')
+        operation = params.get('op', 'count')
+        names = {'count': 'Records', 'sum': 'Total', 'avg': 'Average', 'min': 'Minimum', 'max': 'Maximum'}
+        caption = names.get(operation, 'Value')
+        measure = params.get('measure', '') if operation != 'count' else ''
+        total = data.get('total_matched', 0)
+        result = {'type': 'metric', 'title': (f'{measure} · {caption}' if measure else caption)[:120],
+                  'subtitle': str(title)[:120], 'value': number(groups[0]['metrics']['value']),
+                  'language': 'en', 'meta': {'system_metric': metric, 'system_summary': True,
+                                            'system_operation': operation}}
+        valid = groups[0].get('valid_numeric_values', {}).get('value')
+        if operation == 'count':
+            valid = total
+        if type(total) is int and type(valid) is int and 0 <= valid <= total:
+            result['quality'] = {'valid': valid, 'records': total}
+        return result
 
     metric_label = {'value': 'Value', 'change': 'Change', 'change_pct': 'Change (%)'}[metric]
     chart = {'type': 'line' if data['kind'] == 'trend' else 'bar',
@@ -467,7 +490,15 @@ def validate_analysis_snapshot(snapshot, user):
             return False
         kb, data = query_analysis(user, snapshot['query']['kb_slug'], snapshot['analysis_query'])
         if 'chart' in snapshot:
-            if not isinstance(snapshot['chart'], dict) or snapshot['chart'] != interactive_chart(data, snapshot['analysis_query'], kb.name):
+            chart_params = snapshot['analysis_query']
+            # Before value cards, auto rendered an ungrouped summary as bars.
+            # Rebuild that exact old presentation so valid saved answers survive
+            # the new default without relaxing verification of their values.
+            if (isinstance(snapshot['chart'], dict) and snapshot['chart'].get('type') == 'bar'
+                    and chart_params.get('chart_type', 'auto') == 'auto'
+                    and data.get('kind') == 'tracker_summary' and not chart_params.get('group')):
+                chart_params = {**chart_params, 'chart_type': 'bar'}
+            if not isinstance(snapshot['chart'], dict) or snapshot['chart'] != interactive_chart(data, chart_params, kb.name):
                 return False
         files = snapshot.get('files', [])
         for file in files:

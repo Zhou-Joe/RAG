@@ -143,7 +143,7 @@ class ReportDigestChatTests(TestCase):
         chart_array = digest_schema()['properties']['charts']
         self.assertEqual(chart_array['maxItems'], 8)
         chart = chart_array['items']
-        self.assertEqual(chart['properties']['type']['enum'], ['line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'])
+        self.assertEqual(chart['properties']['type']['enum'], ['metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'])
         self.assertFalse(chart['additionalProperties'])
         self.assertNotIn('data', chart['properties'])
         self.assertNotIn('html', chart['properties'])

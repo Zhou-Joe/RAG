@@ -109,6 +109,7 @@ test('actual citation entry point updates charts even when source chips already 
 
 test('actual streamed citation branch mounts charts and removes them on replacement', () => {
   const h = chartFixture(), marker="} else if (etype === 'citations') {";
+  vm.runInContext(between('  function renderCitations(', '  window.renderCitations ='), h.scope);
   const branch = between(marker,"\n      } else if (etype === 'step') {").slice(marker.length);
   Object.assign(h.scope,{turnCitations:[],am:h.ai});
   vm.runInContext('function receive(payload) {'+branch+'\n}',h.scope);
@@ -117,6 +118,38 @@ test('actual streamed citation branch mounts charts and removes them on replacem
   assert.deepEqual(Array.from(h.mounts[1][1],c=>c.title),['a','b']);
   h.scope.receive({replace:true,citations:[]});
   assert.equal(h.mounts[2][1].length,0); assert.equal(h.scope.turnCitations.length,0);
+});
+
+test('actual citation entry point delegates matching numbered sources while retaining chart rendering', () => {
+  const h = chartFixture(), calls = [];
+  const api = {render(...args) { calls.push(args); return args[1].length; }};
+  h.window.EnGenieChatCitations = api; h.scope.EnGenieChatCitations = api;
+  vm.runInContext(between('  function renderCitations(', '  window.renderCitations ='), h.scope);
+  const sources = [{...citation('numbered'), kb_slug:'operations', kb_name:'Operations', citation_number:1}];
+  assert.equal(h.scope.renderCitations(h.ai, sources), 1);
+  assert.equal(calls[0][0], h.ai); assert.equal(calls[0][1], sources);
+  assert.equal(calls[0][2].language, 'en'); assert.equal(h.mounts[0][1][0].title, 'numbered');
+  h.scope.renderCitations(h.ai, []);
+  assert.equal(calls[1][1].length, 0); assert.equal(h.mounts[1][1].length, 0);
+});
+
+test('actual streamed Markdown is sanitized before compact tables and numbered references are enhanced', () => {
+  const h = chartFixture(), order = [], answer = h.ai.querySelector('.answer');
+  const citations = [{...citation('numbered'), citation_number:1}];
+  h.window.EnGenieChatTableCards = {destroy() { throw new Error('Streaming redraw must retain compact-card size preferences'); },
+    mount(node) { assert.equal(node, answer); order.push('tables'); }};
+  h.window.marked = {parse(value) { assert.equal(value, 'Supported claim [1]'); order.push('markdown'); return '<p>Supported claim [1]</p>'; }};
+  h.window.DOMPurify = {sanitize(value) { order.push('sanitize'); return value; }};
+  h.scope.DOMPurify = h.window.DOMPurify;
+  h.window.EnGenieChatCitations = {render(message, sources) {
+    assert.equal(message, h.ai); assert.equal(sources, citations); order.push('citations');
+  }};
+  Object.assign(h.scope, {answerEl:answer, am:h.ai, turnCitations:citations,
+    mdBuffer:'Supported claim [1]', messages:{scrollHeight:50}});
+  const render = vm.runInContext(between('    const renderMd = () => {', '\n    const stream = FosChatStream.create') + '\nrenderMd;', h.scope);
+  render();
+  assert.deepEqual(order, ['markdown','sanitize','tables','citations']);
+  assert.equal(h.scope.messages.scrollTop, 50);
 });
 
 test('actual history rendering restores AI citation charts and destroys old chart state before replacing messages', () => {
@@ -163,6 +196,17 @@ test('actual sandbox captures real plotting code in order, renders charts, and r
   actions.querySelector('button').events.click(); assert.equal(h.pdf.length,1);assert.equal(h.pdf[0][1][0].fn,'chart.png');
   assert.equal(h.posts[0].url,'/kb/analysis/report/');
   assert.deepEqual(JSON.parse(h.posts[0].body),{aid:'answer-1',ok:true,error:'',stdout:'Rows: 2'});
+});
+
+test('actual sandbox sends fallback image figures through compact-card controls after preserving the image', async () => {
+  const h = sandboxFixture({readError:true, stdout:''}), calls = [];
+  h.scope.window.EnGenieChatTableCards = {mountImages(body, options) {
+    assert.equal(body.querySelector('img').alt, 'chart.png');
+    calls.push([body, options]); return 1;
+  }};
+  await h.scope.runCodeInSandbox(h.code, h.filename, h.container, 'answer-images');
+  assert.equal(calls.length, 1); assert.equal(calls[0][1].language, 'en');
+  assert.equal(JSON.parse(h.posts[0].body).ok, true);
 });
 
 for (const mode of ['readError','malformed']) test('sandbox '+mode+' keeps static chart fallback and successful execution report', async () => {

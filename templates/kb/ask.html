@@ -4,7 +4,9 @@
 {% block content %}
 <link rel="stylesheet" href="{% static 'css/assistant_activity.css' %}?v=1">
 <link rel="stylesheet" href="{% static 'css/chat_attachments.css' %}?v=1">
-<link rel="stylesheet" href="{% static 'css/chat_visualizations.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/chat_visualizations.css' %}?v=2-metric-compact">
+<link rel="stylesheet" href="{% static 'css/chat_table_cards.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/chat_citations.css' %}?v=1">
 <style>
 @keyframes answerPulse { 0%,100% {opacity:1} 50% {opacity:.38} }
 .conv-item.is-generating .conv-title, .answer.thinking {animation:answerPulse 1.6s ease-in-out infinite}
@@ -80,8 +82,10 @@
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
 <script src="{% static 'js/evidence_panel.js' %}"></script>
 <script src="{% static 'js/chat_input.js' %}"></script>
-<script src="{% static 'js/report_chart_runtime.js' %}?v=1-chat"></script>
-<script src="{% static 'js/chat_visualizations.js' %}?v=1"></script>
+<script src="{% static 'js/report_chart_runtime.js' %}?v=2-metric"></script>
+<script src="{% static 'js/chat_visualizations.js' %}?v=2-metric-compact"></script>
+<script src="{% static 'js/chat_table_cards.js' %}?v=1"></script>
+<script src="{% static 'js/chat_citations.js' %}?v=1"></script>
 <script src="{% static 'js/chat_attachments.js' %}?v=1"></script>
 <script src="{% static 'js/chat_stream.js' %}?v=20261113-attachments"></script>
 <script src="{% static 'js/tool_disclosure.js' %}?v=3-engenie-digest"></script>
@@ -582,6 +586,7 @@ except ImportError:
         });
         body.appendChild(imageCopies);
       }
+      window.EnGenieChatTableCards?.mountImages?.(body, {language: window.FOSI18n?.language});
       // 下载按钮：主文件 + 各 PNG
       const actions = document.createElement('div'); actions.className = 'cr-actions';
       let hasAction = false;
@@ -711,6 +716,8 @@ except ImportError:
   function newConversation(){
     cancelCurrentTurn();
     window.EnGenieChatVisualizations?.destroy(messages);
+    window.EnGenieChatTableCards?.destroy(messages);
+    window.EnGenieChatCitations?.destroy(messages);
     attachmentUI.clear();
     historyRevision++;
     FosAnswerRecovery.remember(recoveryKey, '');
@@ -804,6 +811,8 @@ except ImportError:
         if (view === lastHistoryView) return;
         lastHistoryView = view;
         window.EnGenieChatVisualizations?.destroy(messages);
+        window.EnGenieChatTableCards?.destroy(messages);
+        window.EnGenieChatCitations?.destroy(messages);
         messages.innerHTML = '';
         (data.messages || []).forEach(m => {
           const div = document.createElement('div');
@@ -812,6 +821,7 @@ except ImportError:
             ? '<div class="bubble">' + (m.content||'').replace(/</g,'&lt;') + '</div>'
             : AI_WHO + '<div class="bubble"><div class="answer">' + (window.marked ? DOMPurify.sanitize(window.marked.parse(m.content||'')) : (m.content||'').replace(/</g,'&lt;')) + '</div></div>';
           div.innerHTML = inner;
+          if (m.role === 'ai') window.EnGenieChatTableCards?.mount(div.querySelector('.answer'), {language: window.FOSI18n?.language});
           if (m.role === 'user') attachmentUI.renderMessage(div.querySelector('.bubble'), m.attachments || []);
           messages.appendChild(div);
           if (m.role === 'ai' && ['queued','running'].includes(m.completion_status)) {
@@ -887,6 +897,9 @@ except ImportError:
   }
   function renderCitations(aiMsg, citations){
     renderChatCharts(aiMsg, citations);
+    if (window.EnGenieChatCitations) {
+      return EnGenieChatCitations.render(aiMsg, citations || [], {language: window.FOSI18n?.language});
+    }
     if (!citations || !citations.length) return;
     const bubble = aiMsg.querySelector('.bubble');
     if (!bubble || bubble.querySelector('.cite-row')) return;  // 已渲染避免重复
@@ -1035,6 +1048,8 @@ except ImportError:
       } else {
         answerEl.textContent = mdBuffer;
       }
+      window.EnGenieChatTableCards?.mount(answerEl, {language: window.FOSI18n?.language});
+      window.EnGenieChatCitations?.render(am, turnCitations, {language: window.FOSI18n?.language});
       messages.scrollTop = messages.scrollHeight;
     };
 
@@ -1075,7 +1090,7 @@ except ImportError:
         turnCitations = Array.from(new Map((payload.replace ? [] : turnCitations).concat(payload.citations || []).map(c => [
           c.kind === 'graph' ? 'graph:' + c.relation_id + ':' + c.fact_digest : c.kind === 'tracker' ? 'tracker:' + c.result_digest : 'document:' + c.doc_id, c
         ])).values());
-        renderChatCharts(am, turnCitations);
+        renderCitations(am, turnCitations);
       } else if (etype === 'step') {
         // 管线阶段（问题理解/检索/生成/核对）
         // Stage presentation is handled by the shared activity view.

@@ -103,3 +103,57 @@ test('invalid and absent chart lists preserve fallback and do not allocate toolt
   assert.equal(visuals.mount(h.host,[chart('html')]),0);
   assert.equal(h.document.body.all().filter(n=>n.className==='erc-tooltip').length,0);
 });
+
+test('single-value cards normalize zero, missing values and quality without fabricated series',()=>{
+  const card=visuals.normalize({type:'metric',title:'Total <b>',value:0,unit:'items',subtitle:'All records',
+    quality:{valid:0,records:4,missing:4}});
+  assert.equal(card.value,0);assert.equal(card.labels,undefined);assert.equal(card.series,undefined);
+  assert.deepEqual(card.quality,{valid:0,records:4,missing:4});
+  assert.equal(visuals.normalize({type:'metric',title:'Average',value:null}).value,null);
+  assert.equal(visuals.normalize({type:'metric',title:'Change',value:'-12.5',unit:'%'}).value,-12.5);
+  for(const value of [NaN,Infinity,true,undefined,''])
+    assert.throws(()=>visuals.normalize({type:'metric',title:'Bad',value}));
+  assert.throws(()=>visuals.normalize({type:'metric',title:'Bad',value:1,quality:{valid:2,records:1}}));
+});
+
+test('metric cards show a highlighted scalar and safe literal title, unit and subtitle',()=>{
+  for(const [value,expected] of [[0,'0'],[null,'—'],[-12.5,'-12.5']]){
+    const h=environment();
+    assert.equal(visuals.mount(h.host,[{type:'metric',title:'Total <script>',value,unit:'<img>',subtitle:'Source <b>'}]),1);
+    const scalar=h.host.all().find(node=>node.className==='erc-metric-value');
+    assert.equal(scalar.textContent,expected);assert.ok(h.host.textContent.includes('Total <script>'));
+    assert.ok(h.host.textContent.includes('<img>'));assert.ok(h.host.textContent.includes('Source <b>'));
+    assert.equal(h.host.all().filter(node=>node.tagName==='svg'||node.tagName==='script'||node.tagName==='img').length,0);
+    assert.equal(h.document.body.all().filter(node=>node.className==='erc-tooltip').length,0);
+    visuals.destroy(h.host);
+  }
+});
+
+test('cards begin compact and independently expand to full width and collapse again',()=>{
+  const h=environment();visuals.mount(h.host,[chart(),{type:'metric',title:'Records',value:40}]);
+  const cards=()=>h.host.all().filter(node=>node.className.split(' ').includes('chat-chart-card'));
+  const controls=()=>h.host.all().filter(node=>node.className==='chat-chart-size');
+  assert.equal(controls().length,2);assert.ok(cards().every(node=>!node.className.includes('is-expanded')));
+  assert.ok(controls().every(node=>node.getAttribute('aria-expanded')==='false'&&node.textContent==='Expand'));
+  controls()[0].emit('click');assert.ok(cards()[0].className.includes('is-expanded'));
+  assert.ok(!cards()[1].className.includes('is-expanded'));assert.equal(controls()[0].textContent,'Collapse');
+  const firstHeader=h.host.all().find(node=>node.className==='chat-chart-header');
+  firstHeader.emit('click');assert.ok(!cards()[0].className.includes('is-expanded'));
+  controls()[1].emit('click');assert.ok(cards()[1].className.includes('is-expanded'));
+  visuals.destroy(h.host);
+});
+
+test('expanded states survive citation redraws and language switches while data interactions stay separate',()=>{
+  const h=environment(),context={document:h.document,EnGenieReportCharts:runtime,module:{exports:{}}};
+  vm.runInNewContext(fs.readFileSync(require.resolve('../../static/js/chat_visualizations.js'),'utf8'),context);
+  const api=context.module.exports,data=[chart()];api.mount(h.host,data,{language:'en'});
+  const control=()=>h.host.all().find(node=>node.className==='chat-chart-size');
+  control().emit('click');assert.equal(control().getAttribute('aria-expanded'),'true');
+  api.mount(h.host,data,{language:'en'});assert.equal(control().getAttribute('aria-expanded'),'true');
+  h.document.emit('fos:languagechange',{detail:{language:'zh-hans'}});
+  assert.equal(control().textContent,'收起');assert.equal(control().getAttribute('aria-expanded'),'true');
+  const legend=h.host.all().find(node=>node.getAttribute('aria-pressed')!==null);legend.emit('click');
+  assert.equal(control().getAttribute('aria-expanded'),'true');
+  control().emit('click');assert.equal(control().textContent,'展开');
+  assert.equal(control().getAttribute('aria-expanded'),'false');api.destroy(h.host);
+});

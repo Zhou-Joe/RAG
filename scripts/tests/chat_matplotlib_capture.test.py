@@ -140,6 +140,31 @@ fig.clear()
 """)
         self.assertEqual(charts, [])
 
+    def test_metric_helper_captures_actual_scalars_alongside_figures(self):
+        charts, _ = self.capture("""
+engenie_metric('Total <b>', 0, unit='items', subtitle='Source <script>')
+engenie_metric('Average', None)
+_eg_plt.plot([0, 1], [10, 20])
+""")
+        self.assertEqual([item['type'] for item in charts], ['metric', 'metric', 'line'])
+        self.assertEqual(charts[0]['value'], 0)
+        self.assertEqual(charts[0]['title'], 'Total <b>')
+        self.assertEqual(charts[0]['unit'], 'items')
+        self.assertEqual(charts[0]['subtitle'], 'Source <script>')
+        self.assertIsNone(charts[1]['value'])
+
+    def test_metric_helper_resets_between_runs_and_rejects_invalid_values(self):
+        first, context = self.capture("engenie_metric('First', 3)")
+        second, _ = self.capture("engenie_metric('Second', -12.5, unit='%')", context)
+        self.assertEqual(first[0]['value'], 3)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(second[0]['title'], 'Second')
+        for expression in ["float('nan')", "float('inf')", "True", "'not a number'", "[1, 2]"]:
+            with self.assertRaises(ValueError):
+                self.capture("engenie_metric('Invalid', %s)" % expression)
+        with self.assertRaises(ValueError):
+            self.capture("[engenie_metric('Too many', n) for n in range(9)]")
+
 
 if __name__ == '__main__':
     unittest.main()

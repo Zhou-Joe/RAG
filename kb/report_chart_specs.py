@@ -14,7 +14,7 @@ import math
 from pathlib import Path
 import re
 
-TYPES = {'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'}
+TYPES = {'metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'}
 AGGREGATES = {'count', 'sum', 'avg', 'min', 'max'}
 MAX_CHARTS = 8
 MAX_SERIES = 6
@@ -46,6 +46,8 @@ def normalize_charts(value, headers):
         if kind in {'pie', 'doughnut'} and len(series) != 1 or kind == 'combo' and len(series) < 2:
             raise ValueError('饼图需一个系列，组合图至少需两个系列。')
         normalized = []
+        if kind == 'metric' and (horizontal is not None or len(series) != 1):
+            raise ValueError('A value card requires one aggregate series and no grouping field.')
         for index, item in enumerate(series):
             if not isinstance(item, dict) or not item.keys() <= {'field', 'aggregate', 'label', 'type', 'axis'}:
                 raise ValueError('HTML 图表系列配置无效。')
@@ -136,6 +138,9 @@ def _default_charts(headers, rows, language):
     numeric = [field for field in headers if any(not _missing(row.get(field)) for row in rows)
                and all(_missing(row.get(field)) or _number(row.get(field)) is not None for row in rows)]
     categories = [field for field in headers if field not in numeric]
+    if len(rows) == 1 and len(numeric) == 1:
+        return normalize_charts([{'type': 'metric', 'title': numeric[0], 'x': None,
+                                  'series': [{'field': numeric[0], 'aggregate': 'sum'}]}], headers)
     def dates(field):
         sample = next((row.get(field) for row in rows if not _missing(row.get(field))), None)
         try:
@@ -166,6 +171,15 @@ def build_charts(headers, rows, chart_specs=None, *, language='en'):
     if language == 'zh-hans':
         names = {'count': '数量', 'sum': '合计', 'avg': '平均', 'min': '最小', 'max': '最大'}
     for chart in specs:
+        if chart['type'] == 'metric':
+            definition = chart['series'][0]
+            value, quality = _stat(rows, definition)
+            label = definition.get('label') or (f"{definition.get('field', '')} · {names[definition['aggregate']]}".strip(' ·'))
+            output.append({'type': 'metric', 'title': chart['title'] or label, 'value': value,
+                           'quality': quality, 'language': language,
+                           'meta': {'row_count': len(rows), 'group_count': 1, 'displayed_groups': 1,
+                                    'omitted_groups': 0, 'omitted_row_count': 0, 'other_included': False}})
+            continue
         grouped = OrderedDict()
         for index, row in enumerate(rows):
             value = row.get(chart['x']) if chart['x'] is not None else index + 1
@@ -224,12 +238,15 @@ def render_charts_html(charts, *, language='en'):
         meta = chart['meta']
         note = (f"完整结果 {meta['row_count']} 行 · 显示 {meta['displayed_groups']} / {meta['group_count']} 组" if zh else
                 f"Full result: {meta['row_count']} rows · Showing {meta['displayed_groups']} / {meta['group_count']} groups")
+        if chart['type'] == 'metric':
+            note = (f"完整结果：{meta['row_count']} 行" if zh else f"Full result: {meta['row_count']} rows")
         if meta['omitted_groups']:
             note += (f" · 另有 {meta['omitted_groups']} 组（{meta['omitted_row_count']} 行）"
                      + ('合并为其他' if meta.get('other_included') else '未绘制') if zh else
                      f" · {meta['omitted_groups']} groups ({meta['omitted_row_count']} rows) "
                      + ('combined into Other' if meta.get('other_included') else 'not plotted'))
-        cards.append('<article class="report-chart"><h3>' + escape(chart['title']) + '</h3>'
+        card_class = 'report-chart report-chart--metric' if chart['type'] == 'metric' else 'report-chart'
+        cards.append('<article class="' + card_class + '"><h3>' + escape(chart['title']) + '</h3>'
                      '<div class="report-chart-canvas" data-engenie-chart="' + str(index) + '"></div>'
                      '<p class="report-chart-note">' + escape(note) + '</p></article>')
     return '<section class="report-charts" id="charts"><h2>' + ('图表视图' if zh else 'Chart Views') + '</h2><div class="report-chart-grid">' + ''.join(cards) + '</div></section>'
@@ -240,4 +257,4 @@ def chart_assets():
 
 
 def chart_styles():
-    return '''.report-chart-canvas{min-height:270px;position:relative}.report-chart-canvas svg{display:block;width:100%;height:auto;overflow:visible}.erc-legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:12px 0 0;max-height:120px;overflow:auto;font:12px system-ui;color:#526174}.erc-legend-item{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:2px 0;font:inherit;color:inherit;text-align:left}.erc-legend-item[aria-pressed]{cursor:pointer}.erc-swatch{width:9px;height:9px;border-radius:3px;flex:none}.erc-tooltip{position:fixed;z-index:99999;max-width:min(320px,calc(100vw - 16px));padding:9px 12px;border-radius:9px;color:#fff;background:#142840;box-shadow:0 8px 24px #10243b30;font:12px/1.5 system-ui;white-space:pre-wrap;pointer-events:none;overflow-wrap:anywhere}.erc-tooltip[hidden]{display:none!important}.erc-empty{padding:70px 15px;text-align:center;color:#63758a;font:13px system-ui}.erc-hit{cursor:crosshair;outline:none}.erc-axis{font:10px system-ui;fill:#63758a}.erc-grid{stroke:#e7edf3;stroke-width:1}.erc-point-active{stroke:#142840;stroke-width:2}@media print{.erc-tooltip{display:none!important}.erc-legend{max-height:none;overflow:visible}.report-chart{break-inside:avoid}}'''
+    return '''.report-chart--metric .report-chart-canvas{min-height:0}.erc-metric{padding:14px 2px 8px;min-height:92px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 10px}.erc-metric-main{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px}.erc-metric-value{font:750 clamp(32px,5vw,56px)/1.1 system-ui;letter-spacing:-.04em;color:#2868c7;overflow-wrap:anywhere}.erc-metric-unit{font:600 15px system-ui;color:#63758a}.erc-metric-subtitle,.erc-metric-quality{flex-basis:100%;font:12px/1.5 system-ui;color:#63758a;overflow-wrap:anywhere}''' + '''.report-chart-canvas{min-height:270px;position:relative}.report-chart-canvas svg{display:block;width:100%;height:auto;overflow:visible}.erc-legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:12px 0 0;max-height:120px;overflow:auto;font:12px system-ui;color:#526174}.erc-legend-item{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:2px 0;font:inherit;color:inherit;text-align:left}.erc-legend-item[aria-pressed]{cursor:pointer}.erc-swatch{width:9px;height:9px;border-radius:3px;flex:none}.erc-tooltip{position:fixed;z-index:99999;max-width:min(320px,calc(100vw - 16px));padding:9px 12px;border-radius:9px;color:#fff;background:#142840;box-shadow:0 8px 24px #10243b30;font:12px/1.5 system-ui;white-space:pre-wrap;pointer-events:none;overflow-wrap:anywhere}.erc-tooltip[hidden]{display:none!important}.erc-empty{padding:70px 15px;text-align:center;color:#63758a;font:13px system-ui}.erc-hit{cursor:crosshair;outline:none}.erc-axis{font:10px system-ui;fill:#63758a}.erc-grid{stroke:#e7edf3;stroke-width:1}.erc-point-active{stroke:#142840;stroke-width:2}@media print{.erc-tooltip{display:none!important}.erc-legend{max-height:none;overflow:visible}.report-chart{break-inside:avoid}}'''

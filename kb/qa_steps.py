@@ -119,6 +119,16 @@ _VERIFY_PROMPT = """你是答案核实器。对照【检索证据】核对【回
 {"verdict": "fail", "issues": ["<核心结论哪条无证据/矛盾，≤40字>", ...]}（≤3 条）"""
 
 
+_VERIFY_PROMPT += (
+    '\nNumbered source markers [N] in the answer must refer to evidence carrying the '
+    'same [N] marker below and must support the adjacent claim. Several query or '
+    'chunk snapshots can share a display source number; check the exact underlying '
+    'rows and conditions, not merely the source name. [Evidence N] is an internal '
+    'evidence label, not an available source-citation number. A marker never makes '
+    'an unsupported claim valid. Numeric table cells, code and URLs must remain intact.'
+)
+
+
 def _format_evidence(evidence: list[dict]) -> str:
     lines = []
     for i, ev in enumerate(evidence[:_VERIFY_MAX_ITEMS], 1):
@@ -130,7 +140,9 @@ def _format_evidence(evidence: list[dict]) -> str:
         if ev.get('kind')=='image':
             text=('图片图注（'+('视觉匹配已确认' if ev.get('visual_confirmed') else '仅召回候选，未经视觉确认')+'）：'+text)
         loc = f" {ev['page']}" if ev.get("page") else ""
-        lines.append(f"[{i}] {ev.get('source', '未知')}{loc}\n{text}")
+        number = ev.get('citation_number')
+        marker = f'[{number}]' if type(number) is int and number > 0 else f'[Evidence {i}]'
+        lines.append(f"{marker} {ev.get('source', '未知')}{loc}\n{text}")
     return "\n\n".join(lines)
 
 

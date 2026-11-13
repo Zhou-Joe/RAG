@@ -1065,7 +1065,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
                         period: Literal['minute', 'hour', 'day', 'week', 'month', 'year'] = 'day',
                         span: int = 1, output: Literal['preview', 'excel', 'plot', 'both'] = 'preview',
                         chart_metric: Literal['value', 'change', 'change_pct'] = 'value',
-                        chart_type: Literal['auto', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'] = 'auto',
+                        chart_type: Literal['auto', 'metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'] = 'auto',
                         feed_id: str = '', query: str = '', filters: list[TrackerFilter] | None = None) -> str:
         """直接分析完整台账历史并生成真实 Excel/图表；普通和增强模式均可用，无需编写代码。
 
@@ -1086,7 +1086,10 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         For a requested chart, use output='plot' or 'both'. The full, permission-checked
         result is displayed as an interactive chart directly in the chat, with value
         tooltips and legend controls. chart_type selects the requested supported view;
-        'auto' uses bars for summaries and lines for trends. Pie/doughnut require one
+        'metric' displays one overall summary as a title and highlighted value;
+        remove grouping and request the actual aggregate rather than adding values
+        across output groups. 'auto' selects a metric card for one ungrouped value,
+        bars for grouped summaries and lines for trends. Pie/doughnut require one
         nonnegative series; combo requires multiple series. Files remain downloadable.
         """
         from .analysis_exports import agent_analysis
@@ -1156,6 +1159,10 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         figures are also captured as interactive chat charts from the actual plotted
         data. Keep PNG output for downloads and unsupported figure types. Do not emit
         JavaScript, HTML scripts or fabricated chart data.
+        For a single highlighted metric, call engenie_metric(title, value, unit='',
+        subtitle='') with the actual computed scalar. This creates a title/value card
+        directly in the chat. For example, engenie_metric('Total Requests', len(df)).
+        Use several calls for separate KPIs; do not use a chart with one point instead.
         """
         import os as _os
 
@@ -1274,8 +1281,15 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         '拿到files后在最终回答给出其原样URL的Markdown下载链接；不要编造路径，也不要改为request_verified_export。'
         '只有需要这些工具不支持的自由分析时，普通模式才用write_analysis/check_analysis。'
     )
+    from .citation_numbers import CitationGuide
+    from .models import KnowledgeBase
+    citation_names = {kb.slug: kb.name for kb in KnowledgeBase.objects.select_related('parent').filter(**_dept_filter)
+                      if _dept_allowed(kb)}
+    citation_guide = CitationGuide(cite_sink, citation_names)
+    if retrieval_state is not None:
+        retrieval_state['citation_guide'] = citation_guide
     return create_agent(
-        middleware=[RetrievalBudget(max_rounds=7,selection=rag_selection)],
+        middleware=[citation_guide, RetrievalBudget(max_rounds=7,selection=rag_selection)],
         model=_get_llm(llm_cfg),
         tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, request_verified_export]
                if llm_cfg.get("qa_enhance") else
@@ -1323,6 +1337,11 @@ async def run_agent_stream(
         # 本轮检索证据累积器（带页码的命中片段；答案核实步对照用）
         evidence: list[dict] = deepcopy(context.get('evidence', []))
         retrieval_state: dict = {}
+        from .citation_numbers import annotate_citations, citation_marker_issues, numbered_evidence
+        def public_citations():
+            guide = retrieval_state.get('citation_guide')
+            return list(annotate_citations(citations,
+                registry=guide.registry if guide else None, kb_names=guide.kb_names if guide else None))
         # 本轮 token 用量累计（每次 LLM 调用的 usage_metadata 相加）
         usage_in = 0
         usage_out = 0
@@ -1439,7 +1458,7 @@ async def run_agent_stream(
                         if not enhance and not selection_pending and len(pending_reasoning) == 1 and citations:
                             # Publish source identity with visible text so an interrupted
                             # answer keeps its access checks when reopened.
-                            yield SSE_CITATIONS, {"citations": list(citations),"replace":True}
+                            yield SSE_CITATIONS, {"citations": public_citations(),"replace":True}
                         if not enhance and not selection_pending:
                             full_text.append(content)
                         if not answer_step_on:
@@ -1532,7 +1551,7 @@ async def run_agent_stream(
             elif etype == "on_tool_end":
                 output = data.get("output")
                 if name in ('kb_read_chunks','kb_select_evidence'):
-                    yield SSE_CITATIONS, {'citations':list(citations),'replace':True}
+                    yield SSE_CITATIONS, {'citations':public_citations(),'replace':True}
                 # write_analysis 结束 → 发出 code_run，前端在 Pyodide 沙箱执行
                 if name == "write_analysis" and run_id in pending_code:
                     pc = pending_code.pop(run_id)
@@ -1553,7 +1572,7 @@ async def run_agent_stream(
                 }
 
         if retrieval_state.get('used') and not retrieval_state.get('finalized'):
-            yield SSE_CITATIONS, {'citations':list(citations),'replace':True}
+            yield SSE_CITATIONS, {'citations':public_citations(),'replace':True}
             yield SSE_ERROR, {'message':'尚未选择已读原文依据，未发布回答；候选预览不能代替原文。',
                              'code':'evidence_not_selected'}
             return
@@ -1568,16 +1587,19 @@ async def run_agent_stream(
             from .publication import validate_sources
             from asgiref.sync import sync_to_async
             answer_text = "".join(t for t in full_text if isinstance(t, str)).strip()
+            public_citations()
+            marker_issues = citation_marker_issues(answer_text, citations)
+            verifier_evidence = numbered_evidence(evidence, citations)
             AnswerText().feed(answer_text, final=True)
             yield SSE_STEP, {"stage": "answer_verification", "status": "start"}
             verdict = None
             source_ok = await sync_to_async(validate_sources)(evidence, (config or {}).get("user_id"))
-            if final_complete and source_ok and answer_text:
+            if final_complete and source_ok and answer_text and not marker_issues:
                 if any(item.get('kind') == 'chat_attachment' for item in evidence):
-                    verdict, v_usage = await verify_answer(cfg, message, answer_text, evidence,
+                    verdict, v_usage = await verify_answer(cfg, message, answer_text, verifier_evidence,
                                                          user_id=(config or {}).get('user_id'))
                 else:
-                    verdict, v_usage = await verify_answer(cfg, message, answer_text, evidence)
+                    verdict, v_usage = await verify_answer(cfg, message, answer_text, verifier_evidence)
                 usage_in += v_usage["input_tokens"]
                 usage_out += v_usage["output_tokens"]
                 max_in = max(max_in, v_usage["input_tokens"])
@@ -1632,7 +1654,7 @@ async def run_agent_stream(
             }
 
         # 流结束：发出本轮来源出处（前端据此渲染可点击的文档链接）
-        yield SSE_CITATIONS, {"citations": list(citations),"replace":True}
+        yield SSE_CITATIONS, {"citations": public_citations(),"replace":True}
 
         # 流结束：发出本轮 token 用量统计（累计 + 单次最大，后者用于估测模型上下文窗口）
         yield SSE_USAGE, {

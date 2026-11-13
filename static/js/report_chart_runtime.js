@@ -26,7 +26,7 @@
     }
     listen(win,'resize',hide);listen(win,'scroll',hide,true);listen(document,'keydown',event=>{if(event.key==='Escape')hide();});
     listen(document,'pointerdown',event=>{if(active&&event.target!==active&&!active.contains(event.target))hide();},true);
-    return {bind,destroy(){hide();listeners.forEach(remove=>remove());tip.remove();}};
+    return {bind,hide,destroy(){hide();listeners.forEach(remove=>remove());tip.remove();}};
   }
   function bounds(values,zero=true){
     const valid=values.filter(finite).map(Number);let low=valid.length?Math.min(...valid):0,high=valid.length?Math.max(...valid):1;
@@ -42,6 +42,25 @@
   function render(host,data){
     const document=host.ownerDocument||root.document,language=data.language||'en',zh=language==='zh-hans';
     const hidden=host._ercHidden||new Set();host._ercHidden=hidden;host._ercTooltip?.destroy();host.replaceChildren();
+    delete host._ercTooltip;
+    if(data.type==='metric'){
+      const metric=document.createElement('div');metric.className='erc-metric';metric.setAttribute('role','group');metric.setAttribute('translate','no');
+      metric.setAttribute('aria-label',data.title||(zh?'指标':'Metric'));
+      const main=document.createElement('div');main.className='erc-metric-main';
+      const value=document.createElement('span');value.className='erc-metric-value';
+      value.textContent=typeof data.value==='number'&&Number.isFinite(data.value)?format(data.value,language):'—';main.appendChild(value);
+      if(typeof data.unit==='string'&&data.unit){const unit=document.createElement('span');unit.className='erc-metric-unit';unit.textContent=data.unit;main.appendChild(unit);}
+      metric.appendChild(main);
+      if(typeof data.subtitle==='string'&&data.subtitle){const subtitle=document.createElement('p');subtitle.className='erc-metric-subtitle';subtitle.textContent=data.subtitle;metric.appendChild(subtitle);}
+      const quality=data.quality;
+      if(quality&&Number.isSafeInteger(quality.valid)&&Number.isSafeInteger(quality.records)&&quality.valid>=0&&quality.records>=quality.valid){
+        const note=document.createElement('p');note.className='erc-metric-quality';
+        note.textContent=(zh?'有效 / 记录':'Valid / records')+`: ${quality.valid} / ${quality.records}`;
+        if(Number.isSafeInteger(quality.missing)&&quality.missing>=0)note.textContent+=(zh?' · 缺失':' · Missing')+`: ${quality.missing}`;
+        metric.appendChild(note);
+      }
+      host.appendChild(metric);return;
+    }
     const tips=tooltip(host,document);host._ercTooltip=tips;
     const original=data.series||[],series=original.map((item,index)=>({...item,index})).filter(item=>!hidden.has(item.index));
     const labels=data.labels||[],kind=data.type,options=data.options||{};

@@ -14,15 +14,15 @@ def calculation_schema():
 def digest_chart_schema():
     """A declarative data binding; render code and values remain server-owned."""
     return {'type': 'array', 'maxItems': 8,
-        'description': 'Optional field-bound charts. Omit for four automatic views; [] disables charts. Never supply raw data, code, HTML, URLs or callbacks.',
+        'description': 'Optional field-bound visualizations. Omit for an automatic overview: one numeric result uses a value card, otherwise four chart views. [] disables visualizations. Never supply raw data, code, HTML, URLs or callbacks.',
         'items': {'type': 'object', 'required': ['title', 'type', 'x', 'series'], 'additionalProperties': False,
             'properties': {
                 'title': {'type': 'string', 'maxLength': 120},
-                'type': {'type': 'string', 'enum': ['line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut']},
+                'type': {'type': 'string', 'enum': ['metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut']},
                 'x': {'anyOf': [{'type': 'string'}, {'type': 'null'}],
-                    'description': 'Actual final report output column, or null for source row order.'},
+                    'description': 'Actual final report output column, or null for source row order. Metric value cards require null and aggregate the entire final result.'},
                 'series': {'type': 'array', 'minItems': 1, 'maxItems': 6,
-                    'description': 'Use exactly one series for pie/doughnut. Combo needs bar and line series. Values are calculated over all selected rows.',
+                    'description': 'Use exactly one series for metric/pie/doughnut. Metric displays one title and highlighted aggregate value, without grouping. Combo needs bar and line series. Values are calculated over all selected rows.',
                     'items': {'type': 'object', 'required': ['aggregate'], 'additionalProperties': False,
                         'properties': {
                             'field': {'type': 'string', 'description': 'Actual final report output column; omit only for row-count aggregate.'},

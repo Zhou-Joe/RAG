@@ -2,9 +2,13 @@
 
 Normal EnGenie chat can display interactive charts directly below an answer. It uses the same bundled offline SVG renderer as the EnGenie Digest HTML reports. Hover, focus, or tap a plotted point, bar, or slice to see its value. Line markers remain small while invisible hit areas make them easier to select. Legends can toggle individual series.
 
+Charts, single-value cards, answer tables, and generated image previews start compact. Click the card header or **Expand** to use the chat's full content width; **Collapse** returns it to the compact size. Each card retains its own size choice during streamed redraws and interface language changes. Compact tables scroll within their card. Generated image previews can also expand or collapse by clicking the image; uploaded photos and citation thumbnails keep their original presentation.
+
+Single-value cards display a title and highlighted numeric value, with optional units, subtitle, and available data-quality counts. A true zero displays as zero; an unavailable value displays as a dash.
+
 ## Tracker Analysis
 
-`tracker_analyze` with `output="plot"` or `"both"` publishes a chart from the full permission-checked result, alongside its existing downloadable files. The `chart_type` argument accepts `auto`, `line`, `bar`, `pie`, `combo`, `area`, `scatter`, and `doughnut`. Auto selects bars for summaries and lines for trends.
+`tracker_analyze` with `output="plot"` or `"both"` publishes a visualization from the full permission-checked result, alongside its existing downloadable files. The `chart_type` argument accepts `auto`, `metric`, `line`, `bar`, `pie`, `combo`, `area`, `scatter`, and `doughnut`. Auto selects a metric card for one ungrouped summary value, bars for grouped summaries, and lines for trends. Explicit metric mode requires exactly one ungrouped value.
 
 Summary charts support up to 50 groups. Trends support up to eight series and 500 periods. Missing values remain gaps, zero remains zero, and change/percentage metrics retain their actual values. Pie charts require one nonnegative count or sum series; combo charts require multiple trend series; scatter charts require numeric summary groups. Invalid requests return a useful error before creating a file.
 
@@ -13,6 +17,8 @@ The chart is attached to the existing tracker citation snapshot, outside the mod
 ## Python Analysis
 
 The existing browser Python sandbox captures standard Matplotlib line, bar, pie, doughnut, scatter, and mixed bar/line figures from their plotted artist data. Ordinary Python chart requests therefore gain inline interactivity without asking the model to generate JavaScript or a second copy of its data.
+
+For a computed scalar, Python analysis can call `engenie_metric('Total Requests', len(df), unit='', subtitle='Selected Period')`. The helper accepts a finite scalar or `None`, and optional text units/subtitle. Multiple calls create separate cards, within the eight-visualization limit. Scalar values are taken from the executed analysis rather than a second model-authored data array.
 
 PNG downloads and PDF export remain available. Unsupported or oversized figures retain their image presentation; image copies of successfully converted charts are grouped beneath the interactive preview. Browser-generated chart results have the same session lifetime as the existing sandbox output; tracker citation charts are persisted with conversation history.
 

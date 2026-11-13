@@ -20,6 +20,36 @@ class ReportChartSpecTests(SimpleTestCase):
         self.assertEqual(charts[3]['series'][1]['axis'], 'right')
         self.assertEqual(charts[0]['meta']['row_count'], 4)
 
+    def test_metric_card_uses_one_full_result_aggregate_and_preserves_missing_zero(self):
+        definition = {'type': 'metric', 'title': '<Total Wait>', 'x': None,
+                      'series': [{'field': 'Wait', 'aggregate': 'avg'}]}
+        rows = [{'Day': 'A', 'Wait': 0}, {'Day': 'A', 'Wait': 6}, {'Day': 'B', 'Wait': 12}]
+        chart = build_charts(['Day', 'Wait'], rows, [definition])[0]
+        self.assertEqual(chart['type'], 'metric')
+        self.assertEqual(chart['value'], 6)
+        self.assertEqual(chart['quality'], {'records': 3, 'valid': 3, 'missing': 0})
+        self.assertEqual(chart['meta']['omitted_groups'], 0)
+        self.assertNotIn('series', chart)
+        self.assertIn('report-chart--metric', render_charts_html([chart]))
+        self.assertIn('&lt;Total Wait&gt;', render_charts_html([chart]))
+        self.assertIn('.erc-metric-value', chart_styles())
+        self.assertEqual(build_charts(['Day', 'Wait'], [{'Wait': 0}], [definition])[0]['value'], 0)
+        self.assertIsNone(build_charts(['Day', 'Wait'], [{'Wait': None}], [definition])[0]['value'])
+        count = {**definition, 'series': [{'aggregate': 'count'}]}
+        self.assertEqual(build_charts(['Day', 'Wait'], [], [count])[0]['value'], 0)
+
+    def test_metric_card_config_rejects_grouping_multiple_series_and_literal_values(self):
+        valid = {'type': 'metric', 'x': None, 'series': [{'aggregate': 'count'}]}
+        normalized = normalize_charts([valid], ['Day', 'Wait'])
+        self.assertEqual(normalize_charts(normalized, ['Day', 'Wait']), normalized)
+        for changes in ({'x': 'Day'}, {'series': [{'aggregate': 'count'}] * 2}, {'value': 9000}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                normalize_charts([{**valid, **changes}], ['Day', 'Wait'])
+        chart = build_charts(['Day', 'Wait'], [{'Day': 'Today', 'Wait': 7}])[0]
+        self.assertEqual(chart['type'], 'metric')
+        self.assertEqual(chart['title'], 'Wait')
+        self.assertEqual(chart['value'], 7)
+
     def test_custom_definition_round_trips_without_literal_data_or_code(self):
         spec = self.spec(type='combo', series=[{'aggregate': 'count', 'type': 'bar'},
             {'aggregate': 'sum', 'field': 'Wait', 'type': 'line', 'axis': 'right', 'label': 'Waiting'}],

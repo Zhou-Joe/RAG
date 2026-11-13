@@ -4,7 +4,6 @@
     "交互图表": "Interactive Charts",
     "图表指标必须为 value、change 或 change_pct。": "Chart metric must be value, change or change_pct.",
     "change 和 change_pct 图表需要使用趋势模式。": "Change and change_pct charts require trend mode.",
-    "图表类型必须为 auto、line、bar、pie、combo、area、scatter 或 doughnut。": "Chart type must be auto, line, bar, pie, combo, area, scatter or doughnut.",
     "分析图表中的数值超出可绘制范围。": "An analysis chart value exceeds the drawable numeric range.",
     "交互式分析图表最多支持 8 个系列和 500 个周期。": "Interactive analysis charts support up to 8 series and 500 periods.",
     "交互式分析图表各系列的周期必须对齐。": "Interactive analysis chart periods must align across series.",
@@ -15,6 +14,9 @@
     "组合图至少需要两个系列。请在趋势分析中选择两个或更多对象。": "Combo charts require at least two series. Select two or more objects in a trend analysis.",
     "散点图需要数值分组字段。请使用汇总模式并按数值分组。": "Scatter charts require a numeric grouping field. Use summary mode with numeric groups.",
     "散点图的分组值必须为数值。请选择数值分组字段。": "Scatter chart group values must be numeric. Choose a numeric grouping field.",
-    "散点图的分组值必须为有限数值。": "Scatter chart group values must be finite numbers."
+    "散点图的分组值必须为有限数值。": "Scatter chart group values must be finite numbers.",
+    "图表类型必须为 auto、metric、line、bar、pie、combo、area、scatter 或 doughnut。": "Chart type must be auto, metric, line, bar, pie, combo, area, scatter or doughnut.",
+    "数值卡片需要一个整体汇总值。请取消分组，或使用图表展示多个结果。": "A value card requires one overall summary value. Remove grouping or use a chart for multiple results.",
+    "数值卡片需要一个聚合系列，且不能指定分组字段。": "A value card requires one aggregate series and no grouping field."
   }
 }

@@ -35,6 +35,7 @@ test('line renderer retains zero and missing gaps with small marks and safe inst
   assert.ok(hits[0].getAttribute('aria-label').includes('0'));hits[0].emit('pointerenter');
   const tip=h.document.body.all().find(node=>node.className==='erc-tooltip');assert.equal(tip.hidden,false);assert.ok(tip.textContent.includes('Wait <b>: 0'));
   assert.equal(tip.children.length,0);h.window.emit('scroll');assert.equal(tip.hidden,true);
+  hits[0].emit('click');assert.equal(tip.hidden,false);h.host._ercTooltip.hide();assert.equal(tip.hidden,true);
 });
 test('combo uses bar and line marks, separate axes, and accessible legend toggles',()=>{
   const h=environment(),value=data('combo',{series:[{label:'Records',values:[100,200,300,400],type:'bar',axis:'left'},
@@ -77,4 +78,51 @@ test('line and area charts preserve irregular numeric horizontal spacing',()=>{
     assert.equal(dots.length,3);
     assert.ok(Math.abs((xs[1]-xs[0])/(xs[2]-xs[0])-.1)<1e-12,type);
   }
+});
+
+test('metric cards highlight one formatted value, preserve zero, and render units and subtitles as text',()=>{
+  const h=environment();
+  charts.render(h.host,{type:'metric',title:'Average wait <b>',value:1234.125,unit:'min <img src=x onerror=alert(1)>',
+    subtitle:'Latest <script>alert(1)</script>',quality:{valid:7,records:10,missing:3},language:'en'});
+  const find=name=>h.host.all().find(n=>n.className===name);
+  assert.equal(find('erc-metric-value').textContent,'1,234.125');
+  assert.equal(find('erc-metric-unit').textContent,'min <img src=x onerror=alert(1)>');
+  assert.equal(find('erc-metric-subtitle').textContent,'Latest <script>alert(1)</script>');
+  assert.equal(find('erc-metric').getAttribute('aria-label'),'Average wait <b>');
+  assert.equal(find('erc-metric-quality').textContent,'Valid / records: 7 / 10 · Missing: 3');
+  assert.equal(h.host.all().filter(n=>['img','script','svg'].includes(n.tagName)).length,0);
+  assert.equal(h.document.body.all().filter(n=>n.className==='erc-tooltip').length,0);
+  charts.render(h.host,{type:'metric',title:'Count',value:0});
+  assert.equal(find('erc-metric-value').textContent,'0');
+  assert.equal(find('erc-metric-unit'),undefined);
+  assert.equal(find('erc-metric-quality'),undefined);
+});
+
+test('metric cards distinguish missing values from zero and keep signed percentage values exact',()=>{
+  const h=environment(),value=()=>h.host.all().find(n=>n.className==='erc-metric-value').textContent;
+  for(const missing of [null,undefined,NaN,Infinity,false,'']){
+    charts.render(h.host,{type:'metric',title:'Missing',value:missing});
+    assert.equal(value(),'—');
+  }
+  charts.render(h.host,{type:'metric',title:'Change',value:-12.5,unit:'%',language:'zh-hans',quality:{valid:0,records:2,missing:2}});
+  assert.equal(value(),'-12.5');
+  assert.equal(h.host.all().find(n=>n.className==='erc-metric-unit').textContent,'%');
+  assert.equal(h.host.all().find(n=>n.className==='erc-metric-quality').textContent,'有效 / 记录: 0 / 2 · 缺失: 2');
+});
+
+test('switching between charts and scalar cards removes old tooltip resources and supports inert report JSON',()=>{
+  const h=environment();charts.render(h.host,data());
+  assert.equal((h.window.events.scroll||[]).length,1);
+  charts.render(h.host,{type:'metric',title:'Total',value:99});
+  assert.equal((h.window.events.scroll||[]).length,0);
+  assert.equal((h.document.events.keydown||[]).length,0);
+  assert.equal(h.document.body.all().filter(n=>n.className==='erc-tooltip').length,0);
+  assert.equal(h.host._ercTooltip,undefined);
+  const payload=h.document.createElement('script');payload.setAttribute('id','engenie-chart-data');
+  payload.textContent=JSON.stringify([{type:'metric',title:'Total',value:0,unit:'visits'}]);
+  h.document.body.append(payload);h.host.setAttribute('data-engenie-chart','0');charts.mount(h.document);
+  assert.equal(h.host.all().find(n=>n.className==='erc-metric-value').textContent,'0');
+  assert.equal(h.host.all().find(n=>n.className==='erc-metric-unit').textContent,'visits');
+  charts.render(h.host,data());
+  assert.equal((h.window.events.scroll||[]).length,1);
 });

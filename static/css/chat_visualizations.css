@@ -1,8 +1,21 @@
-.chat-chart-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin:14px 0;width:100%;min-width:0}
-.chat-chart-card{margin:0;padding:16px;border:1px solid var(--rule-soft,#e0e8f0);border-radius:14px;background:var(--panel,#fff);box-shadow:0 3px 14px #14324b05;min-width:0;overflow:hidden}
-.chat-chart-title{margin:0 0 12px;font-size:14px;line-height:1.5;font-weight:650;color:var(--ink,#16324f);overflow-wrap:anywhere}
+.chat-chart-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px;margin:14px 0;width:100%;min-width:0}
+.chat-chart-card{box-sizing:border-box;flex:0 1 320px;width:320px;max-width:100%;margin:0;padding:12px;border:1px solid var(--rule-soft,#e0e8f0);border-radius:14px;background:var(--panel,#fff);box-shadow:0 3px 14px #14324b05;min-width:0;overflow:hidden}
+.chat-chart-card.is-expanded{flex-basis:100%;width:100%;padding:16px}
+.chat-chart-header{display:flex;align-items:flex-start;gap:10px;justify-content:space-between;margin:0 0 10px;cursor:pointer}
+.chat-chart-title{min-width:0;font-size:13px;line-height:1.5;font-weight:650;color:var(--ink,#16324f);overflow-wrap:anywhere}
+.chat-chart-size{flex:none;padding:3px 7px;border:1px solid var(--rule-soft,#e0e8f0);border-radius:6px;background:transparent;color:var(--mute,#63758a);font:11px/1.4 system-ui;cursor:pointer}
+.chat-chart-size:hover{background:var(--hover,#f0f5fa);color:var(--ink,#16324f)}
+.chat-chart-size:focus-visible{outline:2px solid var(--brand,#3574d5);outline-offset:2px}
 .chat-chart-canvas{min-width:0;position:relative}
-.chat-chart-canvas svg{display:block;width:100%;height:auto;min-height:200px;overflow:visible}
+.chat-chart-canvas svg{display:block;width:100%;height:auto;min-height:0;overflow:visible}
+.chat-chart-card:not(.is-expanded) .erc-legend{max-height:58px;gap:5px 10px;font-size:11px}
+.erc-metric{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 9px;min-height:75px;padding:6px 0 2px}
+.erc-metric-main{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 9px;min-width:0;width:100%}
+.erc-metric-value{font:750 clamp(30px,4vw,42px)/1.15 system-ui;color:var(--brand,#3574d5);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;min-width:0}
+.erc-metric-unit{font:600 14px/1.4 system-ui;color:var(--mute,#63758a);overflow-wrap:anywhere}
+.erc-metric-subtitle,.erc-metric-quality{flex-basis:100%;margin:3px 0 0;font:12px/1.5 system-ui;color:var(--mute,#63758a);overflow-wrap:anywhere}
+.chat-chart-card.is-expanded .erc-metric{min-height:100px;padding:12px 0}
+.chat-chart-card.is-expanded .erc-metric-value{font-size:52px}
 .chat-chart-note{margin:10px 0 0;font-size:12px;color:var(--mute,#63758a)}
 .chat-chart-images{margin:10px 0;color:var(--mute,#63758a);font-size:12px}
 .chat-chart-images summary{cursor:pointer}
@@ -19,5 +32,5 @@
 .erc-axis{font:10px system-ui;fill:#63758a}
 .erc-grid{stroke:#e7edf3;stroke-width:1}
 .erc-point-active{stroke:#142840;stroke-width:2}
-@media(max-width:560px){.chat-chart-card{padding:10px}.chat-chart-canvas svg{min-height:160px}}
-@media print{.erc-tooltip{display:none!important}.erc-legend{max-height:none;overflow:visible}.chat-chart-card{break-inside:avoid;box-shadow:none}}
+@media(max-width:560px){.chat-chart-card{padding:10px;flex-basis:min(280px,100%);width:min(280px,100%)}.chat-chart-card.is-expanded{flex-basis:100%;width:100%}.chat-chart-card.is-expanded .erc-metric-value{font-size:42px}}
+@media print{.erc-tooltip,.chat-chart-size{display:none!important}.erc-legend{max-height:none;overflow:visible}.chat-chart-card{break-inside:avoid;box-shadow:none}}

@@ -1751,6 +1751,11 @@ def conversation_messages(request, thread_id):
         if msg["role"] == Message.Role.AI and msg["citations"] and not visible_citations(msg["citations"], request.user):
             msg["content"] = "此回答的来源已不可访问或已变化，请重新检索。"
             msg["citations"] = []
+    from .citation_numbers import annotate_citations, visible_kb_names
+    citation_names = visible_kb_names([citation for msg in msgs for citation in msg['citations']], request.user)
+    for msg in msgs:
+        if msg['role'] == Message.Role.AI and msg['citations']:
+            annotate_citations(msg['citations'], kb_names=citation_names, display_only=True)
     return JsonResponse({"thread_id": conv.thread_id, "title": conv.title,
                          "kb_slug": "", "messages": msgs,
                          "active_answer": ({"id": active.pk, **(state(active.pk) or {})} if active else None)})

@@ -273,6 +273,73 @@ class AnalysisExportTests(TestCase):
             with self.assertRaises(ValueError):
                 interactive_chart({'kind': 'trend', 'series': series}, {'op': 'count'}, self.kb.name)
 
+    def test_ungrouped_summary_automatically_publishes_a_verified_value_card(self):
+        self.row('A', '0')
+        self.row('B', '7.5')
+        self.row('C', 'invalid')
+        params = {**self.params, 'group': ''}
+        service = TrackerQuery(lambda kb: True)
+        result = json.loads(agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, params, 'plot'))
+        snapshot = service.evidence[0]
+        chart = snapshot['chart']
+        self.assertEqual(chart['type'], 'metric')
+        self.assertEqual(chart['value'], 7.5)
+        self.assertIn('Number', chart['title'])
+        self.assertEqual(chart['subtitle'], self.kb.name)
+        self.assertEqual(chart['quality'], {'valid': 2, 'records': 3})
+        self.assertNotIn('chart', result)
+        self.assertNotIn('chart', json.loads(snapshot['text']))
+        self.assertTrue(validate_sources(service.evidence, self.owner.pk))
+        citation = {'kind': 'tracker', 'kb_slug': self.kb.slug,
+                    'result_digest': snapshot['result_digest'], 'tracker_snapshot': snapshot}
+        restored = json.loads(json.dumps(citation))
+        self.assertTrue(visible_citations([restored], self.owner))
+        for change in ({'value': 9000}, {'title': 'Invented title'}, {'subtitle': 'Another source'}):
+            altered = deepcopy(restored)
+            altered['tracker_snapshot']['chart'].update(change)
+            self.assertFalse(visible_citations([altered], self.owner))
+
+    def test_value_card_retains_real_zero_missing_and_empty_count(self):
+        params = {**self.params, 'group': '', 'chart_type': 'metric'}
+        self.row('A', '0')
+        _, data = query_analysis(self.owner, self.kb.slug, params)
+        self.assertEqual(interactive_chart(data, params, self.kb.name)['value'], 0)
+        TrackerRow.objects.all().delete()
+        self.row('A', 'invalid')
+        _, data = query_analysis(self.owner, self.kb.slug, params)
+        self.assertIsNone(interactive_chart(data, params, self.kb.name)['value'])
+        TrackerRow.objects.all().delete()
+        count_params = {**params, 'op': 'count', 'measure': ''}
+        _, data = query_analysis(self.owner, self.kb.slug, count_params)
+        chart = interactive_chart(data, count_params, self.kb.name)
+        self.assertEqual(chart['value'], 0)
+        self.assertEqual(chart['title'], 'Records')
+        self.assertEqual(chart['quality'], {'valid': 0, 'records': 0})
+
+    def test_legacy_auto_summary_bar_snapshot_remains_valid_after_value_card_default(self):
+        self.row('A', '3')
+        service = TrackerQuery(lambda kb: True)
+        params = {**self.params, 'group': '', 'chart_type': 'bar'}
+        agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, params, 'plot')
+        snapshot = service.evidence[0]
+        snapshot['analysis_query'].pop('chart_type')
+        self.assertEqual(snapshot['chart']['type'], 'bar')
+        self.assertTrue(validate_sources(service.evidence, self.owner.pk))
+        snapshot['chart']['series'][0]['values'][0] = 9000
+        self.assertFalse(validate_sources(service.evidence, self.owner.pk))
+
+    def test_explicit_value_card_rejects_grouped_trend_and_multiple_outputs(self):
+        self.row('A', '3')
+        _, grouped = query_analysis(self.owner, self.kb.slug, self.params)
+        self.assertEqual(interactive_chart(grouped, self.params, self.kb.name)['type'], 'bar')
+        for data, params in (
+            (grouped, {**self.params, 'chart_type': 'metric'}),
+            ({'kind': 'trend', 'series': []}, {'chart_type': 'metric'}),
+            ({'kind': 'tracker_summary', 'groups': [{'metrics': {'value': 1, 'other': 2}}]}, {'chart_type': 'metric'}),
+        ):
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                interactive_chart(data, params, self.kb.name)
+
     def test_agent_period_evidence_freezes_now_and_rejects_changed_data(self):
         row = self.row('A', '3')
         service = TrackerQuery(lambda kb: True)
