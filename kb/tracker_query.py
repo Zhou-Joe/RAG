@@ -75,6 +75,8 @@ class TrackerQuery:
                     from .publication import digest
                     snapshot = {'kind': 'tracker', 'source': '追踪表数据库查询', 'text': text,
                                 'query': params, 'response_chars': cap, 'result_digest': digest(text)}
+                    if result.get('chart'):
+                        snapshot['chart'] = result['chart']
                     if snapshot not in self.evidence:
                         self.evidence.append(snapshot)
                 tables = self.tables(params.get('kb_slug', ''))
@@ -161,7 +163,21 @@ class TrackerQuery:
 
     def lookup(self, kb_slug='', query='', columns=None, filters=None, order_by=None, metrics=None,
                group_by=None, limit=20, offset=0, status='done', cell_chars=CELL_CHARS, cap=RESPONSE_CHARS,
-               _export=False, _matching_ids=False):
+               _export=False, _matching_ids=False, presentation='text', card_title='', unit=''):
+        if presentation not in ('auto', 'text'):
+            raise ValueError('presentation 使用 auto 或 text。')
+        if not isinstance(card_title, str) or len(card_title) > 160 or not isinstance(unit, str) or len(unit) > 40:
+            raise ValueError('card_title 最多160字符，unit 最多40字符。')
+        selected_columns = columns
+
+        def present(result):
+            if presentation != 'auto' or status != 'done' or _export or _matching_ids:
+                return result
+            from .value_cards import attach_value_card
+            return attach_value_card(result, columns=selected_columns, metrics=metrics,
+                group_by=group_by, order_by=order_by, limit=limit, offset=offset,
+                title=card_title, unit=unit, cap=cap)
+
         integer(limit, 'limit', 1, 50000 if _export else 100)
         integer(offset, 'offset', 0, 1000000)
         integer(cell_chars, 'cell_chars', 80, 8000)
@@ -274,8 +290,8 @@ class TrackerQuery:
         applied = {'kb_slug':kb_slug, 'query':query, 'filters':filters or [], 'status':status,
                    'metrics':metrics or [], 'group_by':group_by or []}
         if metrics or group_by:
-            return self.summary(expression, lambda: rows, total, metrics, group_by, limit, offset, cap, applied,
-                                exporting=_export)
+            return present(self.summary(expression, lambda: rows, total, metrics, group_by, limit, offset, cap, applied,
+                                        exporting=_export))
         if columns is None:
             columns = labels[:6]
             if '采集日期' in labels and '采集日期' not in columns:
@@ -309,7 +325,7 @@ class TrackerQuery:
         result['next_offset'] = offset+consumed if consumed and result['has_more'] else None
         if not consumed and offset<total:
             result['notice'] = '本页字段过长，未返回记录；请选择更少 columns，或使用 metrics 在数据库统计。'
-        return result
+        return present(result)
 
     def summary(self, expression, get_rows, total, metrics, group_by, limit, offset, cap, applied, *, exporting=False):
         """所有过滤后记录参与数据库汇总，分页仅限制返回的分组，不影响统计。"""
@@ -396,6 +412,7 @@ def validate_snapshot(snapshot, user):
         return False
     try:
         result = TrackerQuery(lambda kb:kb_accessible(user,kb)).lookup(cap=cap, **params)
-        return digest(encode(result))==snapshot['result_digest']
+        return (digest(encode(result))==snapshot['result_digest']
+                and snapshot.get('chart') == result.get('chart'))
     except (ValueError, TypeError, OverflowError):
         return False

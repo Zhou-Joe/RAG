@@ -368,6 +368,33 @@ class RagSelection:
         self.evidence[:] = [e for e in self.evidence if not e.get('rag_selected')]
         self.citations[:] = [c for c in self.citations if not c.get('rag_selected')]
 
+    def show_value(self, candidate_id, *, title, value, unit='', quote=''):
+        with self.lock:
+            try:
+                self._ids([candidate_id], read=True)
+                selected = self.state.get('selected_ids', [])
+                if candidate_id not in selected or not self.state.get('finalized'):
+                    raise ValueError('Select the supporting passage with kb_select_evidence first.')
+                for selected_id in selected:
+                    self._current(selected_id)
+                from .value_cards import grounded_value_card
+                snapshot = self.candidates[candidate_id]['snapshot']
+                card = grounded_value_card(snapshot, title=title, value=value, unit=unit, quote=quote)
+                cards = snapshot.setdefault('value_cards', [])
+                if card not in cards:
+                    if sum(len(item['snapshot'].get('value_cards', [])) for item in self.candidates.values()) >= 8:
+                        raise ValueError('At most eight source value cards can be displayed.')
+                    cards.append(card)
+                chosen = json.loads(self.select(list(selected)))
+                if chosen.get('error'):
+                    raise ValueError(chosen['error'])
+                return encode({'presentation': 'value_card', 'chart': card['chart'],
+                    'notice': 'The value card is displayed above the answer with its selected source. '
+                              'For a simple exact-answer question, return only its assigned [N] citation. '
+                              'Do not repeat the value or add insights, caveats, or other prose.'})
+            except ValueError as exc:
+                return encode({'error': str(exc)})
+
     def select(self, candidate_ids):
         with self.lock:
             try:
@@ -383,6 +410,8 @@ class RagSelection:
                         'highlights':[],'chunks':[],'images':[],'candidate_ids':[],
                         'selected_chunk_ids':[],'rag_selected':True})
                     entry['candidate_ids'].append(cid)
+                    if snap.get('value_cards'):
+                        entry.setdefault('value_cards', []).extend(snap['value_cards'])
                     if snap['chunk_id']:
                         entry['selected_chunk_ids'].append(snap['chunk_id'])
                     if snap['chunk_id'] and snap['page']:

@@ -12,6 +12,8 @@ class Node{
     this.classList={add:name=>{this.className=[...new Set([...this.className.split(' ').filter(Boolean),name])].join(' ')},remove:name=>{this.className=this.className.split(' ').filter(n=>n!==name).join(' ')}};}
   append(...nodes){for(const node of nodes){node.remove?.();node.parentNode=this;this.children.push(node);}}
   appendChild(node){this.append(node);return node;}
+  insertBefore(node,reference){node.remove?.();node.parentNode=this;const index=this.children.indexOf(reference);if(index<0)this.children.push(node);else this.children.splice(index,0,node);return node;}
+  get nextSibling(){const siblings=this.parentNode?.children||[];return siblings[siblings.indexOf(this)+1]||null;}
   replaceChildren(...nodes){this.children.forEach(child=>child.parentNode=null);this.children=[];this._text='';this.append(...nodes);}
   remove(){if(this.parentNode){this.parentNode.children=this.parentNode.children.filter(node=>node!==this);this.parentNode=null;}}
   set textContent(value){this.replaceChildren();this._text=String(value);}
@@ -29,6 +31,21 @@ function environment(){const document=new Node('document');document.createElemen
   const window=new Node('window');window.innerWidth=800;window.innerHeight=600;document.defaultView=window;document.body=document.createElement('body');
   const host=document.createElement('div');document.body.append(host);return {document,window,host};}
 function chart(type='line',extra={}){return {type,title:'Exact <source>',labels:['A','B','C'],series:[{label:'Rate <b>',values:[0,null,2]}],options:{legend:true},...extra};}
+
+test('value cards and the shared visual row stay above the answer across redraws',()=>{
+  const h=environment(),bubble=h.document.createElement('div');h.host.appendChild(bubble);
+  const answer=h.document.createElement('div');answer.className='answer';answer.textContent='[1]';
+  const sources=h.document.createElement('div');sources.className='cite-row';bubble.append(answer,sources);
+  const row=visuals.rowFor(bubble);
+  assert.deepEqual(bubble.children,[row,answer,sources]);
+  assert.equal(visuals.mount(row,[{type:'metric',title:'Temperature',value:0,unit:'°C'}]),1);
+  assert.ok(row.textContent.includes('Temperature'));assert.ok(row.textContent.includes('0 °C'));
+  assert.equal(visuals.rowFor(bubble),row);
+  assert.deepEqual(bubble.children,[row,answer,sources]);
+  bubble.appendChild(row);assert.equal(visuals.rowFor(bubble),row);
+  assert.deepEqual(bubble.children,[row,answer,sources]);
+  visuals.destroy(row);
+});
 
 test('all six extended views normalize and mount through the actual compact chat bridge',()=>{
   const h=environment(),specs=[

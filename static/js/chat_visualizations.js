@@ -134,9 +134,11 @@
     let row = Array.from(bubble.children).find(node => node.className?.split(/\s+/).includes('chat-visual-row'));
     if (!row) {
       row = bubble.ownerDocument.createElement('div'); row.className = 'chat-visual-row';
-      const sources = Array.from(bubble.children).find(node => node.className?.split(/\s+/).includes('cite-row'));
-      if (sources) bubble.insertBefore(row, sources); else bubble.appendChild(row);
     }
+    const answer = Array.from(bubble.children).find(node => node.className?.split(/\s+/).includes('answer'));
+    if (answer) {
+      if (row.nextSibling !== answer) bubble.insertBefore(row, answer);
+    } else if (!row.parentNode) bubble.appendChild(row);
     return row;
   }
   function mount(container, charts, options = {}) {

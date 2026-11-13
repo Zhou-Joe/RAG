@@ -135,6 +135,10 @@ def validate_sources(evidence, user_id):
         rows = get_chunks(doc.kb.slug, doc.original_name)
         if not any(row.get('chunk_id') == ev['chunk_id'] and digest(row['text']) == ev['chunk_digest'] for row in rows):
             return False
+        if ev.get('value_cards'):
+            from .value_cards import grounded_card_current
+            if not isinstance(ev['value_cards'], list) or any(not grounded_card_current(card, ev) for card in ev['value_cards']):
+                return False
     return True
 
 
@@ -169,6 +173,20 @@ def visible_citations(citations, user):
             return False
         if citation.get('document_digest') and digest(doc.md_content) != citation['document_digest']:
             return False
+        if 'value_cards' in citation:
+            from .value_cards import grounded_card_current
+            cards = citation['value_cards']
+            if not isinstance(cards, list) or len(cards) > 8:
+                return False
+            rows = get_chunks(doc.kb.slug, doc.original_name)
+            for card in cards:
+                if not isinstance(card, dict):
+                    return False
+                row = next((row for row in rows if row.get('chunk_id') == card.get('chunk_id')), None)
+                if row is None or not grounded_card_current(card, {'kind': 'text', 'doc_id': str(doc.pk),
+                        'chunk_id': row['chunk_id'], 'document_digest': digest(doc.md_content),
+                        'chunk_digest': digest(row['text']), 'text': row['text']}):
+                    return False
         image_snapshots=citation.get('image_snapshots',[])
         if not isinstance(image_snapshots,list) or any(not isinstance(ev,dict) or ev.get('doc_id')!=str(doc.pk)
                 or not image_snapshot_current(ev,user) for ev in image_snapshots):return False

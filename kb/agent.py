@@ -890,6 +890,19 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         """
         return rag_selection.select(candidate_ids)
 
+    def kb_show_value(candidate_id: str, title: str, value: float, quote: str, unit: str = '') -> str:
+        """Display an exact numeric answer from a selected document passage as a value card.
+
+        Use for simple manual/specification questions too, not only business data.
+        First read the passage and select it with kb_select_evidence. Copy quote
+        exactly (up to400 characters); value and its original unit must appear
+        together in it. No calculation, unit conversion or unsourced values.
+        title is a short, clear business label. The card appears above the answer.
+        Once shown, answer a simple exact query with only the assigned [N] citation;
+        do not repeat the number or add insights, caveats, or boilerplate.
+        """
+        return rag_selection.show_value(candidate_id, title=title, value=value, unit=unit, quote=quote)
+
     def kb_image_search(query: str, kb_slug: str = "", top: int = 0):
         """按图片描述在知识库里精确找图（向量召回候选 → 概率前列候选逐张视觉复核）。
 
@@ -1147,7 +1160,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
                         group: str = '', measure: str = '', date_from: str = '', date_to: str = '',
                         object_field: str = '', object_values: list[str] | None = None,
                         period: Literal['minute', 'hour', 'day', 'week', 'month', 'year'] = 'day',
-                        span: int = 1, output: Literal['preview', 'excel', 'plot', 'both'] = 'preview',
+                        span: int = 1, output: Literal['auto', 'preview', 'excel', 'plot', 'both'] = 'auto',
                         chart_metric: Literal['value', 'change', 'change_pct'] = 'value',
                         chart_type: Literal['auto', 'metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'] = 'auto',
                         feed_id: str = '', query: str = '', filters: list[TrackerFilter] | None = None) -> str:
@@ -1163,7 +1176,8 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             period+span 指每N分钟/小时/天/周/月/年，最多500周期；自动计算较上期变化及变化率。
         date_from/date_to 按【记录更新时间】筛选，建议明确提供；ISO日期或时间，时区按数据源/站点。
             日期结束值包含当天，日期时间结束值不包含该时刻。未提供时summary用全部历史，trend用默认最近范围。
-        output=preview仅返回有界预览；excel导出全部匹配分组（最多50000组），plot生成可下载SVG；both同时生成。
+        output=auto为默认：单个总体summary自动显示值卡片，其它分析返回预览。
+            preview显式选择纯文字结果；excel导出全部匹配分组（最多50000组），plot显示图表；both同时生成。
             图表summary最多50组，trend最多8对象。chart_metric仅控制趋势图口径，不改变Excel的完整列。
         数值字符串参与计算，非数值排除并报告有效条数；缺失周期不补零，上期为0不算变化率。
         feed_id可选，仅用于结构化采集表。文件直接来自数据库，返回真实下载URL，不把预览抄成全量Excel。
@@ -1182,6 +1196,8 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         from .analysis_exports import agent_analysis
         if not kb_slug:
             return '请明确提供本次选择的 kb_slug。'
+        if output == 'auto':
+            output = 'plot' if mode == 'summary' and not group else 'preview'
         params = {'kind': mode, 'op': operation, 'group': group, 'measure': measure,
                   'from': date_from, 'to': date_to, 'object_field': object_field,
                   'object_value': object_values or [], 'period': period, 'span': str(span),
@@ -1245,7 +1261,8 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
     def tracker_lookup(query: str = "", kb_slug: str = "", columns: list[str] | None = None,
                        filters: list[TrackerFilter] | None = None, order_by: list[TrackerOrder] | None = None,
                        metrics: list[TrackerMetric] | None = None, group_by: list[TrackerGroup] | None = None,
-                       limit: int = 20, offset: int = 0, status: str = "done", cell_chars: int = 800) -> str:
+                       limit: int = 20, offset: int = 0, status: str = "done", cell_chars: int = 800,
+                       presentation: Literal['auto', 'text'] = 'auto', card_title: str = '', unit: str = '') -> str:
         """在数据库查询追踪表；字段已知时直接查询，不清楚结构才用 tracker_preview。明确指定库，默认已完成记录。
 
         query: 文档名、来源ID或已配置字段值中的关键词；筛选覆盖全部历史，不限最近200条。
@@ -1264,11 +1281,17 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         limit/offset: 每页1至100条，依据next_offset翻页；has_more表示还有记录/分组。
         status: 默认done，可显式选择proposed/pending/running/failed/all；待确认值不当作已批准事实。
         cell_chars: 单元格最多80至8000字符，默认800；长文本应按$row_id精确过滤并只选一列，再提高本值。
+        presentation=auto默认自动显示单值卡片：一个无分组指标，或明确只选一列且结果唯一的数值。
+            查询最新值时按真实业务时间order_by排序并limit=1；不要用总和替代当前值。
+            card_title用简短业务标题，unit仅用资料中已知单位。卡片在回答顶部，只显示标题和值（含单位）。
+            简单问题的精确答案已由卡片显示时，最终仅输出真实[N]引用，不重复数值、不补洞察或免责声明。
+            用户明确要求纯文字时传presentation=text；需解释、比较或分析时按用户需要补充，不能凭样例推断。
         返回JSON；单元格truncated表示省略，需缩小columns/过滤或用metrics，不把省略文本当完整数据。
         """
         if not kb_slug:return '请明确提供本次选择的 kb_slug；需要选库时调用 list_knowledge_bases。'
         text = tracker_query.call('lookup', kb_slug=kb_slug, query=query, columns=columns,
-            filters=filters, order_by=order_by, metrics=metrics, group_by=group_by, limit=limit, offset=offset, status=status, cell_chars=cell_chars)
+            filters=filters, order_by=order_by, metrics=metrics, group_by=group_by, limit=limit, offset=offset,
+            status=status, cell_chars=cell_chars, presentation=presentation, card_title=card_title, unit=unit)
         _tracker_citations()
         return text
 
@@ -1422,8 +1445,19 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
     )
     system_prompt += (
         '\n主动选择有用的可视化：用户问具体业务数据、统计、对比、变化或趋势时，'
-        '优先用现有可视化工具直接回答，不要求用户再说“画图”或确认一次。先用一句简短结论回答，'
-        '再配最有助于理解的1至2个紧凑卡片或图表，并在相关结论旁保留真实[N]来源标注。'
+        '优先用现有可视化工具直接回答，不要求用户再说“画图”或确认一次。'
+        '简单或随口的精确数值问题（如“现在多少度”“这个项目要等多久”“一共多少”）也默认用单值卡片，'
+        '不能因为问题简单、口语化或没有要求画图而只给文字。卡片显示在回答最上方。'
+        '简单查询已有精确答案时，卡片和真实引用就是完整回答：最终仅输出分配的[N]引用，'
+        '不要加开场白、重复数值、解释、洞察、建议、免责声明或泛泛的“以现场为准”等附言。'
+        '用户要求原因、解读、对比或有必须澄清的歧义时才补必要说明；没有可靠答案时明确说明不足。'
+        '复杂问题按需要配1至2个紧凑卡片或图表，并在相关结论旁保留真实[N]来源标注。'
+        '查询当前值、最新值或某条记录的具体指标，使用tracker_lookup并显式columns=[实际指标字段]；'
+        '需要最新记录时按实际业务时间排序且limit=1，给出简短card_title及已知unit。'
+        '默认presentation=auto自动把精确单值变成卡片，无需额外绘图调用。'
+        '简单问题的数值来自文档原文时，读取并用kb_select_evidence选定后调用kb_show_value，'
+        '给实际candidate_id、简短title、原文value和unit及原样quote；不要为了卡片生成Python脚本。'
+        '卡片必须保留用户指定对象、口径与必要条件，不拿另一对象或另一个日期的精确数值冒充答案。'
         '只问一个业务总数、合计、平均值、最小值或最大值时，使用'
         'tracker_analyze(mode="summary", group="", operation=实际运算, output="plot", chart_type="metric")；'
         '除count外提供实际measure字段。卡片只显示清楚的业务标题和数值（可带单位），'
@@ -1432,7 +1466,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         '按时间看变化时，在时间口径正确的前提下用trend和line，按用户需要选择period/span及对象。'
         '份额或构成问题仅在一个非负count/sum系列且总量为正时选pie/doughnut；'
         '需要组合视图且有至少两个兼容的真实趋势系列时才选combo，不为了装饰使用饼图或组合图。'
-        '显示卡片或图表时明确传output="plot"；默认preview不会显示可视化。'
+        'tracker_analyze默认output="auto"会把无分组summary显示为值卡片；其它图表明确传output="plot"。'
         '只有用户同时需要Excel时才用output="both"，不要为了显示卡片附送不需要的导出说明。'
         '已有上下文足够时复用真实字段与查询条件；仅在结构未知时调用tracker_preview，'
         '不为画图额外读取整表、隐藏字段或超过需要的明细。统计和绘图基于同一个完整、权限校验后的查询。'
@@ -1464,10 +1498,10 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
     return create_agent(
         middleware=[citation_guide, RetrievalBudget(max_rounds=7,selection=rag_selection)],
         model=_get_llm(llm_cfg),
-        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, tracker_visualize, request_verified_export]
+        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_show_value, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, tracker_visualize, request_verified_export]
                if llm_cfg.get("qa_enhance") else
-               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, tracker_visualize, write_analysis, check_analysis, request_verified_export]),
-        system_prompt=system_prompt + ("\n增强模式：可直接复用会话中已有的原文、工具结果或已核对的图谱事实，不要求每轮重新检索。历史回答可帮助理解，但核实时使用保存的原文依据。展示有出处的文本或 Markdown 表格。台账Excel和图表使用tracker_analyze返回真实下载链接；来源数据在发布前复核。其它已核对Markdown表格可调用request_verified_export生成CSV。此模式不执行自由生成脚本。" if llm_cfg.get("qa_enhance") else ""),
+               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_show_value, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, tracker_visualize, write_analysis, check_analysis, request_verified_export]),
+        system_prompt=system_prompt + ("\n增强模式：可直接复用会话中已有的原文、工具结果或已核对的图谱事实，不要求每轮重新检索。历史回答可帮助理解，但核实时使用保存的原文依据。精确单值问题仅显示卡片与引用；其它问题按需展示有出处的文本或 Markdown 表格。台账Excel和图表使用tracker_analyze返回真实下载链接；来源数据在发布前复核。其它已核对Markdown表格可调用request_verified_export生成CSV。此模式不执行自由生成脚本。" if llm_cfg.get("qa_enhance") else ""),
         checkpointer=checkpointer,
         name="engenie",
     )
@@ -1729,7 +1763,7 @@ async def run_agent_stream(
 
             elif etype == "on_tool_end":
                 output = data.get("output")
-                if name in ('kb_read_chunks','kb_select_evidence'):
+                if name in ('kb_read_chunks','kb_select_evidence','kb_show_value'):
                     yield SSE_CITATIONS, {'citations':public_citations(),'replace':True}
                 # write_analysis 结束 → 发出 code_run，前端在 Pyodide 沙箱执行
                 if name == "write_analysis" and run_id in pending_code:
@@ -1870,6 +1904,8 @@ def _reason_from_tool_calls(tool_calls: list) -> str:
             parts.append('正在读取所选文档的原文片段。')
         elif name == 'kb_select_evidence':
             parts.append('正在确认本次回答实际采用的原文依据。')
+        elif name == 'kb_show_value':
+            parts.append('正在展示答案卡片。')
         elif name == "kb_fetch_doc":
             c = args.get("contains") or args.get("section") or ""
             parts.append(f"我从文档中提取完整的相关片段{('（'+c+'）') if c else ''}。")
@@ -1887,6 +1923,7 @@ def _tool_label(name: str) -> str:
         "kb_read_chunks": "读取所选原文片段…",
         "kb_relationships": "查看知识库关联…",
         "kb_select_evidence": "确认最终引用依据…",
+        "kb_show_value": "展示答案卡片…",
         "kb_graph_search": "查询已核对的图谱关系…",
         "tracker_preview": "查看追踪表字段与样例…",
         "tracker_lookup": "筛选或统计追踪表…",
