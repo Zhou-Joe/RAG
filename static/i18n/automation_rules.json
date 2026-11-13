@@ -8,7 +8,7 @@
     "仅影响页面展示与分析选项；采集与原始数据保持完整，可随时恢复字段。": "Applies to display and analysis choices. Collection and original data stay complete; fields can be restored at any time.",
     "请至少选择一个已有字段，或展示全部字段。": "Select at least one existing field, or show all fields.",
     "展示字段配置无效。": "Invalid displayed-field configuration.",
-    "自动采集": "Automatic collection",
+    "自动采集": "Auto Collection",
     "条件触发": "Condition-based delivery",
     "条件检查计划": "Condition check schedule",
     "调整检查频率": "Adjust check frequency",

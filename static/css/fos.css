@@ -202,6 +202,52 @@ h1{font-family:var(--fd);font-weight:700;font-size:22px;line-height:1.3;letter-s
 .kb-actions form{display:inline-flex;margin-left:auto}
 .kb-actions .btn.danger{border-color:transparent;background:transparent;padding:0 10px}
 .kb-actions .btn.danger:hover{background:var(--err-soft);color:var(--danger)}
+/* Automatic collection: a gear/bolt mark and an explicit, translated label.
+   Attribute selectors also style cards already cached by a running Django worker. */
+.kb-list-glyph.kb-auto-glyph,.kb-list-glyph[title]{
+  color:var(--violet);background:var(--violet-soft);
+  border:1px solid color-mix(in srgb,var(--violet) 24%,transparent);
+}
+.kb-auto-glyph::before,.kb-list-glyph[title]::before,.kb-auto-icon{
+  content:"";display:block;flex:none;width:25px;height:25px;background-color:currentColor;
+  -webkit-mask:url("../icons/kb-automation.svg") center/contain no-repeat;
+  mask:url("../icons/kb-automation.svg") center/contain no-repeat;
+}
+.kb-list-glyph[title]>svg{display:none}
+.kb-list-card.is-pinned .kb-auto-glyph::before,.kb-list-card.is-pinned .kb-list-glyph[title]::before{width:30px;height:30px}
+.kb-auto-badge,.kb-list-card:has(.kb-list-glyph[title]) .kb-list-identity small>span:first-child{
+  display:inline-flex;align-items:center;gap:4px;flex:none;vertical-align:middle;
+  padding:2px 7px;border-radius:5px;border:1px solid color-mix(in srgb,var(--violet) 22%,transparent);
+  color:var(--violet);background:var(--violet-soft);font:650 10.5px/1.35 var(--fb);white-space:nowrap;
+}
+.kb-auto-badge .kb-auto-icon{width:14px;height:14px}
+.is-auto-collected .kb-list-identity small,.kb-list-card:has(.kb-list-glyph[title]) .kb-list-identity small{
+  display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;white-space:normal;overflow:visible;
+}
+/* Hide old card actions while existing workers still cache that markup. */
+.kb-list-actions>form[data-confirm]{display:none}
+.kb-library-panel{margin:16px 0 0;border:1px solid var(--rule);border-radius:var(--radius-lg);background:var(--surface);overflow:hidden}
+.kb-library-summary{padding:16px 18px;cursor:pointer;list-style:none;user-select:none}
+.kb-library-summary::-webkit-details-marker{display:none}
+.kb-library-summary::marker{content:""}
+.kb-library-summary:hover{background:var(--surface-2)}
+.kb-library-summary:focus-visible{outline-offset:-3px}
+.kb-library-summary h2{display:flex;align-items:center;gap:12px;margin:0;font-size:15px;line-height:1.4}
+.kb-library-copy{flex:1;min-width:0}
+.kb-library-title{display:block;font-weight:650;color:var(--text)}
+#kbFavoriteSection .kb-library-title{color:var(--brand)}
+.kb-library-description{display:block;font-size:12px;font-weight:400;color:var(--dim);line-height:1.5;margin-top:3px}
+.kb-library-chevron{display:inline-flex;flex:none;width:18px;height:18px;color:var(--mute);transition:transform .16s}
+.kb-library-chevron svg{width:100%;height:100%}
+.kb-library-panel[open]>.kb-library-summary .kb-library-chevron{transform:rotate(90deg)}
+.kb-library-summary .count-chip{flex:none;margin:0;font-weight:500}
+.kb-library-body{padding:0 16px 16px;background:var(--paper);border-top:1px solid var(--rule-soft)}
+.kb-library-body>.kb-list-grid,.kb-library-body>.public-list{margin-top:16px}
+@media(max-width:520px){.kb-library-summary{padding:13px 12px}.kb-library-summary h2{gap:8px}.kb-library-body{padding:0 10px 10px}.kb-library-description{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.kb-library-chevron{transition:none}}
+@media(forced-colors:active){
+  .kb-auto-glyph::before,.kb-list-glyph[title]::before,.kb-auto-icon{forced-color-adjust:none;background-color:CanvasText}
+}
 .empty{text-align:center;color:var(--mute);padding:48px 20px;grid-column:1/-1;font-family:var(--fd);font-weight:500;font-size:13px}
 
 /* ── Upload area ── */
@@ -732,6 +778,8 @@ html[data-theme="dark"] .fos-dialog{box-shadow:0 24px 64px -16px rgba(0,0,0,.6),
   border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:12px}
 .fos-dialog .dialog-actions{display:flex;gap:8px;justify-content:flex-end;padding:16px 0 20px}
 .fos-dialog .dialog-actions .btn{min-width:72px;justify-content:center}
+.fos-dialog .dialog-actions.kb-edit-actions{flex-wrap:wrap;justify-content:space-between}
+.kb-edit-save-actions{display:flex;gap:8px;margin-inline-start:auto}
 /* 确认弹窗正文 / 表单弹窗提示行（fosConfirm / fosPrompt 通用） */
 .fos-dialog .dialog-msg{font-size:13px;line-height:1.7;color:var(--dim);padding:0 24px;margin:-4px 0 0;white-space:pre-line}
 .fos-dialog .dialog-hint{font-size:11px;color:var(--mute);padding:0 24px;margin:-4px 0 4px}

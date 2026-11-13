@@ -225,6 +225,35 @@
     $('feedKbRowsHead').replaceChildren(line);
   }
 
+  function setAnalysisControls(open) {
+    const controls = $('feedKbAnalysisControls'), toggle = $('feedKbAnalysisControlsToggle');
+    if (!controls || !toggle) return;
+    controls.hidden = !open; toggle.setAttribute('aria-expanded', String(open));
+    if (!open) setObjectOpen(false);
+  }
+
+  function initCompactAnalysis() {
+    const form = $('feedKbAnalysisForm');
+    if (!form || $('feedKbAnalysisToolbar')) return;
+    const modes = form.querySelector('.fkd-mode-switch'), footer = form.querySelector('.fkd-analysis-footer');
+    const apply = $('feedKbApply'), exportButton = $('feedKbExport');
+    const toolbar = element('div', 'fkd-analysis-toolbar'); toolbar.id = 'feedKbAnalysisToolbar';
+    const query = element('div', 'fkd-query-summary'); query.id = 'feedKbQuerySummary';
+    query.setAttribute('aria-live', 'polite');
+    const toggle = element('button', 'btn outline fkd-analysis-configure', uiText('筛选与设置'));
+    toggle.id = 'feedKbAnalysisControlsToggle'; toggle.type = 'button';
+    toggle.setAttribute('aria-controls', 'feedKbAnalysisControls'); toggle.setAttribute('aria-expanded', 'false');
+    const controls = element('div', 'fkd-analysis-controls'); controls.id = 'feedKbAnalysisControls'; controls.hidden = true;
+    if (footer) footer.remove();
+    toolbar.append(modes, query, toggle, apply);
+    while (form.firstChild) controls.appendChild(form.firstChild);
+    form.append(toolbar, controls);
+    const header = $('feedKbAggregate').querySelector('.fkd-analysis-heading');
+    if (header) header.appendChild(exportButton);
+    toggle.addEventListener('click', () => setAnalysisControls(controls.hidden));
+    form.addEventListener('invalid', () => setAnalysisControls(true), true);
+  }
+
   function updateApplyState() {
     const needsNumber = $('feedKbOperation').value !== 'count';
     $('feedKbApply').disabled = state.analysisLoading || state.optionsLoading || state.optionsError
@@ -232,6 +261,7 @@
       || (needsNumber && !$('feedKbMeasure').value) || (periodMode() && !state.objects.length);
     $('feedKbExport').disabled = state.exporting || state.analysisLoading || state.analysisDirty
       || !state.analysisValid || !state.appliedSignature;
+    syncCompactSummary();
   }
 
   function markAnalysisChanged() {
@@ -674,6 +704,34 @@
     host.hidden = !entries.length;
   }
 
+  function syncCompactSummary() {
+    const host = $('feedKbQuerySummary');
+    if (!host) return;
+    const label = id => {
+      const node = $(id), option = node.selectedOptions?.[0];
+      return option ? uiText(window.FOSI18n?.originalText?.(option) || option.textContent) : node.value;
+    };
+    const entries = [[label('feedKbOperation'), false]];
+    if ($('feedKbOperation').value !== 'count' && $('feedKbMeasure').value) entries.push([$('feedKbMeasure').value, true]);
+    if ($('feedKbAnalysisPreset').value === 'custom') {
+      entries.push([`${$('feedKbAnalysisFrom').value.replace('T', ' ')} – ${$('feedKbAnalysisTo').value.replace('T', ' ')}`, true]);
+    } else entries.push([label('feedKbAnalysisPreset'), false]);
+    if (periodMode()) {
+      entries.push([`${periodSpan()} × ${label('feedKbGroup')}`, false]);
+      entries.push([state.objects.length ? uiText(`已选 ${state.objects.length} / 8 个对象`) : uiText('选择对象'), false, !state.objects.length]);
+    } else if ($('feedKbSummaryGroup').value) entries.push([`${uiText('分组字段')}: ${$('feedKbSummaryGroup').value}`, true]);
+    clear(host);
+    entries.forEach(([text, preserve, chooseItems], index) => {
+      if (index) host.append(document.createTextNode(' · '));
+      const node = element(chooseItems ? 'button' : 'span', chooseItems ? 'fkd-query-pick' : preserve ? 'notranslate' : '', text);
+      if (chooseItems) {
+        node.type = 'button';
+        node.addEventListener('click', () => { setAnalysisControls(true); setObjectOpen(true); });
+      }
+      host.append(node);
+    });
+  }
+
   function bindAnalysisChips() {
     document.querySelectorAll('[data-fkd-operation]').forEach(button => button.addEventListener('click', () => {
       if (!['count', 'avg', 'sum', 'min', 'max'].includes(button.dataset.fkdOperation)) return;
@@ -752,6 +810,7 @@
       else renderSummary(data, append, snapshot);
       state.analysisDirty = false; state.appliedSignature = signature;
       state.analysisValid = true;
+      setAnalysisControls(false);
     } catch (error) {
       if (token === state.summaryToken) {
         state.analysisValid = false;
@@ -813,6 +872,7 @@
       await loadAnalysis();
     }
   }
+  initCompactAnalysis();
   $('feedKbFilters').addEventListener('submit', event => { event.preventDefault(); void loadRows(); });
   $('feedKbReset').addEventListener('click', () => {
     const previousFeed = $('feedKbFeed').value;

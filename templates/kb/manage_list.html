@@ -86,6 +86,7 @@
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M9 3h6l-.9 5.4 2.9 2.9v1.8H7v-1.8l2.9-2.9L9 3Z"/><path d="M12 13.1V21"/></svg>
       </button>
       <a href="{% url 'kb:manage_detail' kb.slug %}" translate="no">{{ kb.name }}</a>
+      {% if kb.auto_collected %}{% include "kb/_auto_collection_badge.html" with show_icon=True %}{% endif %}
       <span class="pl-meta">
         <span>{{ kb.access_label }}</span>
         · <span>{% if kb.category == 'business' %}业务数据{% else %}手册库{% endif %}</span>
@@ -103,7 +104,7 @@
 </section>
 {% endblock %}
 
-{% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
+{% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=2-library-layout" defer></script>
 <style>
 #kbFavoriteSection[hidden],#kbReadSection[hidden]{display:none}
 .kb-favorite-bar{margin-top:8px}

@@ -1,6 +1,6 @@
 {% extends "kb/_base.html" %}{% load static %}
 {% block title %}{{ kb.name }} · 知识库管理{% endblock %}
-{% block extra_head %}{% if show_tracker_data %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=11-simple-analysis">{% endif %}{% endblock %}
+{% block extra_head %}{% if show_tracker_data %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=12-compact-analysis">{% endif %}{% endblock %}
 {% block content %}
 <svg aria-hidden="true" class="kb-icon-defs" xmlns="http://www.w3.org/2000/svg">
   <symbol id="kb-i-sparkles" viewBox="0 0 24 24"><path d="m12 2 1.7 6.3L20 10l-6.3 1.7L12 18l-1.7-6.3L4 10l6.3-1.7L12 2ZM19 17l.6 1.4L21 19l-1.4.6L19 21l-.6-1.4L17 19l1.4-.6L19 17Z"/></symbol>
@@ -169,7 +169,7 @@
 {% if show_tracker_data %}</details>{% endif %}
 {% endblock %}
 
-{% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
+{% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=2-library-layout" defer></script>
 <script>
 // ── 名称/描述 编辑弹窗（POST kb_rename，AJAX；与全站 fos-dialog 同款）──
 (function(){
@@ -669,5 +669,5 @@ const hasProcessing = document.querySelectorAll('[data-status="pending"],[data-s
 if (hasProcessing) setTimeout(poll, 2000);
 </script>
 {% if show_tracker_data and can_manage %}<script src="{% static 'js/tracker_record_editor.js' %}?v=1" defer></script>{% endif %}
-{% if show_tracker_data %}<script src="{% static 'js/feed_kb_detail.js' %}?v=11-simple-analysis" defer></script>{% endif %}
+{% if show_tracker_data %}<script src="{% static 'js/feed_kb_detail.js' %}?v=12-compact-analysis" defer></script>{% endif %}
 {% endblock %}
