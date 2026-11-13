@@ -1580,13 +1580,9 @@ async def chat_stream(request):
         from .chat_attachments import prepare_uploads, save_attachments, attachment_info, validate_conversation_context
         prepared_uploads = prepare_uploads(uploads, vision=bool(current_llm.get("vision"))) if uploads else []
         validate_conversation_context(conv, prepared_uploads, vision=bool(current_llm.get("vision")))
-        from .history import load_context, recent_history
-        conversation_context = load_context(conv, request.user)
-        published_history = [] if conversation_context else recent_history(
-            conv.messages.prefetch_related("attachments").order_by("created_at", "pk"),
-            enhanced=current_llm.get("qa_enhance", False),
-            visible=lambda citations: visible_citations(citations, request.user),
-        )
+        from .history import conversation_history
+        conversation_context, published_history = conversation_history(
+            conv, request.user, enhanced=current_llm.get("qa_enhance", False))
         # 记录用户消息
         user_message = Message.objects.create(conversation=conv, role=Message.Role.USER, content=message)
         if prepared_uploads:

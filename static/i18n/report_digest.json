@@ -140,7 +140,17 @@
     "散点图横轴需为有效数值，请选择数值字段。": "The scatter chart's horizontal axis requires valid numbers. Choose a numeric field."
   },
   "patterns": [
-    {"source": "EnGenie Digest 指标「{label}」包含未解析的非数值，请先在报告中配置数值转换。", "target": "EnGenie Digest metric “{label}” contains unparsed non-numeric values. Configure numeric conversion in the report first."},
-    {"source": "HTML 图表数值字段「{field}」含无法转换的值，请先配置报告转换。", "target": "HTML chart numeric field “{field}” contains values that could not be converted. Configure a report conversion first."}
-  ]
+    {
+      "source": "EnGenie Digest 指标「{label}」包含未解析的非数值，请先在报告中配置数值转换。",
+      "target": "EnGenie Digest metric “{label}” contains unparsed non-numeric values. Configure numeric conversion in the report first."
+    },
+    {
+      "source": "HTML 图表数值字段「{field}」含无法转换的值，请先配置报告转换。",
+      "target": "HTML chart numeric field “{field}” contains values that could not be converted. Configure a report conversion first."
+    }
+  ],
+  "englishSource": {
+    "The calculation references an unavailable field. Unhide the required field before using it.": "计算引用了不可用的字段。请先取消隐藏所需字段。",
+    "The report references an unavailable field. Unhide the required field or update the report.": "报告引用了不可用的字段。请取消隐藏所需字段或更新报告。"
+  }
 }

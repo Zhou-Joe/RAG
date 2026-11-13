@@ -1,4 +1,4 @@
-"""知识库展示字段：只投影视图，不改动采集结构和已保存原始值。"""
+"""Selected KB fields bound both the interface and EnGenie; stored originals remain intact."""
 from __future__ import annotations
 
 
@@ -8,11 +8,25 @@ def available_fields(tracker) -> list[str]:
                              if isinstance(field, dict) and isinstance(field.get('label'), str)))
 
 
+def field_selection_owner(kb):
+    """Document children inherit their business library's field selection."""
+    parent = kb.parent if kb.parent_id else None
+    if (parent and not kb.is_folder and (parent.category == 'business' or parent.table_query)
+            and parent.active_fields is not None):
+        return parent
+    if kb.category == 'business' or kb.table_query:
+        return kb
+    return parent if parent and not kb.is_folder and (parent.category == 'business' or parent.table_query) else None
+
+
 def visible_fields(kb, tracker) -> list[str]:
     """默认展示全量；显式选择不随下一次采集自动扩展。"""
     labels = available_fields(tracker)
-    selected = kb.active_fields if kb.category == 'business' or kb.table_query else None
-    return labels if selected is None else [label for label in labels if label in selected]
+    owner = field_selection_owner(kb)
+    selected = owner.active_fields if owner else None
+    own_selected = kb.active_fields if owner and owner.pk != kb.pk and (kb.category == 'business' or kb.table_query) else None
+    return [label for label in labels if (selected is None or label in selected)
+            and (own_selected is None or label in own_selected)]
 
 
 def field_options(kb, tracker) -> list[dict]:

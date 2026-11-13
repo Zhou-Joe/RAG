@@ -260,12 +260,107 @@ def summary(feed,selection=None,*,digest=None):
         'last_error':last.error if last else ''}
 
 
+def report_visible_fields(feed):
+    """An explicit business/table field selection also bounds EnGenie input."""
+    from .active_fields import field_selection_owner, visible_fields
+    kb = feed.kb
+    owner = field_selection_owner(kb)
+    if owner is None or owner.active_fields is None:
+        return None
+    tracker = getattr(kb, 'tracker', None) or getattr(owner, 'tracker', None)
+    return set(visible_fields(kb, tracker))
+
+
+def project_report_values(values, selected):
+    return dict(values) if selected is None else {key: value for key, value in values.items() if key in selected}
+
+
+def validate_report_calculation(computed, feed, *, selected=None):
+    """Check record-root references, preserving nested operations on visible data."""
+    from .connector_calculations import validate_computed
+    validate_computed(computed)
+    selected = report_visible_fields(feed) if selected is None else selected
+    if selected is None:
+        return computed
+    allowed = selected | {'_record', '_source_id', '_collected_at'}
+
+    def path(value, nested):
+        if value in ('', '$root', '$records'):
+            return
+        rooted = value.startswith('$root.')
+        if rooted:
+            value = value[6:]
+        if nested and not rooted:
+            return
+        root = (value[1:].split('/', 1)[0].replace('~1', '/').replace('~0', '~')
+                if value.startswith('/') else value.split('.', 1)[0])
+        if root not in allowed:
+            raise ValueError('The calculation references an unavailable field. Unhide the required field before using it.')
+
+    def visit(node, nested=False):
+        if not isinstance(node, dict) or 'literal' in node:
+            return
+        if 'field' in node:
+            path(node['field'], nested)
+            return
+        if node.get('op') == 'duration' and 'args' not in node:
+            path(node['start'], nested); path(node['end'], nested)
+        for index, arg in enumerate(node.get('args', [])):
+            visit(arg, nested or node.get('op') in ('map', 'filter') and index == 1)
+        if 'aggregate' in node:
+            visit(node['aggregate'], True)
+
+    visit(computed)
+    return computed
+
+
+def validate_report_visibility(feed, spec):
+    selected = report_visible_fields(feed)
+    if selected is None:
+        return
+    allowed = selected | {'_record', '_source_id', '_collected_at'}
+    for column in spec.get('columns', []):
+        if 'computed' in column:
+            validate_report_calculation(column['computed'], feed, selected=selected)
+        elif column.get('field') not in allowed:
+            raise ValueError('The report references an unavailable field. Unhide the required field or update the report.')
+    references = [spec.get('range', {}).get('field', '_collected_at')]
+    references.extend(item.get('field') for item in spec.get('filters', []))
+    if any(reference not in allowed for reference in references):
+        raise ValueError('The report references an unavailable field. Unhide the required field or update the report.')
+
+
+def visible_report_spec(feed, spec):
+    if not isinstance(spec, dict):
+        return {}
+    try:
+        validate_report_visibility(feed, spec)
+    except (ValueError, TypeError, KeyError):
+        return {}
+    return spec
+
+
+def engenie_report_context(feed, context):
+    """Do not replay old raw examples or script fields into a restricted KB chat."""
+    if report_visible_fields(feed) is None:
+        return context
+    result = {**context, 'conversation': [], 'previous_connector': {}, 'previous_examples': {},
+              'previous_report': visible_report_spec(feed, context.get('previous_report', {}))}
+    delivery = dict(result.get('report_delivery') or {})
+    for key in ('digest', 'trigger', 'trigger_state', 'last_error'):
+        delivery.pop(key, None)
+    result['report_delivery'] = delivery
+    return result
+
+
 def available(feed):
     from django.db.models import Count,Min,Max
     qs=feed.tracker_rows.filter(status='done')
+    selected = report_visible_fields(feed)
     fields={'_collected_at','_source_id','_record'}
     profiles={}
     for values in qs.values_list('values',flat=True).iterator(chunk_size=500):
+        values = project_report_values(values, selected)
         fields.update(values)
         for name,value in values.items():
             profile=profiles.setdefault(name,{'types':{},'samples':[]});kind=type(value).__name__
@@ -273,9 +368,14 @@ def available(feed):
             sample=value if type(value) in (int,float,bool,type(None)) else str(value)[:160]
             if sample not in profile['samples'] and len(profile['samples'])<5:profile['samples'].append(sample)
     stats=qs.aggregate(rows=Count('pk'),first_collected_at=Min('updated_at'),last_collected_at=Max('updated_at'))
-    return {'fields':sorted(fields),'field_profiles':profiles,'sample':list(qs.order_by('-updated_at').values_list('values',flat=True)[:5]),
+    prior = getattr(getattr(feed,'report_plan',None),'spec',{})
+    previous_report = visible_report_spec(feed, prior)
+    delivery = summary(feed)
+    if selected is not None and prior and not previous_report:
+        delivery = {key: value for key, value in delivery.items() if key not in ('digest', 'trigger', 'trigger_state', 'last_error')}
+    return {'fields':sorted(fields),'field_profiles':profiles,'sample':[project_report_values(values, selected) for values in qs.order_by('-updated_at').values_list('values',flat=True)[:5]],
         'dataset':{key:value.isoformat() if hasattr(value,'isoformat') else value for key,value in stats.items()},
-        'write_mode':feed.write_mode,'report':summary(feed),'previous_report':getattr(getattr(feed,'report_plan',None),'spec',{}),
+        'write_mode':feed.write_mode,'report':delivery,'previous_report':previous_report,
         'history_note':'仅能使用当前仍保存的记录；覆盖更新模式不保留已覆盖的旧版本。' if feed.write_mode=='upsert' else '可按范围处理此任务保存的全部历史快照。'}
 
 
@@ -304,13 +404,12 @@ def normalize(spec,feed,*,legacy=False):
     columns=spec.get('columns');fields=set(available(feed)['fields'])
     if not isinstance(columns,list) or not 1<=len(columns)<=30:raise ValueError('请选择1至30个报告字段。')
     clean=[];labels=set()
-    from .connector_calculations import validate_computed
     for column in columns:
         if not isinstance(column,dict):raise ValueError('报告字段格式无效。')
         label=column.get('label','').strip()
         if not label or len(label)>80 or label in labels:raise ValueError('报告列名需有效且不重复。')
         labels.add(label)
-        if 'computed' in column:clean.append({'label':label,'computed':validate_computed(column['computed'])})
+        if 'computed' in column:clean.append({'label':label,'computed':validate_report_calculation(column['computed'],feed)})
         else:
             field=column.get('field')
             if field not in fields:raise ValueError('报告引用了未知字段：'+str(field))
@@ -380,6 +479,8 @@ def table(feed,spec,*,run=None,as_of=None,allow_empty=False,diagnostics=None):
     import math
     from datetime import datetime,date,time
     from .connector_calculations import evaluate_computed,calculation_inputs,_number
+    validate_report_visibility(feed, spec)
+    selected = report_visible_fields(feed)
     qs=feed.tracker_rows.filter(status='done').select_related('document').order_by('updated_at','pk')
     scope=spec['range'];zone=ZoneInfo(spec.get('schedule',{}).get('timezone') or feed.timezone)
     window=date_window(scope,as_of or timezone.now(),zone)
@@ -392,7 +493,9 @@ def table(feed,spec,*,run=None,as_of=None,allow_empty=False,diagnostics=None):
         qs=qs.filter(updated_at__gte=datetime.combine(start,time.min,zone),updated_at__lt=datetime.combine(end+timedelta(days=1),time.min,zone))
     result=[];buckets={};matched=0
     for row in qs.iterator(chunk_size=500):
-        record={**row.values,'_record':row.record_name,'_source_id':row.external_id,'_collected_at':timezone.localtime(row.updated_at,zone).isoformat()}
+        values = project_report_values(row.values, selected)
+        record_name = row.record_name if selected is None else next((str(value) for value in values.values() if value not in (None, '', [], {})), 'Record ' + str(row.pk))
+        record={**values,'_record':record_name,'_source_id':row.external_id,'_collected_at':timezone.localtime(row.updated_at,zone).isoformat()}
         if window and scope['field']!='_collected_at':
             value=record.get(scope['field'])
             if value in (None,''):continue

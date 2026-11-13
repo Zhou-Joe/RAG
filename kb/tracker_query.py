@@ -12,6 +12,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Substr
 
 from .models import KbTracker, KnowledgeBase, TrackerRow
+from .active_fields import visible_fields
 
 RESPONSE_CHARS = 10000
 TURN_CHARS = 20000
@@ -135,15 +136,16 @@ class TrackerQuery:
                                    data_from=Min('updated_at', filter=Q(status='done')),
                                    data_to=Max('updated_at', filter=Q(status='done')))
             sample = list(rows.filter(status='done').order_by('-updated_at', '-pk').values('id', 'values')[:2])
-            fields = table.fields[field_offset:field_offset+40]
+            labels = visible_fields(table.kb, table)
+            fields = [{'label': label} for label in labels[field_offset:field_offset+40]]
             info = {'kb_slug': table.kb.slug, 'name': table.kb.name, 'enabled': table.enabled,
                     'query_mode': 'table' if table.kb.table_query else 'tracker',
-                    'row_count': stats['total'], 'completed_rows': stats['completed'], 'field_count': len(table.fields),
+                    'row_count': stats['total'], 'completed_rows': stats['completed'], 'field_count': len(labels),
                     'data_from': stats['data_from'].isoformat() if stats['data_from'] else None,
                     'data_to': stats['data_to'].isoformat() if stats['data_to'] else None,
                     'fields': [{'name': f['label'], 'sample_types': sorted({type(row['values'][f['label']]).__name__
                         for row in sample if f['label'] in row['values']})} for f in fields],
-                    'next_field_offset': field_offset+len(fields) if field_offset+len(fields)<len(table.fields) else None,
+                    'next_field_offset': field_offset+len(fields) if field_offset+len(fields)<len(labels) else None,
                     'samples': [{'row_id': row['id'], 'values': {f['label']: cell(row['values'].get(f['label']), 100)
                                  for f in fields[:6]}} for row in sample]}
             candidate = {**result, 'tables': result['tables']+[info]}
@@ -169,7 +171,8 @@ class TrackerQuery:
         if status not in ('done', 'proposed', 'pending', 'running', 'failed', 'all'):
             raise ValueError('status 无效，默认 done，仅检索已完成记录。')
         tables = self.tables(kb_slug)
-        labels = list(dict.fromkeys(f['label'] for table in tables for f in table.fields))
+        table_fields = {table.pk: set(visible_fields(table.kb, table)) for table in tables}
+        labels = list(dict.fromkeys(label for table in tables for label in visible_fields(table.kb, table)))
         if not tables:
             raise ValueError('范围内没有追踪表，请先调用 tracker_preview。')
         rows = TrackerRow.objects.filter(tracker__in=tables)
@@ -192,7 +195,15 @@ class TrackerQuery:
             if key in aliases:
                 return aliases[key]
             raw = f'tq_{len(aliases)}_raw'
-            rows = rows.annotate(**{raw: Cast(F(metadata[field]),TextField()) if field in metadata else TrackerText(field, 'values')})
+            if field in metadata:
+                value = Cast(F(metadata[field]), TextField())
+            else:
+                # A label visible in one tracker must not expose the same label
+                # hidden in another tracker in a folder-wide query.
+                visible_trackers = [pk for pk, fields in table_fields.items() if field in fields]
+                value = Case(When(tracker_id__in=visible_trackers, then=TrackerText(field, 'values')),
+                             default=Value(None), output_field=TextField())
+            rows = rows.annotate(**{raw: value})
             alias = f'tq_{len(aliases)}_value'
             if kind == 'number':
                 value = Case(When(**{raw+'__regex': NUMERIC}, then=Cast(F(raw), FloatField())), default=Value(None), output_field=FloatField())
@@ -283,12 +294,13 @@ class TrackerQuery:
         result = {'kind':'tracker_rows', 'applied_query':applied, 'total_matched':total, 'columns':columns, 'unselected_columns':len(set(labels)-set(columns)),
                   'offset':offset, 'rows':[], 'has_more':False, 'next_offset':None,
                   'notice':'只返回本页；truncated 标记表示单元格省略，不能据此声称拿到完整内容。待确认记录不是已批准事实。'}
-        for row in rows.values('id','tracker__kb__slug','status','updated_at','external_id','document__original_name','source_sheet','source_row','values')[offset:offset+limit]:
+        for row in rows.values('id','tracker_id','tracker__kb__slug','status','updated_at','external_id','document__original_name','source_sheet','source_row','values')[offset:offset+limit]:
             record = {'row_id':row['id'], 'kb_slug':row['tracker__kb__slug'], 'status':row['status'],
                       'updated_at':row['updated_at'].isoformat(), 'source_id':cell(row['external_id'],200),
                       'document_name':cell(row['document__original_name'] or '',200),
                       'source_sheet':row['source_sheet'], 'source_row':row['source_row'],
-                      'values':{column:cell(row['values'].get(column), cell_chars) for column in columns}}
+                      'values':{column:cell(row['values'].get(column), cell_chars) for column in columns
+                                if column in table_fields[row['tracker_id']]}}
             if len(encode({**result, 'rows':result['rows']+[record]}))>cap-300:
                 break
             result['rows'].append(record)

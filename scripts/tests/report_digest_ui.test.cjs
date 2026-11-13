@@ -202,7 +202,13 @@ test('digest settings and fact labels use the shipped bilingual catalog in both 
 });
 
 test('HTML chart and stale-preview validation errors translate through the shipped catalog without altering field names',()=>{
- const catalog=JSON.parse(fs.readFileSync(path.join(__dirname,'../../static/i18n/report_digest.json'),'utf8'));
+ const catalog={messages:{},patterns:[],englishSource:{}};
+ const directory=path.join(__dirname,'../../static/i18n');
+ for(const filename of fs.readdirSync(directory).filter(name=>name.endsWith('.json'))){
+  const part=JSON.parse(fs.readFileSync(path.join(directory,filename),'utf8'));
+  Object.assign(catalog.messages,part.messages);catalog.patterns.push(...(part.patterns||[]));
+  Object.assign(catalog.englishSource,part.englishSource||{});
+ }
  const scope={FOS_I18N_CATALOG:catalog,module:{exports:{}}};
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../../static/js/interface_language.js'),'utf8'),scope);
  const translate=scope.module.exports.translate;
@@ -213,10 +219,15 @@ test('HTML chart and stale-preview validation errors translate through the shipp
  for(const message of ['请先启用 EnGenie Digest 并生成预览。','摘要预览尚未生成，请返回 EnGenie 重新预览。','报告数据已变化，请重新生成摘要预览。']){
   assert.ok(previewSource.includes(message));errors.push(message);
  }
+ const reportSource=fs.readFileSync(path.join(__dirname,'../../kb/feed_reports.py'),'utf8');
+ for(const message of ['The calculation references an unavailable field. Unhide the required field before using it.',
+  'The report references an unavailable field. Unhide the required field or update the report.']){
+  assert.ok(reportSource.includes(message));errors.push(message);
+ }
  for(const source of errors){
-  const target=catalog.messages[source];assert.equal(typeof target,'string',source);
-  assert.ok(target.length>0);assert.doesNotMatch(target,/[\u3400-\u9fff]/u);
-  assert.equal(translate(source,'en'),target);assert.equal(translate(target,'zh'),source);
+  const chinese=/[\u3400-\u9fff]/u.test(source),target=translate(source,chinese?'en':'zh');
+  assert.notEqual(target,source,source);
+  assert.equal(translate(target,chinese?'zh':'en'),source);
  }
  const dynamic=[...chartSource.matchAll(/raise ValueError\(f'([^'\r\n]+)'\)/g)].map(match=>match[1]);
  assert.equal(dynamic.length,1);assert.ok(catalog.patterns.some(pattern=>pattern.source===dynamic[0]));

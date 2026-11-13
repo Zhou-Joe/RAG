@@ -647,6 +647,12 @@ def run(job_id) -> ConnectorDraft:
                 'report_range':candidate.spec.get('range'),'preview_as_of':candidate.preview.get('preview_as_of'),
                 'preview_items':candidate.preview.get('items'),'warning':candidate.preview.get('warning'),'tool_errors':errors})
             candidate=candidate.parent
+        from .feed_reports import source_feed, report_visible_fields
+        feed = source_feed(job, required=False)
+        if feed and report_visible_fields(feed) is not None:
+            for item in history:
+                for key in ('answer', 'error', 'tool_errors', 'questions', 'warning', 'report_range'):
+                    item.pop(key, None)
         return clean({'history':history,'read_only':True})
 
     @tool
@@ -664,20 +670,23 @@ def run(job_id) -> ConnectorDraft:
     @tool
     def inspect_report_data() -> dict:
         """查看当前已启用任务的报告字段、真实样例、已有报告及发送设置。已有足够上下文时不必重复调用。"""
-        from .feed_reports import source_feed,available
+        from .feed_reports import source_feed,available,visible_report_spec
         from .connector_context import conversation_context
-        result=available(source_feed(job))
-        candidate=conversation_context(job).get('previous_report')
+        feed = source_feed(job)
+        result=available(feed)
+        candidate=visible_report_spec(feed, conversation_context(job).get('previous_report'))
         if candidate:result['previous_report']=candidate
         return result
 
     @tool
     def preview_report_calculation(computed: dict) -> dict:
         """在此任务真实历史数据的最多20种不同输入上验证后处理计算/正则数值转换，返回原值、转换值或具体错误，不修改原始追踪表。使用parse_number可处理数值、数字字符串、单位文本、分隔符和换算；不清楚格式时先检查样例，禁止丢弃数字字符串。"""
-        from .feed_reports import source_feed
-        from .connector_calculations import validate_computed,evaluate_computed,calculation_inputs
-        validate_computed(computed);feed=source_feed(job);seen=set();examples=[]
+        from .feed_reports import source_feed,report_visible_fields,project_report_values,validate_report_calculation
+        from .connector_calculations import evaluate_computed,calculation_inputs
+        feed=source_feed(job);validate_report_calculation(computed,feed);seen=set();examples=[]
+        selected = report_visible_fields(feed)
         for values in feed.tracker_rows.filter(status='done').values_list('values',flat=True).iterator(chunk_size=500):
+            values = project_report_values(values, selected)
             inputs=calculation_inputs(values,computed);key=fingerprint(inputs)
             if key in seen:continue
             seen.add(key)
@@ -740,6 +749,11 @@ def run(job_id) -> ConnectorDraft:
         from .connector_guide import TOOL_GUIDE
         model = _get_llm({**cfg,'single_request_connections':True}).bind_tools(model_tools(tools.values()),max_tokens=8192,timeout=120,stream_usage=True)
         context=conversation_context(job) if job.parent_id else {}
+        from .feed_reports import source_feed,report_visible_fields,engenie_report_context
+        context_feed = source_feed(job, required=False)
+        if context_feed and report_visible_fields(context_feed) is not None:
+            context = engenie_report_context(context_feed, context)
+            messages = []; memory = WorkingMemory(); sample = None
         current_time=clock_context()
         system_instruction=INSTRUCTION+TOOL_GUIDE+API_DISCOVERY_INSTRUCTION+RESPONSE_STYLE_INSTRUCTION+'\n\n'+language_instruction
         if messages:

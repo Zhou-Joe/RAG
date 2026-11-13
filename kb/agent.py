@@ -254,6 +254,7 @@ def _kb_tree_text(dept_filter: dict) -> str:
     单份文档的内容——帮助 LLM 判断该检索哪个库/引用哪份文档。
     """
     from .models import KbTracker, KnowledgeBase
+    from .active_fields import visible_fields
     lines = []
 
     # 追踪表信息：kb_id → 摘要（启用状态/字段数/登记条数）。字段名清单不在树里
@@ -264,7 +265,8 @@ def _kb_tree_text(dept_filter: dict) -> str:
         if not tr.fields and not n_rows:
             continue  # 空壳行（首次访问设置页时自动创建），树里不显示
         mark = "✓" if tr.enabled else "✗"
-        fields_txt = f"{len(tr.fields)}字段" if tr.fields else "无字段"
+        field_count = len(visible_fields(tr.kb, tr))
+        fields_txt = f"{field_count}字段" if field_count else "无字段"
         trk_info[tr.kb_id] = f"追踪表:{mark}{fields_txt}/{n_rows}条登记"
 
     def _trk(kb) -> str:
@@ -631,10 +633,28 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         if access.root_kb(kb_obj).visibility=='individual':return False
         return not dept_scoped or kb_obj.department in dept_scope
 
+    from .active_fields import field_selection_owner
+    from .spreadsheet_rows import is_table_query_kb
+
+    def _structured_target(kb_obj):
+        if is_table_query_kb(kb_obj):
+            return kb_obj if kb_obj.table_query else kb_obj.parent
+        owner = field_selection_owner(kb_obj)
+        return owner if owner and owner.active_fields is not None else None
+
+    def _structured_notice(target):
+        return json.dumps({'query_mode': 'table', 'kb_slug': target.slug,
+            'notice': 'Query this library using tracker_preview, tracker_lookup or tracker_analyze. '
+                      'Only selected fields are available. Raw source documents are not returned '
+                      'to EnGenie while fields are hidden.'}, ensure_ascii=False)
+
+    def _document_allowed(kb_obj):
+        return _dept_allowed(kb_obj) and _structured_target(kb_obj) is None
+
     from .rag_selection import RagSelection
     from .kb_links import RelationshipScope
     relationship_scope = RelationshipScope(_dept_allowed, relationship_conversation_id, relationship_user_id)
-    rag_selection = RagSelection(_dept_allowed,evidence_sink,cite_sink,retrieval_state,
+    rag_selection = RagSelection(_document_allowed,evidence_sink,cite_sink,retrieval_state,
         image_reader=_image_content_block if llm_cfg.get('vision') else None, relationship_scope=relationship_scope,
         saved=(conversation_context or {}).get('rag'))
     if retrieval_state is not None:
@@ -743,9 +763,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         target = KnowledgeBase.objects.filter(slug=kb_slug).first()
         if target is None or not _dept_allowed(target):
             return "知识库不存在，请用 list_knowledge_bases 查看可选项。"
+        structured = _structured_target(target)
+        if structured is not None:
+            return _structured_notice(structured)
         scopes = [target.slug]
         if target.is_folder:
-            scopes.extend(child.slug for child in target.children.all() if _dept_allowed(child))
+            scopes.extend(child.slug for child in target.children.all() if _document_allowed(child))
         result = lookup_facts(scopes, query)
         for snapshot in result["facts"]:
             if snapshot not in evidence_sink:
@@ -780,14 +803,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         target_kb = KnowledgeBase.objects.filter(slug=target).first()
         if target_kb is None or not _dept_allowed(target_kb):
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
-        from .spreadsheet_rows import is_table_query_kb
-        if is_table_query_kb(target_kb):
-            table_kb = target_kb.parent if target_kb.parent_id else target_kb
-            return json.dumps({"query_mode": "table", "kb_slug": table_kb.slug,
-                               "notice": "此库按原始表格逐行保存，请先用 tracker_preview 查看字段，再用 tracker_lookup 筛选、按业务日期查询或汇总；语义检索不提供全量表格结果。"}, ensure_ascii=False)
+        structured = _structured_target(target_kb)
+        if structured is not None:
+            return _structured_notice(structured)
         try:
             if target_kb.is_folder:
-                scopes = [kb.slug for kb in KnowledgeBase.objects.filter(slug__in=target_kb.child_doc_slugs()) if _dept_allowed(kb)]
+                scopes = [kb.slug for kb in KnowledgeBase.objects.select_related('parent').filter(slug__in=target_kb.child_doc_slugs()) if _document_allowed(kb)]
                 results = _search_folder(scopes,query,k=k,graph_scope_slugs=[target]) if scopes else []
             else:
                 scopes = [target]
@@ -848,8 +869,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
         if not _dept_allowed(target_kb):
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
+        structured = _structured_target(target_kb)
+        if structured is not None:
+            return _structured_notice(structured)
         if target_kb.is_folder:
-            lane_slugs=[item.slug for item in KnowledgeBase.objects.select_related('parent').filter(slug__in=target_kb.child_doc_slugs()) if _dept_allowed(item)]
+            lane_slugs=[item.slug for item in KnowledgeBase.objects.select_related('parent').filter(slug__in=target_kb.child_doc_slugs()) if _document_allowed(item)]
         else:
             lane_slugs = [target]
         return _image_search_core(query, target, lane_slugs, llm_cfg,
@@ -894,6 +918,9 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
         if not _dept_allowed(target_kb):
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
+        structured = _structured_target(target_kb)
+        if structured is not None:
+            return _structured_notice(structured)
         if target_kb.is_folder:
             return (f"「{target}」是文件夹，本工具只能提取单个文档库的片段。"
                     f"请先用 list_knowledge_bases 找到其下的文档库 slug，再用该 slug 调用本工具。")
@@ -1228,9 +1255,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         target = KnowledgeBase.objects.filter(slug=kb_slug).first()
         if target is None or not _dept_allowed(target):
             return '知识库不存在，请用list_knowledge_bases查看可选项。'
+        structured = _structured_target(target)
+        if structured is not None:
+            return _structured_notice(structured)
         scopes = [target.slug] if not target.is_folder else target.child_doc_slugs()
-        docs = [doc for doc in Document.objects.select_related('kb').filter(kb__slug__in=scopes,
-            original_name=source,status='completed') if _dept_allowed(doc.kb)]
+        docs = [doc for doc in Document.objects.select_related('kb__parent').filter(kb__slug__in=scopes,
+            original_name=source,status='completed') if _document_allowed(doc.kb)]
         if len(docs)!=1:
             return '来源文档不存在或不唯一，请用准确的文档库kb_slug限定范围。'
         doc = docs[0]; rows = get_chunks(doc.kb.slug,doc.original_name)
@@ -1326,10 +1356,15 @@ async def run_agent_stream(
         # never resumed, while successful tool results keep their original order.
         checkpointer = None
         context = (config or {}).get('conversation_context') or {}
+        from .history import field_visibility_scope, field_visibility_current
+        field_scope = await sync_to_async(field_visibility_scope)((config or {}).get('user_id'))
+        history_allowed = not context or field_visibility_current(context, None, scope=field_scope)
+        if not history_allowed:
+            context = {}
         from copy import deepcopy
         from langchain_core.messages import AIMessage, HumanMessage, convert_to_messages, messages_from_dict, messages_to_dict
         history_messages = (messages_from_dict(context['messages']) if context.get('messages')
-                            else convert_to_messages((config or {}).get('published_history', [])))
+                            else convert_to_messages((config or {}).get('published_history', []) if history_allowed else []))
         from .history import remove_legacy_kb_defaults
         history_messages=remove_legacy_kb_defaults(history_messages)
         from .manual_overview import is_manual_overview
@@ -1655,7 +1690,7 @@ async def run_agent_stream(
             config['next_context'] = {
                 'version': 1, 'messages': messages_to_dict(compact_messages(transcript)),
                 'rag': session.snapshot() if session else context.get('rag', {}),
-                'evidence': evidence, 'citations': citations,
+                'evidence': evidence, 'citations': citations, 'field_visibility': field_scope,
             }
 
         # 流结束：发出本轮来源出处（前端据此渲染可点击的文档链接）
