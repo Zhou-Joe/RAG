@@ -384,6 +384,9 @@ def validate_snapshot(snapshot, user):
     if 'analysis_query' in snapshot:
         from .analysis_exports import validate_analysis_snapshot
         return validate_analysis_snapshot(snapshot, user)
+    if 'visualization_query' in snapshot:
+        from .tracker_visualizations import validate_visualization_snapshot
+        return validate_visualization_snapshot(snapshot, user)
     params = snapshot.get('query')
     cap = snapshot.get('response_chars')
     text = snapshot.get('text')

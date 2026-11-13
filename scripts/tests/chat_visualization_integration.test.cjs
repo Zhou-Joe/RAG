@@ -64,6 +64,8 @@ function chartFixture() {
 }
 
 test('normal-chat template loads shared renderer before bridge and all inline scripts parse', () => {
+  assert.ok(template.indexOf("'js/interactive_table.js'") < template.indexOf("'js/report_chart_runtime.js'"));
+  assert.ok(template.indexOf("'js/extended_visualizations.js'") < template.indexOf("'js/report_chart_runtime.js'"));
   assert.ok(template.indexOf("'js/report_chart_runtime.js'") < template.indexOf("'js/chat_visualizations.js'"));
   assert.ok(template.includes("'css/chat_visualizations.css'"));
   let compiled = 0;

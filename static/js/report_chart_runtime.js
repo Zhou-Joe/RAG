@@ -43,8 +43,16 @@
   }
   function render(host,data){
     const document=host.ownerDocument||root.document,language=data.language||'en',zh=language==='zh-hans';
-    const hidden=host._ercHidden||new Set();host._ercHidden=hidden;host._ercTooltip?.destroy();host.replaceChildren();
+    const hidden=host._ercHidden||new Set();host._ercHidden=hidden;host._ercCleanup?.();delete host._ercCleanup;host._ercTooltip?.destroy();host.replaceChildren();
     delete host._ercTooltip;
+    if(['progress','sparkline','heatmap','pareto','timeline'].includes(data.type)){
+      if(!root.EnGenieExtendedVisualizations?.render)throw new Error('Extended visualization renderer unavailable');
+      return root.EnGenieExtendedVisualizations.render(host,data);
+    }
+    if(data.type==='table'){
+      if(!root.EnGenieInteractiveTable?.render)throw new Error('Interactive table renderer unavailable');
+      return root.EnGenieInteractiveTable.render(host,data);
+    }
     if(data.type==='metric'){
       const metric=document.createElement('div');metric.className='erc-metric';metric.setAttribute('role','group');metric.setAttribute('translate','no');
       metric.setAttribute('aria-label',data.title||(zh?'指标':'Metric'));
@@ -140,7 +148,7 @@
     if(!Array.isArray(charts))return;
     for(const host of document.querySelectorAll('[data-engenie-chart]')){const index=Number(host.getAttribute('data-engenie-chart'));if(Number.isInteger(index)&&charts[index])render(host,charts[index]);}
   }
-  const api={render,mount,format,bounds,linePath};root.EnGenieReportCharts=api;
+  const api={render,mount,format,bounds,linePath,createTooltip:tooltip};root.EnGenieReportCharts=api;
   if(typeof module!=='undefined'&&module.exports)module.exports=api;
   if(root.document){if(root.document.readyState==='loading')root.document.addEventListener('DOMContentLoaded',()=>mount());else mount();}
 })(globalThis);

@@ -86,6 +86,17 @@ INSTRUCTION += """
 HTML报告中的图表用digest.charts配置，最多8张；未传charts保留系统自动4种视图，显式[]表示不显示图表。模型只声明绑定现有最终输出字段的图表，不生成HTML/JavaScript/SVG、不传data数组、回调或外部图表URL。每项为{title,type:line/bar/pie/combo/area/scatter/doughnut,x:实际最终输出列名或null,series:[{field:实际最终输出列名,aggregate:count/sum/avg/min/max,label?,type:line/bar(组合图),axis:left/right}],limit:1..100,sort:source/label/value_desc,options:{legend,stacked,horizontal,smooth,y_label?,right_y_label?}}。series为1至6项，只有count可不填field；x=null按源行序。pie/doughnut只能1条序列且数值不能为负；combo至少2条序列，明确bar和line类型，可按用户要求分配左右轴。所有值由系统对报告范围全量数据确定性汇总，limit只限制显示项，不把样例当全量；保留字段的实际含义，不能把类别行序称为时间趋势。例：按项目平均等待时间柱图{title:"Average Wait by Ride",type:"bar",x:"Ride",series:[{field:"Wait",aggregate:"avg",label:"Average Wait"}],sort:"value_desc",limit:20}。自定义图形使用这些受支持的组合和布局选项，不发明新参数、数字或可执行代码。仅修改摘要文案、图表或呈现方式时保留其他digest选项和原报告；仍生成真实预览等待确认。
 """
 
+INSTRUCTION += """
+HTML报告另支持以下紧凑可视化，同样只引用最终报告输出列，不传原始数据或可执行代码：
+- progress：{type:"progress",title,series:[{field,aggregate:"sum"}],target:明确的正数目标,unit?}；总体数量可用aggregate:"count"且不填field。目标必须来自用户或已确认资料，不自行设定。显示真实值，超过目标不会改写数值。
+- sparkline：{type:"sparkline",title,x:日期或数值字段,series:[{field,aggregate}],limit:1..500}；保留真实时间/数值间隔，不能把类别序号当日期。
+- heatmap：{type:"heatmap",title,x:第一分类字段,y:第二分类字段,series:[{field,aggregate}]}；每个轴最多32项，不把缺失组合自动当0。
+- pareto：{type:"pareto",title,x:原因或类别字段,series:[{field,aggregate:"count"或"sum"}],sort:"value_desc",limit:1..50}；只支持非负贡献值，完整类别超限时应缩小报告范围，不能截断后冒充整体累计占比。
+- timeline：{type:"timeline",title,label:任务名称字段,start:开始日期字段,end:结束日期字段,group?:分组字段,limit:1..100}；日期使用实际ISO日期/时间，开始不得晚于结束，不推算缺失的时长。
+- table：{type:"table",title,columns:[最终报告列名],limit:1..500}；最多12列，内置搜索、排序、分页，超出已加载行数时显示明确提示，不能宣称搜索覆盖未加载记录。
+每张扩展图默认只需要一个聚合系列（timeline和table不需要series）；跨类别或时间汇总由系统处理完整报告范围。优先选与问题相符的1至2种视图，保持原有范围、字段、筛选、触发与投递设置。
+"""
+
 RESPONSE_STYLE_INSTRUCTION = """
 答复风格：先用第一句直接回答当前问题或说明任务结果，再给用户需要的下一步。普通问答默认一两句话；有多个关键点时用短列表。界面已展示工具活动和预览卡片，最终答复不复述操作流水、全部样例数据或已经确认的要求。缺少信息时只问实际缺失项。用户明确要求完整报告、详细说明或步骤时提供完整内容；安全条件、失败原因与必要的核对信息不能省略。此规则只约束给用户看的自然语言，不删减工具参数或连接器配置。
 """

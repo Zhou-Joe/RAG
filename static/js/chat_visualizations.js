@@ -1,8 +1,9 @@
 /* Safe inline EnGenie charts, using the offline HTML report renderer. */
 (function(root) {
   'use strict';
-  const TYPES = new Set(['line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut', 'metric']);
-  const MAX_CHARTS = 8, MAX_SERIES = 8, MAX_POINTS = 500, mounted = new Set(), sizes = new WeakMap();
+  const EXTENDED_TYPES = new Set(['progress', 'sparkline', 'heatmap', 'pareto', 'timeline']);
+  const TYPES = new Set(['line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut', 'metric', ...EXTENDED_TYPES, 'table']);
+  const MAX_CHARTS = 8, MAX_SERIES = 8, MAX_POINTS = 500, mounted = new Set(), sizes = new WeakMap(), tablePreferences = new WeakMap();
   const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   function text(value, max = 4000) {
     if (typeof value !== 'string' || value.length > max) throw new TypeError('Invalid chart label');
@@ -17,6 +18,14 @@
   }
   function normalize(value, language) {
     if (!plain(value) || !TYPES.has(value.type)) throw new TypeError('Invalid chart type');
+    if (EXTENDED_TYPES.has(value.type)) {
+      if (!root.EnGenieExtendedVisualizations?.normalize) throw new TypeError('Extended visualization renderer unavailable');
+      return root.EnGenieExtendedVisualizations.normalize(value, language);
+    }
+    if (value.type === 'table') {
+      if (!root.EnGenieInteractiveTable?.normalize) throw new TypeError('Interactive table renderer unavailable');
+      return root.EnGenieInteractiveTable.normalize(value, language);
+    }
     if (value.type === 'metric') {
       const metric = {type: 'metric', title: text(value.title || '', 1200), value: number(value.value),
         language: (language || value.language) === 'zh-hans' ? 'zh-hans' : 'en'};
@@ -108,7 +117,12 @@
     return result;
   }
   function discard(state) {
-    for (const canvas of state.canvases) canvas._ercTooltip?.destroy();
+    const preferences = tablePreferences.get(state.container) || new Map();
+    for (const canvas of state.canvases) {
+      if (canvas._eitState && canvas._engenieTableKey) preferences.set(canvas._engenieTableKey, {...canvas._eitState});
+      canvas._ercTooltip?.destroy(); canvas._ercCleanup?.();
+    }
+    tablePreferences.set(state.container, preferences);
     state.region.remove(); mounted.delete(state);
   }
   function destroy(container) {
@@ -140,7 +154,7 @@
       let data;
       try { data = normalize(item, options.language); } catch (_error) { continue; }
       const card = document.createElement('figure');
-      card.className = 'chat-chart-card notranslate' + (data.type === 'metric' ? ' chat-chart-metric' : '');
+      card.className = 'chat-chart-card notranslate chat-chart-' + data.type;
       card.setAttribute('translate', 'no');
       const header = document.createElement('figcaption'); header.className = 'chat-chart-header';
       const title = document.createElement('span'); title.className = 'chat-chart-title';
@@ -159,10 +173,15 @@
       header.addEventListener('click', event => { if (event.target !== toggle) setExpanded(!expanded.has(key)); });
       header.appendChild(toggle); card.appendChild(header);
       const canvas = document.createElement('div'); canvas.className = 'chat-chart-canvas';
+      if (data.type === 'table') {
+        canvas._engenieTableKey = JSON.stringify([index, data.title, data.columns.map(column => column.key)]);
+        const previous = tablePreferences.get(container)?.get(canvas._engenieTableKey);
+        if (previous) canvas._eitState = {...previous};
+      }
       card.appendChild(canvas); region.appendChild(card); state.canvases.push(canvas);
       setExpanded(expanded.has(key));
       try { root.EnGenieReportCharts.render(canvas, data); } catch (_error) {
-        canvas._ercTooltip?.destroy(); card.remove(); state.canvases.pop(); continue;
+        canvas._ercTooltip?.destroy(); canvas._ercCleanup?.(); card.remove(); state.canvases.pop(); continue;
       }
       const omitted = data.meta?.omitted_groups || data.meta?.omitted_points || 0;
       if (omitted) {

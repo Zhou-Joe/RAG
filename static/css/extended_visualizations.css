@@ -1,0 +1,12 @@
+.erc-progress{padding:8px 0 4px;min-height:98px}
+.erc-progress-values{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;overflow-wrap:anywhere}
+.erc-progress-value{font:750 clamp(28px,4vw,40px)/1.2 system-ui;color:var(--brand,#3574d5);font-variant-numeric:tabular-nums}
+.erc-progress-target,.erc-progress-percent,.erc-viz-scale{font:12px/1.5 system-ui;color:var(--dim,#63758a);overflow-wrap:anywhere}
+.erc-progress-track{height:10px;margin:14px 0 7px;background:var(--surface-2,#edf2f8);border:1px solid var(--rule,#e7edf3);border-radius:8px;overflow:hidden}
+.erc-progress-fill{height:100%;border-radius:inherit;min-width:0}
+.erc-viz-scale{margin-top:8px}
+.erc-viz-scroll{max-height:250px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;max-width:100%}
+.erc-viz-scroll svg{min-width:520px}
+.chat-chart-card.is-expanded .erc-viz-scroll{max-height:520px}
+.chat-chart-card.is-expanded .erc-progress-value{font-size:48px}
+@media print{.erc-viz-scroll,.chat-chart-card.is-expanded .erc-viz-scroll{max-height:none;overflow:visible}.erc-viz-scroll svg{min-width:0}}

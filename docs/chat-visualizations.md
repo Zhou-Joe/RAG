@@ -16,6 +16,23 @@ Summary charts support up to 50 groups. Trends support up to eight series and 50
 
 The chart is attached to the existing tracker citation snapshot, outside the model's bounded textual preview. Publication and history access rebuild and compare it with the underlying query result. Refreshing a conversation restores its tracker charts only while the associated source data and permissions remain valid.
 
+## Extended Business Views
+
+`tracker_visualize` adds the following views in normal and enhanced chat. It queries the current visible fields directly, keeps the full visualization payload outside the model's text preview, and saves permission-checked source snapshots for history restoration.
+
+| View | Required data | Bounds and behavior |
+|---|---|---|
+| Progress / target bar | One count or numeric aggregate, explicit positive target | Actual values above target remain visible; the physical bar caps at 100%. No invented target. |
+| Sparkline | Actual business-date `x_field`, one count/numeric aggregate | Day/month/year buckets; up to 500 periods; preserves real time spacing and missing values. |
+| Heatmap | Two actual grouping fields, one aggregate | Up to 32 categories per axis and 1,024 cells; missing combinations remain missing. |
+| Pareto | Category field, nonnegative count or sum | Up to 50 categories; descending bars and cumulative percentage use all matched contributions. |
+| Timeline / Gantt | Label and ISO start/end fields, optional group | Up to 100 tasks; real time positions and durations; rejects reversed or missing dates. |
+| Interactive table | Selected columns and optional row filters | Up to 12 columns and 500 loaded rows; search, column filter, sorting and pagination apply only to loaded rows. Loaded/total counts and truncation remain explicit. |
+
+All six start compact in the shared visualization row and support expansion/collapse, light/dark themes and bilingual controls. Interactive table search/sort/page preferences survive redraws and language changes. Oversized charts reject the request rather than silently omitting groups; only tables can show an explicitly marked subset. Hidden fields remain unavailable.
+
+Digest HTML reports support the same views with declarative field-based specs. Progress adds `target`/`unit`; heatmap adds `y`; timeline references `label`/`start`/`end` and optional `group`; table uses a `columns` list. Sparkline and Pareto use `x` with one series. All renderer dependencies are bundled in the HTML for offline use.
+
 ## Python Analysis
 
 The existing browser Python sandbox captures standard Matplotlib line, bar, pie, doughnut, scatter, and mixed bar/line figures from their plotted artist data. Ordinary Python chart requests therefore gain inline interactivity without asking the model to generate JavaScript or a second copy of its data.

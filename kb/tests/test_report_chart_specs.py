@@ -113,7 +113,7 @@ class ReportChartSpecTests(SimpleTestCase):
         self.assertIn('&lt;script&gt;alert(1)&lt;/script&gt;', html)
         self.assertNotIn('<script>', html)
         self.assertIn('data-engenie-chart="0"', html)
-        self.assertLess(len(chart_assets().encode()), 30000)
+        self.assertLess(len(chart_assets().encode()), 100000)
         self.assertNotIn('fetch(', chart_assets())
         self.assertNotIn('innerHTML', chart_assets())
         self.assertIn('.erc-tooltip', chart_styles())

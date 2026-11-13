@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="{% static 'css/chat_visualizations.css' %}?v=4-dark-mode">
 <link rel="stylesheet" href="{% static 'css/chat_table_cards.css' %}?v=2-dark-mode">
 <link rel="stylesheet" href="{% static 'css/chat_citations.css' %}?v=4-dark-mode">
+<link rel="stylesheet" href="{% static 'css/extended_visualizations.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/interactive_table.css' %}?v=1">
 <style>
 @keyframes answerPulse { 0%,100% {opacity:1} 50% {opacity:.38} }
 .conv-item.is-generating .conv-title, .answer.thinking {animation:answerPulse 1.6s ease-in-out infinite}
@@ -82,14 +84,16 @@
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
 <script src="{% static 'js/evidence_panel.js' %}?v=2-citation-navigation"></script>
 <script src="{% static 'js/chat_input.js' %}"></script>
-<script src="{% static 'js/report_chart_runtime.js' %}?v=4-theme-metric"></script>
-<script src="{% static 'js/chat_visualizations.js' %}?v=3-shared-row"></script>
+<script src="{% static 'js/interactive_table.js' %}?v=1"></script>
+<script src="{% static 'js/extended_visualizations.js' %}?v=1"></script>
+<script src="{% static 'js/report_chart_runtime.js' %}?v=5-extended"></script>
+<script src="{% static 'js/chat_visualizations.js' %}?v=4-extended"></script>
 <script src="{% static 'js/chat_table_cards.js' %}?v=1"></script>
 <script src="{% static 'js/chat_citations.js' %}?v=3-inline-images"></script>
 <script src="{% static 'js/chat_attachments.js' %}?v=1"></script>
 <script src="{% static 'js/chat_stream.js' %}?v=20261113-attachments"></script>
-<script src="{% static 'js/tool_disclosure.js' %}?v=3-engenie-digest"></script>
-<script src="{% static 'js/assistant_activity.js' %}?v=4-english-activity"></script>
+<script src="{% static 'js/tool_disclosure.js' %}?v=4-extended-visuals"></script>
+<script src="{% static 'js/assistant_activity.js' %}?v=5-extended-visuals"></script>
 <script src="{% static 'js/chat_recovery.js' %}?v=20260921"></script>
 <script src="{% static 'js/conversation_badges.js' %}?v=1"></script>
 <script src="{% static 'js/vendor/jspdf.umd.min.js' %}" defer></script>

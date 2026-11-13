@@ -14,7 +14,9 @@ import math
 from pathlib import Path
 import re
 
-TYPES = {'metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'}
+from .report_extended_specs import TYPES as EXTENDED_TYPES, build_extended, normalize_extended
+
+TYPES = {'metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'} | EXTENDED_TYPES
 AGGREGATES = {'count', 'sum', 'avg', 'min', 'max'}
 MAX_CHARTS = 8
 MAX_SERIES = 6
@@ -31,6 +33,9 @@ def normalize_charts(value, headers):
         raise ValueError('HTML 图表需要有效的报告输出字段。')
     output = []
     for chart in value:
+        if isinstance(chart, dict) and isinstance(chart.get('type'), str) and chart['type'] in EXTENDED_TYPES:
+            output.append(normalize_extended(chart, headers))
+            continue
         if not isinstance(chart, dict) or not chart.keys() <= {'title', 'type', 'x', 'series', 'limit', 'sort', 'options'}:
             raise ValueError('HTML 图表仅接受字段与样式配置，不能包含脚本或直接数据。')
         kind = chart.get('type')
@@ -171,6 +176,9 @@ def build_charts(headers, rows, chart_specs=None, *, language='en'):
     if language == 'zh-hans':
         names = {'count': '数量', 'sum': '合计', 'avg': '平均', 'min': '最小', 'max': '最大'}
     for chart in specs:
+        if chart['type'] in EXTENDED_TYPES:
+            output.append(build_extended(chart, rows, language, _stat))
+            continue
         if chart['type'] == 'metric':
             definition = chart['series'][0]
             value, quality = _stat(rows, definition)
@@ -246,15 +254,23 @@ def render_charts_html(charts, *, language='en'):
                      f" · {meta['omitted_groups']} groups ({meta['omitted_row_count']} rows) "
                      + ('combined into Other' if meta.get('other_included') else 'not plotted'))
         card_class = 'report-chart report-chart--metric' if chart['type'] == 'metric' else 'report-chart'
+        if chart['type'] in {'progress', 'sparkline'}:
+            card_class += ' report-chart--' + chart['type']
         cards.append('<article class="' + card_class + '"><h3>' + escape(chart['title']) + '</h3>'
                      '<div class="report-chart-canvas" data-engenie-chart="' + str(index) + '"></div>'
-                     '<p class="report-chart-note">' + escape(note) + '</p></article>')
+                     + ('' if chart['type'] == 'metric' else '<p class="report-chart-note">' + escape(note) + '</p>')
+                     + '</article>')
     return '<section class="report-charts" id="charts"><h2>' + ('图表视图' if zh else 'Chart Views') + '</h2><div class="report-chart-grid">' + ''.join(cards) + '</div></section>'
 
 
 def chart_assets():
-    return (Path(__file__).resolve().parents[1] / 'static' / 'js' / 'report_chart_runtime.js').read_text(encoding='utf-8')
+    root = Path(__file__).resolve().parents[1] / 'static' / 'js'
+    return '\n'.join((root / name).read_text(encoding='utf-8') for name in (
+        'interactive_table.js', 'extended_visualizations.js', 'report_chart_runtime.js'))
 
 
 def chart_styles():
-    return '''.report-chart--metric .report-chart-canvas{min-height:0}.erc-metric{padding:14px 2px 8px;min-height:92px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 10px}.erc-metric-main{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px}.erc-metric-value{font:750 clamp(32px,5vw,56px)/1.1 system-ui;letter-spacing:-.04em;color:#2868c7;overflow-wrap:anywhere}.erc-metric-unit{font:600 15px system-ui;color:#63758a}.erc-metric-subtitle,.erc-metric-quality{flex-basis:100%;font:12px/1.5 system-ui;color:#63758a;overflow-wrap:anywhere}''' + '''.report-chart-canvas{min-height:270px;position:relative}.report-chart-canvas svg{display:block;width:100%;height:auto;overflow:visible}.erc-legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:12px 0 0;max-height:120px;overflow:auto;font:12px system-ui;color:#526174}.erc-legend-item{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:2px 0;font:inherit;color:inherit;text-align:left}.erc-legend-item[aria-pressed]{cursor:pointer}.erc-swatch{width:9px;height:9px;border-radius:3px;flex:none}.erc-tooltip{position:fixed;z-index:99999;max-width:min(320px,calc(100vw - 16px));padding:9px 12px;border-radius:9px;color:#fff;background:#142840;box-shadow:0 8px 24px #10243b30;font:12px/1.5 system-ui;white-space:pre-wrap;pointer-events:none;overflow-wrap:anywhere}.erc-tooltip[hidden]{display:none!important}.erc-empty{padding:70px 15px;text-align:center;color:#63758a;font:13px system-ui}.erc-hit{cursor:crosshair;outline:none}.erc-axis{font:10px system-ui;fill:#63758a}.erc-grid{stroke:#e7edf3;stroke-width:1}.erc-point-active{stroke:#142840;stroke-width:2}@media print{.erc-tooltip{display:none!important}.erc-legend{max-height:none;overflow:visible}.report-chart{break-inside:avoid}}'''
+    root = Path(__file__).resolve().parents[1] / 'static' / 'css'
+    extra = '\n'.join((root / name).read_text(encoding='utf-8') for name in ('interactive_table.css', 'extended_visualizations.css'))
+    styles = '''.report-chart--metric .report-chart-canvas{min-height:0}.erc-metric{padding:14px 2px 8px;min-height:92px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 10px}.erc-metric-main{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px}.erc-metric-value{font:750 clamp(32px,5vw,56px)/1.1 system-ui;letter-spacing:-.04em;color:#2868c7;overflow-wrap:anywhere}.erc-metric-unit{font:600 15px system-ui;color:#63758a}.erc-metric-subtitle,.erc-metric-quality{flex-basis:100%;font:12px/1.5 system-ui;color:#63758a;overflow-wrap:anywhere}''' + '''.report-chart-canvas{min-height:270px;position:relative}.report-chart-canvas svg{display:block;width:100%;height:auto;overflow:visible}.erc-legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:12px 0 0;max-height:120px;overflow:auto;font:12px system-ui;color:#526174}.erc-legend-item{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:2px 0;font:inherit;color:inherit;text-align:left}.erc-legend-item[aria-pressed]{cursor:pointer}.erc-swatch{width:9px;height:9px;border-radius:3px;flex:none}.erc-tooltip{position:fixed;z-index:99999;max-width:min(320px,calc(100vw - 16px));padding:9px 12px;border-radius:9px;color:#fff;background:#142840;box-shadow:0 8px 24px #10243b30;font:12px/1.5 system-ui;white-space:pre-wrap;pointer-events:none;overflow-wrap:anywhere}.erc-tooltip[hidden]{display:none!important}.erc-empty{padding:70px 15px;text-align:center;color:#63758a;font:13px system-ui}.erc-hit{cursor:crosshair;outline:none}.erc-axis{font:10px system-ui;fill:#63758a}.erc-grid{stroke:#e7edf3;stroke-width:1}.erc-point-active{stroke:#142840;stroke-width:2}@media print{.erc-tooltip{display:none!important}.erc-legend{max-height:none;overflow:visible}.report-chart{break-inside:avoid}}'''
+    return styles + '\n' + extra + '\n.report-chart--progress .report-chart-canvas,.report-chart--sparkline .report-chart-canvas{min-height:0}'

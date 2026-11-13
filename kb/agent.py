@@ -1143,6 +1143,54 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         _tracker_citations()
         return text
 
+    def tracker_visualize(kb_slug: str,
+                          kind: Literal['progress', 'sparkline', 'heatmap', 'pareto', 'timeline', 'table'],
+                          title: str = '', operation: Literal['count', 'sum', 'avg', 'min', 'max'] = 'count',
+                          measure: str = '', x_field: str = '', y_field: str = '', label_field: str = '',
+                          start_field: str = '', end_field: str = '', group_field: str = '',
+                          columns: list[str] | None = None, filters: list[TrackerFilter] | None = None,
+                          query: str = '', target: float | None = None, unit: str = '',
+                          period: Literal['day', 'month', 'year'] = 'day', limit: int = 100) -> str:
+        """Display a compact, interactive business-data view from a verified database query.
+
+        Available in normal and enhanced chat. Choose real visible fields; inspect
+        tracker_preview first only when the schema is unknown. Values are computed
+        from complete matching data, not from a sample copied into model context.
+        - progress: one aggregate measure versus an explicit positive target. Never
+          invent a target; use a user-provided or verified business target. A value
+          above target remains above target in its label. Optional unit is displayed.
+        - sparkline: one aggregate over the actual business-date x_field, grouped by
+          day/month/year. Missing data remains missing; do not substitute updated_at.
+        - heatmap: aggregate by actual x_field and y_field; at most 32 categories per
+          axis. For hour/day views use real preexisting hour/day fields.
+        - pareto: count or sum by categorical x_field; descending bars and cumulative
+          percentage from the full nonnegative result, at most 50 categories.
+        - timeline: real label_field, start_field and end_field; optional group_field;
+          ISO dates/times only, at most 100 matching tasks. Never invent schedule dates.
+        - table: selected columns (up to12), optional filters, bounded limit1..500.
+          Sort, search and paginate loaded rows in the card; a truncated table clearly
+          shows loaded versus matching totals. Do not call it the full dataset.
+        Use operation=count/sum/avg/min/max with measure for non-count aggregates.
+        query/filters have the same semantics as tracker_lookup and honor hidden fields.
+        Titles describe the business question; no KB/source subtitle is added.
+        The interface automatically renders the selected view; no Python, HTML or
+        invented image URL is needed. Retain the assigned [N] source in the answer.
+        """
+        from .tracker_visualizations import agent_visualization
+        if not kb_slug:
+            return tracker_query.error('Please select a knowledge base before creating a visualization.')
+        params = dict(kind=kind, title=title, operation=operation, measure=measure,
+                      x_field=x_field, y_field=y_field, label_field=label_field,
+                      start_field=start_field, end_field=end_field, group_field=group_field,
+                      columns=columns, filters=filters, query=query, target=target,
+                      unit=unit, period=period, limit=limit)
+        try:
+            text = agent_visualization(actor, _dept_allowed, tracker_query, kb_slug, params)
+        except (TypeError, ValueError, OverflowError) as exc:
+            return tracker_query.error(exc)
+        _tracker_citations()
+        return text
+
     def tracker_lookup(query: str = "", kb_slug: str = "", columns: list[str] | None = None,
                        filters: list[TrackerFilter] | None = None, order_by: list[TrackerOrder] | None = None,
                        metrics: list[TrackerMetric] | None = None, group_by: list[TrackerGroup] | None = None,
@@ -1343,6 +1391,18 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         '用户明确要纯文字、只要表格或不需要图时遵从。普通聊天、解释性追问或没有可靠数据时直接文字回答；'
         '不要重复已显示且无需更新的图表，不把每次回答扩充成仪表盘。'
     )
+    system_prompt += (
+        '\n更多可视化使用tracker_visualize（普通与增强模式均可）：'
+        '完成率/预算/目标对比用progress，target必须来自用户或已核对的业务目标；'
+        '简短日期趋势用sparkline并给实际业务日期x_field；'
+        '二维集中度用heatmap并给真实x_field/y_field；'
+        '主要原因贡献用pareto（按原因x_field的非负count/sum）；'
+        '排期/维护时长用timeline（真实label_field/start_field/end_field，可加group_field）；'
+        '需要查阅、搜索、排序具体记录时用table并只选择必要columns。'
+        '有界表格只在已加载行内搜索/排序，必须保留已加载/匹配总数说明。'
+        '没有真实目标、两个分组维度或起止时间时不要编造；改用已有数据可支持的视图或简短询问缺失条件。'
+        '这些视图自动内联显示，无需write_analysis或生成HTML；原有单KPI、折线、柱状、饼图仍用tracker_analyze。'
+    )
     from .citation_numbers import CitationGuide
     from .models import KnowledgeBase
     citation_names = {kb.slug: kb.name for kb in KnowledgeBase.objects.select_related('parent').filter(**_dept_filter)
@@ -1353,9 +1413,9 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
     return create_agent(
         middleware=[citation_guide, RetrievalBudget(max_rounds=7,selection=rag_selection)],
         model=_get_llm(llm_cfg),
-        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, request_verified_export]
+        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, tracker_visualize, request_verified_export]
                if llm_cfg.get("qa_enhance") else
-               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, write_analysis, check_analysis, request_verified_export]),
+               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, tracker_visualize, write_analysis, check_analysis, request_verified_export]),
         system_prompt=system_prompt + ("\n增强模式：可直接复用会话中已有的原文、工具结果或已核对的图谱事实，不要求每轮重新检索。历史回答可帮助理解，但核实时使用保存的原文依据。展示有出处的文本或 Markdown 表格。台账Excel和图表使用tracker_analyze返回真实下载链接；来源数据在发布前复核。其它已核对Markdown表格可调用request_verified_export生成CSV。此模式不执行自由生成脚本。" if llm_cfg.get("qa_enhance") else ""),
         checkpointer=checkpointer,
         name="engenie",
@@ -1778,6 +1838,7 @@ def _tool_label(name: str) -> str:
         "tracker_preview": "查看追踪表字段与样例…",
         "tracker_lookup": "筛选或统计追踪表…",
         "tracker_analyze": "分析台账并生成报告…",
+        "tracker_visualize": "创建交互式数据视图…",
         "kb_fetch_doc": "提取文档片段…",
         "write_analysis": "生成分析脚本…",
     }.get(name, f"调用工具 {name}…")

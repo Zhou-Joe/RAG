@@ -3,6 +3,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const runtime=require('../../static/js/report_chart_runtime.js');
+require('../../static/js/interactive_table.js');
+require('../../static/js/extended_visualizations.js');
 const visuals=require('../../static/js/chat_visualizations.js');
 
 class Node{
@@ -27,6 +29,44 @@ function environment(){const document=new Node('document');document.createElemen
   const window=new Node('window');window.innerWidth=800;window.innerHeight=600;document.defaultView=window;document.body=document.createElement('body');
   const host=document.createElement('div');document.body.append(host);return {document,window,host};}
 function chart(type='line',extra={}){return {type,title:'Exact <source>',labels:['A','B','C'],series:[{label:'Rate <b>',values:[0,null,2]}],options:{legend:true},...extra};}
+
+test('all six extended views normalize and mount through the actual compact chat bridge',()=>{
+  const h=environment(),specs=[
+    {type:'progress',title:'Goal',value:125,target:100,unit:'min'},
+    {type:'sparkline',title:'Daily',labels:['Mon','Wed'],series:[{label:'Count',values:[0,3]}],x_values:[0,2000]},
+    {type:'heatmap',title:'Concentration',x_labels:['A'],y_labels:['B'],cells:[{x:0,y:0,value:0}]},
+    {type:'pareto',title:'Causes',labels:['First','Second'],series:[{label:'Count',values:[8,2]}]},
+    {type:'timeline',title:'Maintenance',items:[{label:'Task',start:0,end:3600000}]},
+    {type:'table',title:'Records',columns:[{key:'Count',label:'Count'}],rows:[{Count:0}],total_rows:1,truncated:false},
+  ];
+  assert.equal(visuals.mount(h.host,specs),6);
+  for(const spec of specs){
+    const card=h.host.all().find(node=>node.className.split(' ').includes('chat-chart-'+spec.type));
+    assert.ok(card,spec.type);assert.ok(!card.className.includes('is-expanded'));
+    const toggle=card.all().find(node=>node.className==='chat-chart-size');toggle.emit('click');
+    assert.equal(toggle.getAttribute('aria-expanded'),'true');toggle.emit('click');
+    assert.equal(toggle.getAttribute('aria-expanded'),'false');
+  }
+  assert.ok(h.host.textContent.includes('125 min'));
+  visuals.destroy(h.host);
+  assert.equal(h.host.children.length,0);
+  assert.equal(h.document.body.all().filter(node=>node.className==='erc-tooltip').length,0);
+});
+
+test('interactive table preferences survive chat redraw and language changes while old handlers are released',()=>{
+  const h=environment(),spec={type:'table',title:'Records',columns:[{key:'Name',label:'Name'}],
+    rows:[{Name:'Alpha'},{Name:'Beta'}],total_rows:2,truncated:false};
+  assert.equal(visuals.mount(h.host,[spec]),1);
+  const search=h.host.all().find(node=>node.className==='eit-search');search.value='Beta';search.emit('input');
+  const toggle=h.host.all().find(node=>node.className==='chat-chart-size');toggle.emit('click');
+  assert.equal(visuals.mount(h.host,[spec],{language:'zh-hans'}),1);
+  const replacement=h.host.all().find(node=>node.className==='eit-search');
+  assert.equal(replacement.value,'Beta');assert.equal((search.events.input||[]).length,0);
+  assert.equal(h.host.all().find(node=>node.className==='chat-chart-size').getAttribute('aria-expanded'),'true');
+  const preferences=h.host.all().find(node=>node._eitState)?._eitState;
+  assert.ok(preferences);assert.equal(preferences.query,'Beta');assert.equal(preferences.rows,undefined);
+  visuals.destroy(h.host);assert.equal((replacement.events.input||[]).length,0);
+});
 
 test('normalization preserves zeros, gaps, numeric strings, 8 series and 500 exact points',()=>{
   const data=visuals.normalize(chart('line',{labels:Array.from({length:500},(_,i)=>String(i)),
