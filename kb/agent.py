@@ -11,6 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import AsyncGenerator, Literal
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from .clocked_chat import ClockedChatOpenAI as ChatOpenAI
 
@@ -1395,7 +1396,7 @@ async def run_agent_stream(
         if enhance and not overview and not history_messages and not (config or {}).get('attachment_ids'):
             yield SSE_STEP, {"stage": "query_plan", "status": "start"}
             from .qa_steps import plan_query
-            plan_text, p_usage = await plan_query(cfg, message, history=(config or {}).get("published_history", []))
+            plan_text, p_usage = await plan_query(cfg, message, history=(config or {}).get("published_history", []) if history_allowed else [])
             usage_in += p_usage["input_tokens"]
             usage_out += p_usage["output_tokens"]
             max_in = max(max_in, p_usage["input_tokens"])
@@ -1409,7 +1410,6 @@ async def run_agent_stream(
                 yield SSE_STEP, {"stage": "query_plan", "status": "skip",
                                  "detail": "无需规划（闲聊）或规划不可用"}
 
-        from asgiref.sync import sync_to_async
         agent = await sync_to_async(_build_agent)(overview_target if overview else "", thread_id, cfg, top_k, checkpointer,
                              citations=citations, department=department,
                              evidence=evidence, allowed_kb_slugs=(config or {}).get("allowed_kb_slugs"),
@@ -1625,7 +1625,6 @@ async def run_agent_stream(
         if enhance:
             from .qa_steps import verify_answer
             from .publication import validate_sources
-            from asgiref.sync import sync_to_async
             answer_text = "".join(t for t in full_text if isinstance(t, str)).strip()
             public_citations()
             marker_issues = citation_marker_issues(answer_text, citations)
