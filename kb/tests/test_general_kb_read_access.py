@@ -117,7 +117,10 @@ class GeneralLibraryAccessTests(TestCase):
         self.assertTrue(rows[self.general.slug].can_manage)
         self.client.force_login(self.gadmin)
         page = self.client.get(reverse('kb:manage_list'))
-        self.assertContains(page, f'/kb/manage/{self.general.slug}/delete/')
+        self.assertNotContains(page, f'/kb/manage/{self.general.slug}/delete/')
+        detail = self.client.get(reverse('kb:manage_detail', args=[self.general.slug]))
+        self.assertTrue(detail.context['can_manage'])
+        self.assertContains(detail, 'id="descEditBtn"')
 
     def test_detail_page_opens_read_only_with_document_list(self):
         self.client.force_login(self.rse)
@@ -242,8 +245,8 @@ class GeneralLibraryAccessTests(TestCase):
     def test_browse_scope_equals_readable_or_manageable(self):
         """浏览页的不变式：列出来 ⇔ 能读或能管。
 
-        注意搜索（kb_q）比浏览页更窄：共享库只到「通用」∪ 本部门，全局管理员
-        也不例外（要全部得显式传 admin_all=True）——这是既有约定，不在本次改动里。
+        全局管理员的查询与浏览都覆盖全部共享库；其他账号仍限「通用」∪ 所属部门。
+        个人知识库始终仅对其拥有者可见。
         """
         nodes = list(KnowledgeBase.objects.all())
         for user in (self.rse, self.afe, self.pleb, self.gadmin):
@@ -603,5 +606,5 @@ class ReadonlyUiLanguageTests(SimpleTestCase):
         response = self.client.get('/i18n/catalog.js')
         self.assertEqual(response.status_code, 200)
         body = response.content.decode('utf-8')
-        for fragment in ('公共知识库', 'Shared libraries', 'read-only libraries', 'Read-only'):
+        for fragment in ('公共知识库', 'Shared Libraries', 'read-only libraries', 'Read-only'):
             self.assertIn(fragment, body)

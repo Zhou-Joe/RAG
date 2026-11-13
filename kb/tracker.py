@@ -142,6 +142,9 @@ def run_extraction(doc_id, tracker_id=None) -> bool:
     doc = Document.objects.select_related("kb", "kb__parent").filter(id=doc_id).first()
     if doc is None:
         return False
+    from .spreadsheet_rows import is_table_query_kb
+    if is_table_query_kb(doc.kb):
+        return False
     record = FeedRecord.objects.select_related("feed").filter(kb_id=doc.kb_id).first()
     if not extraction_allowed(doc, record):
         return False

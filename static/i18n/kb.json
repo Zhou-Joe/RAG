@@ -1,5 +1,25 @@
 {
   "messages": {
+    "表格查询库仅支持 Excel（XLSX/XLSM）和 CSV/TSV；其他资料请上传到文档知识库。": "Table query libraries only support Excel (XLSX/XLSM) and CSV/TSV. Upload other files to a document knowledge base.",
+    "表格查询库的字段来自上传表头，记录按原始行导入，无需 AI 抽取。": "Table query fields come from uploaded headers. Records are imported row by row, without AI extraction.",
+    "此单元格超过编辑长度，已保留完整原值，请修改原表后重新上传。": "This cell exceeds the edit limit. The complete original value is preserved. Edit the source spreadsheet and upload it again.",
+    "单元格超过 Excel 的 32767 字符上限，无法完整导出为 XLSX；完整原值已保留，请下载原始文件。": "A cell exceeds Excel's 32,767-character limit and cannot be fully exported as XLSX. The complete original value is preserved. Download the original file.",
+    "表格记录已导入": "Table Records Imported",
+    "主要用于表格查询": "Use for Table Queries",
+    "不勾选：用于文档知识问答。勾选：将 Excel / CSV / TSV 逐行保存，用于条件查询和统计，不对整张表做向量化。首个非空行为表头，可包含多个 Sheet。": "Leave off for document knowledge Q&A. Enable to save Excel, CSV, or TSV rows for filtering and statistics, without embedding the full table. The first nonempty row is the header; multiple sheets are supported.",
+    "表格查询": "Table Query",
+    "文档知识问答": "Document Knowledge Q&A",
+    "用途": "Purpose",
+    "用途在创建时确定；需要其他用途时请新建知识库。": "The purpose is set at creation. Create another knowledge base for a different purpose.",
+    "管理各部门的文档知识、表格查询与自动采集数据。": "Manage document knowledge, table queries, and automatically collected data for each department.",
+    "表格按行保存，支持通过 EnGenie 进行条件查询和统计，不对整张表做向量化。首个非空行为表头，可包含多个 Sheet。": "Tables are saved row by row for filtering and statistics through EnGenie, without embedding the full table. The first nonempty row is the header; multiple sheets are supported.",
+    "上传表格": "Upload Tables",
+    "支持 Excel XLSX / XLSM、CSV / TSV；首个非空行为表头，可包含多个 Sheet。每行保存为可查询记录，原始文件保留在当前知识库。": "Upload Excel XLSX/XLSM or CSV/TSV. The first nonempty row is the header; multiple sheets are supported. Each row becomes a queryable record, and the original file stays in this knowledge base.",
+    "表格记录": "Table Records",
+    "浏览导入的表格记录，点击记录可展开全部字段。": "Browse imported table records. Click a record to expand all fields.",
+    "导入开始日期": "Import Start Date",
+    "导入结束日期": "Import End Date",
+    "此处日期筛选按导入时间；如需按表格中的日期字段筛选或汇总，请通过 EnGenie 查询。": "These date filters use import time. Use EnGenie to filter or summarize by date fields in your spreadsheet.",
     "正在读取 Word 或邮件文件…": "Reading Word or email file…",
     "正在读取电子表格…": "Reading spreadsheet…",
     "Word 或邮件文件不能超过 25 MB，请拆分后上传。": "Word and email files must be no larger than 25 MB. Split the file and upload again.",
@@ -23,13 +43,13 @@
     "置顶操作失败": "Could not update pin",
     "刷新知识库列表失败": "Could not refresh the library list",
     "知识库列表不完整，请刷新页面": "The library list is incomplete. Refresh the page.",
-    "自动采集": "Automated collection",
+    "自动采集": "Auto Collection",
     "个向量块": "vector chunks",
     "每页": "Per page",
     "追踪表分页": "Tracker pagination",
     "只读": "Read-only",
     "打开": "Open",
-    "公共知识库": "Shared libraries",
+    "公共知识库": "Shared Libraries",
     "还没有追踪记录。": "No tracker records yet.",
     "你还没有可管理的手册库；下方「公共知识库」可以直接查阅。": "You have no libraries you can manage; the shared libraries listed below are open to you.",
     "其它部门或「通用」范围开放给你的库：可查阅、可检索、可问答；上传与修改由所属部门或全局管理员维护。": "Libraries that other departments or the General scope share with you: browse, search and ask questions freely; uploads and edits are maintained by the owning department or a site admin.",
@@ -74,7 +94,7 @@
     "正在准备分析…": "Preparing analysis…",
     "当前范围没有采集样本，请调整对象或时间范围。": "No samples in this range. Select another item or adjust the time range.",
     "参数趋势": "Parameter trends",
-    "统计指标": "Statistic",
+    "统计指标": "Metric",
     "均值": "Average",
     "期末有效值": "Last valid value",
     "合计": "Total",
@@ -110,6 +130,7 @@
     "观察": "Observations",
     "自主数据引擎 · SHDR RAG": "Automated data engine · SHDR RAG",
     "资料上传中心": "Document upload center",
+    "知识库名称": "Knowledge base name",
     "自主数据引擎": "Automated data engine",
     "告诉 EnGenie 数据来源和更新时间，先查看采集样例，确认后自动更新到知识库。": "Tell EnGenie where the data is and when to refresh it. Review a sample, then confirm to update your knowledge base automatically.",
     "用 EnGenie 创建自动任务": "Create an automated task with EnGenie",
@@ -175,9 +196,11 @@
     "正在提取检查项…": "Extracting inspection requirements…",
     "提取失败：": "Extraction failed:",
     "资料上传中心 · SHDR RAG": "Document upload center · SHDR RAG",
+    "知识库中心 · SHDR RAG": "Knowledge Library · SHDR RAG",
     "管理各部门的手册库与业务数据；上传后自动解析、分块并建立索引。": "Manage departmental manuals and business data. Uploaded files are parsed, split into passages, and indexed automatically.",
     "＋ 新建手册库": "＋ New manual library",
-    "手册库": "Manual libraries",
+    "手册库": "Manual Libraries",
+    "网格": "Grid",
     "PDF / MD / TXT / 图片（JPG·PNG·WebP）· xlsx / csv 自动识别为业务数据": "PDF / MD / TXT / images (JPG · PNG · WebP) · XLSX / CSV files are recognized as business data",
     "新建手册库": "New manual library",
     "手册库名称": "Manual library name",
@@ -193,17 +216,18 @@
     "检索": "Search",
     "关联": "Connect",
     "改名": "Rename",
-    "删除知识库": "Delete knowledge base",
+    "删除知识库": "Delete Knowledge Base",
     "确定删除「": "Delete “",
     "份文档及所有向量数据将丢失。": "documents and all vector data will be lost.",
     "删除": "Delete",
     "还没有手册库": "No manual libraries yet",
-    "编辑知识库": "Edit knowledge base",
+    "编辑知识库": "Edit Knowledge Base",
     "名称": "Name",
     "部门（通用 = 所有部门可见；文件夹会同步其下全部子库）": "Department (General is visible to all departments; changes to a folder apply to all its libraries)",
-    "业务数据": "Business data",
+    "业务数据": "Business Data",
     "自动采集的数据与导入的 xlsx / csv 在这里管理。": "Manage automatically collected data and imported XLSX / CSV files here.",
     "个采集库": "collection libraries",
+    "条采集记录": "collection records",
     "个导入表": "imported tables",
     "自动采集 ·": "Automatic collection ·",
     "条记录": "records",
@@ -779,7 +803,9 @@
     "没有匹配记录。请检查关键词，或确认业务表已识别出图纸号、部件号、G-code、设备号、APEX 等关联列。": "No matching records. Check your keywords or confirm that drawing number, part number, G-code, equipment number, and APEX columns were recognized in the business tables.",
     "需要上传或更新资料？": "Need to upload or update source material?",
     "手册和所有 CSV/XLSX 业务数据现已统一到资料上传中心。": "Manuals and all CSV/XLSX business data are now managed in the document upload center.",
+    "手册和所有 CSV/XLSX 业务数据现已统一到知识库中心。": "Manuals and all CSV/XLSX business data are now managed in Knowledge Library.",
     "前往资料上传中心": "Go to document upload center",
+    "前往知识库中心": "Go to Knowledge Library",
     "请联系管理员上传": "Ask an administrator to upload",
     "当前数据集": "Current datasets",
     "个": "items",
@@ -1270,7 +1296,7 @@
     "个人（仅本人）": "Individual (only me)",
     "个人知识库仅创建者可查看、检索和管理。": "Only the creator can view, search and manage an individual knowledge base.",
     "通用（所有用户）": "General (all users)",
-    "知识库主页": "Knowledge base home",
+    "知识库主页": "Open Library",
     "普通用户只能创建个人知识库。": "Regular users can only create individual knowledge bases.",
     "仅创建者可将知识库设为个人。": "Only the creator can make this knowledge base individual.",
     "子文档继承所属知识库的访问范围。": "Documents inherit their knowledge base access level.",
@@ -1293,6 +1319,18 @@
     {
       "source": "{count} 个只读库",
       "target": "{count} read-only libraries"
+    },
+    {
+      "source": "{count} 份文档",
+      "target": "{count} documents"
+    },
+    {
+      "source": "{count} 个向量块",
+      "target": "{count} vector chunks"
+    },
+    {
+      "source": "{count}条记录格式变化，已保留原文，请查看文档的采集提示。",
+      "target": "{count} records changed format. Their original content was retained; see collection notices in the documents."
     },
     {
       "source": "{count} 个采集库",
@@ -1320,7 +1358,7 @@
     },
     {
       "source": "共 {count} 份文档",
-      "target": "{count} documents"
+      "target": "Total: {count} documents"
     },
     {
       "source": "{count} 个片段",
@@ -1345,6 +1383,10 @@
     {
       "source": "确定删除「{name}」？",
       "target": "Delete “{name}”?"
+    },
+    {
+      "source": "确定删除「{name}」？该知识库的所有文档、记录、索引和关联自动任务将被永久删除，不可恢复。",
+      "target": "Delete “{name}”? All documents, records, indexes and linked automated tasks in this knowledge base will be permanently deleted. This cannot be undone."
     },
     {
       "source": "确定删除「{name}」？此操作不可撤销。",
@@ -2088,5 +2130,8 @@
       "source": "第 {current} 轮请求已发出，正在等待模型。",
       "target": "Round {current} request sent; waiting for the model."
     }
-  ]
+  ],
+  "englishSource": {
+    "My Favorite": "我的收藏"
+  }
 }

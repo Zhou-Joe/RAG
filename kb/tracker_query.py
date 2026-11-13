@@ -12,6 +12,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Substr
 
 from .models import KbTracker, KnowledgeBase, TrackerRow
+from .active_fields import visible_fields
 
 RESPONSE_CHARS = 10000
 TURN_CHARS = 20000
@@ -54,6 +55,7 @@ class TrackerQuery:
         self.allowed = allowed
         self.evidence = evidence if evidence is not None else []
         self.remaining = TURN_CHARS
+        self.presentation_remaining = 6000
         self.lock = threading.Lock()
         from .kb_links import RelationshipScope
         self.relationship_scope = relationship_scope or RelationshipScope(allowed)
@@ -74,8 +76,14 @@ class TrackerQuery:
                     from .publication import digest
                     snapshot = {'kind': 'tracker', 'source': '追踪表数据库查询', 'text': text,
                                 'query': params, 'response_chars': cap, 'result_digest': digest(text)}
+                    if result.get('chart'):
+                        snapshot['chart'] = result['chart']
                     if snapshot not in self.evidence:
                         self.evidence.append(snapshot)
+                    # Reference metadata stays outside the factual payload, so
+                    # its digest is stable and cannot refer to itself.
+                    tagged = {**result, 'result_id': snapshot['result_digest']}
+                    if params.get('presentation_version', 1) == 2 and len(encode(tagged)) <= cap:result = tagged
                 tables = self.tables(params.get('kb_slug', ''))
                 if method == 'preview':
                     returned = {table['kb_slug'] for table in result['tables']}
@@ -89,6 +97,37 @@ class TrackerQuery:
             except ValueError as exc:
                 text = encode({'error': str(exc)[:400]})
             self.remaining -= len(text)
+            return text
+
+    def show_value(self, *, field, row_id=None, title='', unit='', result_id='', group=None):
+        """Present an existing result without asking the model to copy its value."""
+        from .publication import digest
+        from .tracker_card_selection import replay_source, selection_result
+        with self.lock:
+            if self.presentation_remaining < 200:
+                return encode({'error': 'The selected-card output budget is exhausted.'})
+            try:
+                if not isinstance(result_id, str) or len(result_id) > 128:
+                    raise ValueError('Use an actual result_id returned by tracker_lookup.')
+                sources = [item for item in self.evidence if item.get('kind') == 'tracker'
+                           and isinstance(item.get('query'), dict) and 'presentation_query' not in item
+                           and 'analysis_query' not in item and 'visualization_query' not in item]
+                source = next((item for item in reversed(sources) if not result_id or item['result_digest'] == result_id), None)
+                if source is None:raise ValueError('First retrieve the relevant data with tracker_lookup, then use its result_id.')
+                result = replay_source(self, source['query'], source['response_chars'], source['result_digest'])
+                selection = dict(field=field, row_id=row_id, group=group, title=title, unit=unit)
+                presented = selection_result(result, source['result_digest'], selection)
+                text = encode(presented)
+                if len(text) > min(2000, self.presentation_remaining):
+                    raise ValueError('Use a shorter card title or source text.')
+                snapshot = {'kind': 'tracker', 'source': '追踪表所选答案', 'query': source['query'],
+                    'response_chars': source['response_chars'], 'text': text, 'result_digest': digest(text),
+                    'presentation_query': {'source_result_digest': source['result_digest'], **selection},
+                    'chart': presented['chart']}
+                if snapshot not in self.evidence:self.evidence.append(snapshot)
+            except (ValueError, TypeError, OverflowError) as exc:
+                text = encode({'error': str(exc)[:400]})
+            self.presentation_remaining = max(0, self.presentation_remaining - len(text))
             return text
 
     def _budget_notice(self):
@@ -135,14 +174,16 @@ class TrackerQuery:
                                    data_from=Min('updated_at', filter=Q(status='done')),
                                    data_to=Max('updated_at', filter=Q(status='done')))
             sample = list(rows.filter(status='done').order_by('-updated_at', '-pk').values('id', 'values')[:2])
-            fields = table.fields[field_offset:field_offset+40]
+            labels = visible_fields(table.kb, table)
+            fields = [{'label': label} for label in labels[field_offset:field_offset+40]]
             info = {'kb_slug': table.kb.slug, 'name': table.kb.name, 'enabled': table.enabled,
-                    'row_count': stats['total'], 'completed_rows': stats['completed'], 'field_count': len(table.fields),
+                    'query_mode': 'table' if table.kb.table_query else 'tracker',
+                    'row_count': stats['total'], 'completed_rows': stats['completed'], 'field_count': len(labels),
                     'data_from': stats['data_from'].isoformat() if stats['data_from'] else None,
                     'data_to': stats['data_to'].isoformat() if stats['data_to'] else None,
                     'fields': [{'name': f['label'], 'sample_types': sorted({type(row['values'][f['label']]).__name__
                         for row in sample if f['label'] in row['values']})} for f in fields],
-                    'next_field_offset': field_offset+len(fields) if field_offset+len(fields)<len(table.fields) else None,
+                    'next_field_offset': field_offset+len(fields) if field_offset+len(fields)<len(labels) else None,
                     'samples': [{'row_id': row['id'], 'values': {f['label']: cell(row['values'].get(f['label']), 100)
                                  for f in fields[:6]}} for row in sample]}
             candidate = {**result, 'tables': result['tables']+[info]}
@@ -158,7 +199,34 @@ class TrackerQuery:
 
     def lookup(self, kb_slug='', query='', columns=None, filters=None, order_by=None, metrics=None,
                group_by=None, limit=20, offset=0, status='done', cell_chars=CELL_CHARS, cap=RESPONSE_CHARS,
-               _export=False, _matching_ids=False):
+               _export=False, _matching_ids=False, presentation='text', card_title='', unit='',
+               card_field='', card_row_id=None, presentation_version=1):
+        if presentation not in ('auto', 'text'):
+            raise ValueError('presentation 使用 auto 或 text。')
+        if not isinstance(card_title, str) or len(card_title) > 160 or not isinstance(unit, str) or len(unit) > 40:
+            raise ValueError('card_title 最多160字符，unit 最多40字符。')
+        if (not isinstance(card_field, str) or len(card_field) > 500
+                or card_row_id is not None and (isinstance(card_row_id, bool) or not isinstance(card_row_id, int) or card_row_id < 1)
+                or type(presentation_version) is not int or presentation_version not in (1, 2)):
+            raise ValueError('Card field, row selection or presentation version is invalid.')
+        selected_columns = columns
+        data_cap = cap - 600 if presentation_version == 2 and presentation == 'auto' and cap >= 2400 else cap
+
+        def present(result):
+            if presentation != 'auto' or status != 'done' or _export or _matching_ids:
+                return result
+            from .value_cards import attach_value_card
+            presented = attach_value_card(result, columns=selected_columns, metrics=metrics,
+                group_by=group_by, order_by=order_by, limit=limit, offset=offset,
+                title=card_title, unit=unit, cap=cap, field=card_field, row_id=card_row_id,
+                infer=presentation_version == 2)
+            if presentation_version == 2 and 'chart' not in presented:
+                candidate = {**presented, 'presentation_notice':
+                    'Select the relevant returned field/row with tracker_show_value in this response. '
+                    'Context columns do not prevent cards. For full statistics or trends use tracker_analyze/tracker_visualize.'}
+                if len(encode(candidate)) <= cap - 100:presented = candidate
+            return presented
+
         integer(limit, 'limit', 1, 50000 if _export else 100)
         integer(offset, 'offset', 0, 1000000)
         integer(cell_chars, 'cell_chars', 80, 8000)
@@ -168,7 +236,8 @@ class TrackerQuery:
         if status not in ('done', 'proposed', 'pending', 'running', 'failed', 'all'):
             raise ValueError('status 无效，默认 done，仅检索已完成记录。')
         tables = self.tables(kb_slug)
-        labels = list(dict.fromkeys(f['label'] for table in tables for f in table.fields))
+        table_fields = {table.pk: set(visible_fields(table.kb, table)) for table in tables}
+        labels = list(dict.fromkeys(label for table in tables for label in visible_fields(table.kb, table)))
         if not tables:
             raise ValueError('范围内没有追踪表，请先调用 tracker_preview。')
         rows = TrackerRow.objects.filter(tracker__in=tables)
@@ -181,7 +250,8 @@ class TrackerQuery:
         def expression(field, kind='text'):
             nonlocal rows
             metadata = {'$row_id':'id', '$source_id':'external_id', '$updated_at':'updated_at',
-                        '$status':'status', '$document_name':'document__original_name'}
+                        '$status':'status', '$document_name':'document__original_name',
+                        '$source_sheet':'source_sheet', '$source_row':'source_row'}
             if not isinstance(field,str) or field not in labels and field not in metadata:
                 raise ValueError(f'未知字段「{str(field)[:100]}」，请先用 tracker_preview 查看实际字段。')
             if kind not in ('text', 'number', 'date'):
@@ -190,7 +260,15 @@ class TrackerQuery:
             if key in aliases:
                 return aliases[key]
             raw = f'tq_{len(aliases)}_raw'
-            rows = rows.annotate(**{raw: Cast(F(metadata[field]),TextField()) if field in metadata else TrackerText(field, 'values')})
+            if field in metadata:
+                value = Cast(F(metadata[field]), TextField())
+            else:
+                # A label visible in one tracker must not expose the same label
+                # hidden in another tracker in a folder-wide query.
+                visible_trackers = [pk for pk, fields in table_fields.items() if field in fields]
+                value = Case(When(tracker_id__in=visible_trackers, then=TrackerText(field, 'values')),
+                             default=Value(None), output_field=TextField())
+            rows = rows.annotate(**{raw: value})
             alias = f'tq_{len(aliases)}_value'
             if kind == 'number':
                 value = Case(When(**{raw+'__regex': NUMERIC}, then=Cast(F(raw), FloatField())), default=Value(None), output_field=FloatField())
@@ -261,8 +339,8 @@ class TrackerQuery:
         applied = {'kb_slug':kb_slug, 'query':query, 'filters':filters or [], 'status':status,
                    'metrics':metrics or [], 'group_by':group_by or []}
         if metrics or group_by:
-            return self.summary(expression, lambda: rows, total, metrics, group_by, limit, offset, cap, applied,
-                                exporting=_export)
+            return present(self.summary(expression, lambda: rows, total, metrics, group_by, limit, offset, cap, applied,
+                                        exporting=_export))
         if columns is None:
             columns = labels[:6]
             if '采集日期' in labels and '采集日期' not in columns:
@@ -281,12 +359,14 @@ class TrackerQuery:
         result = {'kind':'tracker_rows', 'applied_query':applied, 'total_matched':total, 'columns':columns, 'unselected_columns':len(set(labels)-set(columns)),
                   'offset':offset, 'rows':[], 'has_more':False, 'next_offset':None,
                   'notice':'只返回本页；truncated 标记表示单元格省略，不能据此声称拿到完整内容。待确认记录不是已批准事实。'}
-        for row in rows.values('id','tracker__kb__slug','status','updated_at','external_id','document__original_name','values')[offset:offset+limit]:
+        for row in rows.values('id','tracker_id','tracker__kb__slug','status','updated_at','external_id','document__original_name','source_sheet','source_row','values')[offset:offset+limit]:
             record = {'row_id':row['id'], 'kb_slug':row['tracker__kb__slug'], 'status':row['status'],
                       'updated_at':row['updated_at'].isoformat(), 'source_id':cell(row['external_id'],200),
                       'document_name':cell(row['document__original_name'] or '',200),
-                      'values':{column:cell(row['values'].get(column), cell_chars) for column in columns}}
-            if len(encode({**result, 'rows':result['rows']+[record]}))>cap-300:
+                      'source_sheet':row['source_sheet'], 'source_row':row['source_row'],
+                      'values':{column:cell(row['values'].get(column), cell_chars) for column in columns
+                                if column in table_fields[row['tracker_id']]}}
+            if len(encode({**result, 'rows':result['rows']+[record]}))>data_cap-300:
                 break
             result['rows'].append(record)
         consumed = len(result['rows'])
@@ -294,7 +374,7 @@ class TrackerQuery:
         result['next_offset'] = offset+consumed if consumed and result['has_more'] else None
         if not consumed and offset<total:
             result['notice'] = '本页字段过长，未返回记录；请选择更少 columns，或使用 metrics 在数据库统计。'
-        return result
+        return present(result)
 
     def summary(self, expression, get_rows, total, metrics, group_by, limit, offset, cap, applied, *, exporting=False):
         """所有过滤后记录参与数据库汇总，分页仅限制返回的分组，不影响统计。"""
@@ -366,9 +446,15 @@ def validate_snapshot(snapshot, user):
     from .publication import digest
     if not getattr(user,'is_active',False) or not isinstance(snapshot, dict) or snapshot.get('kind')!='tracker':
         return False
+    if 'presentation_query' in snapshot:
+        from .tracker_card_selection import validate_selection
+        return validate_selection(snapshot, lambda kb: kb_accessible(user, kb))
     if 'analysis_query' in snapshot:
         from .analysis_exports import validate_analysis_snapshot
         return validate_analysis_snapshot(snapshot, user)
+    if 'visualization_query' in snapshot:
+        from .tracker_visualizations import validate_visualization_snapshot
+        return validate_visualization_snapshot(snapshot, user)
     params = snapshot.get('query')
     cap = snapshot.get('response_chars')
     text = snapshot.get('text')
@@ -378,6 +464,7 @@ def validate_snapshot(snapshot, user):
         return False
     try:
         result = TrackerQuery(lambda kb:kb_accessible(user,kb)).lookup(cap=cap, **params)
-        return digest(encode(result))==snapshot['result_digest']
+        return (digest(encode(result))==snapshot['result_digest']
+                and snapshot.get('chart') == result.get('chart'))
     except (ValueError, TypeError, OverflowError):
         return False

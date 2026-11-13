@@ -1,12 +1,12 @@
 {% extends "kb/_base.html" %}{% load static %}
 {% block title %}{{ kb.name }} · 自动采集知识库{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=10">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=13-chart-hover">{% endblock %}
 {% block content %}
 <header class="page-head">
   <div class="page-head-main">
-    <a class="page-back" href="{% url 'kb:manage_list' %}">资料上传中心</a>
+    <a class="page-back" href="{% url 'kb:manage_list' %}">知识库中心</a>
     <span class="fkd-kicker">自主数据引擎 · 自动采集知识库</span>
-    <h1 data-i18n-preserve-text><span id="feedKbName">{{ kb.name }}</span> <span class="dept-badge" id="feedKbAccess">{{ kb.access_label }}</span>{% if not can_manage %} <span class="ro-badge">只读</span>{% endif %}</h1>
+    <h1 data-i18n-preserve-text><span id="feedKbName" translate="no">{{ kb.name }}</span> <span class="dept-badge" id="feedKbAccess">{{ kb.access_label }}</span>{% if not can_manage %} <span class="ro-badge">只读</span>{% endif %}</h1>
     <p class="page-desc"><span id="feedKbDescription"{% if kb.description %} translate="no"{% endif %}>{{ kb.description|default:"自动采集的数据会在这里持续更新。" }}</span> · <span id="feedKbTotal">{{ total_rows }}</span> 条采集记录</p>
   </div>
   <div class="page-actions">
@@ -23,6 +23,7 @@
     <div class="field"><label for="feedKbEditName">名称</label><input id="feedKbEditName" name="name" value="{{ kb.name }}" required maxlength="100"></div>
     {% include "kb/_access_fields.html" with scope_edit=True %}
     <div class="field"><label for="feedKbEditDescription">描述（可选）</label><textarea id="feedKbEditDescription" name="description" maxlength="200" rows="3">{{ kb.description }}</textarea></div>
+    {% include "kb/_active_fields.html" %}
     <p class="dialog-err" id="feedKbEditError" role="alert" hidden></p>
     <div class="dialog-actions"><button type="button" class="btn outline" id="feedKbEditCancel">取消</button><button type="submit" class="btn primary" id="feedKbEditSave">保存</button></div>
   </form>
@@ -34,6 +35,8 @@
   <div class="fkd-status-side"><span id="feedKbRunCount"></span><button type="button" class="btn sm outline" id="feedKbRefresh">刷新</button></div>
 </section>
 <p class="fkd-last-success" id="feedKbLastSuccess" hidden></p>
+
+{% include "kb/_tracker_analysis_controls.html" %}
 
 <section class="fkd-panel" id="feedKbData" data-url="{% url 'kb:feed_kb_data' kb.slug %}" aria-labelledby="feedKbRowsHeading">
   <div class="section-bar"><div><h2 id="feedKbRowsHeading">采集结果</h2><p>先看最新一次成功采集的数据，也可切换到全部历史记录{% if can_manage %}；展开记录可编辑字段或删除记录{% endif %}。</p></div><span class="count-chip" id="feedKbMatchCount">—</span></div>
@@ -56,10 +59,10 @@
 </section>
 {% include "kb/_tracker_record_editor.html" %}
 
-{% include "kb/_tracker_analysis_controls.html" %}
 {% endblock %}
 {% block scripts %}
-<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
+<script src="{% static 'js/kb_access.js' %}?v=2-library-layout" defer></script>
 {% if can_manage %}<script src="{% static 'js/tracker_record_editor.js' %}?v=1" defer></script>{% endif %}
-<script src="{% static 'js/feed_kb_detail.js' %}?v=10" defer></script>
+<script src="{% static 'js/chart_tooltip.js' %}?v=1" defer></script>
+<script src="{% static 'js/feed_kb_detail.js' %}?v=13-chart-hover" defer></script>
 {% endblock %}

@@ -27,7 +27,14 @@
         totalTimer = setTimeout(() => abort('页面连接等待时间过长，正在恢复后台回答状态。'), totalMs);
         try {
           const response = await Promise.race([fetchImpl(url, {...options, signal: controller.signal}), aborted]);
-          if (!response.ok) throw new Error('请求失败（HTTP ' + response.status + '），本次回答未完成。');
+          if (!response.ok) {
+            let message = '';
+            try {
+              const data = await Promise.race([response.json(), aborted]);
+              if (typeof data?.message === 'string') message = data.message;
+            } catch (_) { /* Non-JSON server errors keep the HTTP status fallback. */ }
+            throw new Error(message || '请求失败（HTTP ' + response.status + '），本次回答未完成。');
+          }
           if (!(response.headers.get('content-type') || '').includes('text/event-stream')) {
             throw new Error('未收到问答数据流，请确认登录状态后重试。');
           }

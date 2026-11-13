@@ -30,8 +30,9 @@
 .ta-chart .ta-grid{stroke:var(--rule);stroke-width:1;stroke-dasharray:3 5}
 .ta-chart .ta-axis-label{font:11px var(--fm);fill:var(--mute)}
 .ta-chart .ta-line{stroke:var(--brand);stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.ta-chart .ta-dot{fill:var(--surface);stroke:var(--brand);stroke-width:2}
-.ta-chart .ta-dot:hover,.ta-chart .ta-dot:focus{r:6;fill:var(--brand-soft)}
+.ta-chart .ta-dot{fill:var(--surface);stroke:var(--brand);stroke-width:1.2;vector-effect:non-scaling-stroke;pointer-events:none}
+.ta-chart .ta-dot.is-chart-point-active{fill:var(--brand-soft);stroke-width:1.8}
+.ta-chart .ta-point-hit{fill:transparent;stroke:none;pointer-events:all;cursor:crosshair;outline:none}
 .ta-distribution{display:grid;gap:14px;padding:12px 10px}
 .ta-distribution-row{display:grid;grid-template-columns:minmax(80px,1fr) 3fr 56px;align-items:center;gap:14px;font-size:12px}
 .ta-distribution-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

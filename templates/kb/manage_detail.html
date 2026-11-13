@@ -1,6 +1,6 @@
 {% extends "kb/_base.html" %}{% load static %}
 {% block title %}{{ kb.name }} · 知识库管理{% endblock %}
-{% block extra_head %}{% if show_tracker_data %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=10">{% endif %}{% endblock %}
+{% block extra_head %}{% if show_tracker_data %}<link rel="stylesheet" href="{% static 'css/feed_kb_detail.css' %}?v=13-chart-hover">{% endif %}{% endblock %}
 {% block content %}
 <svg aria-hidden="true" class="kb-icon-defs" xmlns="http://www.w3.org/2000/svg">
   <symbol id="kb-i-sparkles" viewBox="0 0 24 24"><path d="m12 2 1.7 6.3L20 10l-6.3 1.7L12 18l-1.7-6.3L4 10l6.3-1.7L12 2ZM19 17l.6 1.4L21 19l-1.4.6L19 21l-.6-1.4L17 19l1.4-.6L19 17Z"/></symbol>
@@ -15,16 +15,17 @@
 </svg>
 <header class="page-head">
   <div class="page-head-main">
-    <a class="page-back" href="/kb/manage/">资料上传中心</a>
-    <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge" id="kbAccessBadge">{{ kb.access_label }}</span>{% if not can_manage %} <span class="ro-badge" title="通用库对所有部门开放：可浏览、可检索、可问答；上传与修改由全局管理员维护">只读</span>{% endif %}{% if kb.embedding_label %} <span class="emb-badge"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-sparkles"></use></svg>{{ kb.embedding_label }}</span>{% endif %}</h1>
-    <p class="page-desc"><span id="kbDescText">{% if kb.description %}{{ kb.description }}{% else %}（无描述）{% endif %}</span>
+    <a class="page-back" href="/kb/manage/">知识库中心</a>
+    <h1 data-i18n-preserve-text>{{ kb.name }} <span class="dept-badge" id="kbAccessBadge">{{ kb.access_label }}</span>{% if kb.table_query %} <span class="kb-purpose-badge">表格查询</span>{% endif %}{% if not can_manage %} <span class="ro-badge" title="通用库对所有部门开放：可浏览、可检索、可问答；上传与修改由全局管理员维护">只读</span>{% endif %}{% if not kb.table_query and kb.embedding_label %} <span class="emb-badge"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-sparkles"></use></svg>{{ kb.embedding_label }}</span>{% endif %}</h1>
+    <p class="page-desc"><span id="kbDescText"{% if kb.description %} translate="no"{% endif %}>{% if kb.description %}{{ kb.description }}{% else %}（无描述）{% endif %}</span>
       · 文档 <span id="kbDocCount">{{ docs_total }}</span>
-      · 向量块 <span id="kbChunkCount">{{ chunks_total }}</span></p>
+      {% if not kb.table_query %}· 向量块 <span id="kbChunkCount">{{ chunks_total }}</span>{% endif %}</p>
+    {% if kb.table_query %}<p class="kb-table-query-help">表格按行保存，支持通过 EnGenie 进行条件查询和统计，不对整张表做向量化。首个非空行为表头，可包含多个 Sheet。</p>{% endif %}
   </div>
   <div class="page-actions">
-    <a class="btn outline" href="/kb/inspection/">检查项提取</a>
+    {% if not kb.table_query %}<a class="btn outline" href="/kb/inspection/">检查项提取</a>{% endif %}
     {% if kb.is_folder %}<a class="btn outline" href="{% url 'kb:feeds' %}?kb={{ kb.slug|urlencode }}">自动更新数据源</a>{% endif %}
-    {% if is_document_feed and can_manage %}<a class="btn outline" id="trkEntry" href="/kb/manage/{{ kb.slug }}/tracker/">配置 AI 提炼字段</a>{% elif kb.tracker.enabled %}<a class="btn outline" id="trkEntry" href="/kb/manage/{{ kb.slug }}/tracker/">追踪表</a>{% endif %}
+    {% if not kb.table_query %}{% if is_document_feed and can_manage %}<a class="btn outline" id="trkEntry" href="/kb/manage/{{ kb.slug }}/tracker/">配置 AI 提炼字段</a>{% elif kb.tracker.enabled %}<a class="btn outline" id="trkEntry" href="/kb/manage/{{ kb.slug }}/tracker/">追踪表</a>{% endif %}{% endif %}
     {% if can_manage %}<button type="button" id="descEditBtn" class="btn outline">编辑知识库</button>{% endif %}
   </div>
 </header>
@@ -60,15 +61,17 @@
     <div class="dialog-title">编辑知识库</div>
     <div class="field"><label>名称</label>
       <input name="name" value="{{ kb.name }}" required></div>
+    <div class="field kb-query-mode-info"><span class="kb-query-mode-label">用途</span><strong>{% if kb.table_query %}表格查询{% else %}文档知识问答{% endif %}</strong><p class="kb-query-mode-help">用途在创建时确定；需要其他用途时请新建知识库。</p></div>
     {% include "kb/_access_fields.html" with scope_edit=True %}
     <div class="field"><label>描述（可选）</label>
       <textarea name="description" maxlength="200" rows="2"
                 >{{ kb.description }}</textarea></div>
-    <div class="field"><label style="display:flex;align-items:center;gap:10px">
+    {% include "kb/_active_fields.html" %}
+    {% if not kb.table_query %}<div class="field"><label style="display:flex;align-items:center;gap:10px">
       <input type="hidden" name="tracker_present" value="1"><!-- 取消勾选时 checkbox 不发包，靠它识别"表单带了开关" -->
       <span class="trk-switch"><input type="checkbox" name="tracker_enabled"
         {% if kb.tracker.enabled %}checked{% endif %}><span class="sl"></span></span>
-      启用追踪表</label></div>
+      启用追踪表</label></div>{% endif %}
     <div class="dialog-hint">名称用于按名称自动定位知识库；留空描述即清除</div>
     <div class="dialog-err" id="kbEditErr" hidden></div>
     <div class="dialog-actions">
@@ -82,19 +85,19 @@
 
 {% if can_manage %}
 <div class="section-bar">
-  <div><h2>上传</h2><p>多选文件或拖入整个文件夹，入库进度会实时显示在下方列表。</p></div>
+  <div><h2>{% if kb.table_query %}上传表格{% else %}上传{% endif %}</h2><p>多选文件或拖入整个文件夹，入库进度会实时显示在下方列表。</p></div>
 </div>
 <div class="upload-area">
   <form method="post" enctype="multipart/form-data" id="uploadForm">
     {% csrf_token %}
-    <label class="upload-label" for="fileInput"><svg class="kb-ui-icon upload-hero-icon" aria-hidden="true" focusable="false"><use href="#kb-i-upload"></use></svg>点击选择文件<span class="upload-hint">支持 PDF / Word DOCX / Excel XLSX·XLSM / CSV·TSV / 邮件 EML·MSG / Markdown·TXT / 图片；文件保存在当前知识库，可多选或拖入文件夹。</span></label>
+    <label class="upload-label" for="fileInput"><svg class="kb-ui-icon upload-hero-icon" aria-hidden="true" focusable="false"><use href="#kb-i-upload"></use></svg>点击选择文件<span class="upload-hint">{% if kb.table_query %}支持 Excel XLSX / XLSM、CSV / TSV；首个非空行为表头，可包含多个 Sheet。每行保存为可查询记录，原始文件保留在当前知识库。{% else %}支持 PDF / Word DOCX / Excel XLSX·XLSM / CSV·TSV / 邮件 EML·MSG / Markdown·TXT / 图片；文件保存在当前知识库，可多选或拖入文件夹。{% endif %}</span></label>
     <input type="file" name="file" id="fileInput" multiple
-           accept=".pdf,.md,.markdown,.txt,.csv,.tsv,.xlsx,.xlsm,.docx,.eml,.msg,.jpg,.jpeg,.png,.webp">
-    <input type="file" id="dirInput" webkitdirectory multiple hidden>
+           accept="{% if kb.table_query %}.xlsx,.xlsm,.csv,.tsv{% else %}.pdf,.md,.markdown,.txt,.csv,.tsv,.xlsx,.xlsm,.docx,.eml,.msg,.jpg,.jpeg,.png,.webp{% endif %}">
+    <input type="file" id="dirInput" webkitdirectory multiple hidden{% if kb.table_query %} accept=".xlsx,.xlsm,.csv,.tsv"{% endif %}>
     <div class="upload-pick-row">
       <button type="button" class="btn sm outline" id="pickDirBtn"><svg class="kb-ui-icon upload-folder-icon" aria-hidden="true" focusable="false"><use href="#kb-i-folder"></use></svg>选择整个文件夹</button>
-      <label class="page-embed-opt" title="图纸/扫描件类 PDF：OCR 文字少，整页视觉入库后可按自然语言搜到图纸页；普通文本手册无需开启">
-        <input type="checkbox" name="page_embed" id="pageEmbedOpt">
+      <label class="page-embed-opt"{% if kb.table_query %} hidden{% endif %} title="图纸/扫描件类 PDF：OCR 文字少，整页视觉入库后可按自然语言搜到图纸页；普通文本手册无需开启">
+        <input type="checkbox" name="page_embed" id="pageEmbedOpt"{% if kb.table_query %} disabled{% endif %}>
         图纸 / 扫描件（整页视觉入库）
       </label>
     </div>
@@ -128,9 +131,9 @@
       </div>
       <div class="doc-detail" data-detail>
         {% if doc.status == 'completed' %}
-          <span class="doc-badge badge-completed"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-check"></use></svg>已完成</span> · {% if doc.kb_id in feed_owned_child_ids %}AI 提炼源文档{% else %}{{ doc.chunk_count }} 个片段{% endif %}
+          <span class="doc-badge badge-completed"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-check"></use></svg>已完成</span> · {% if kb.table_query %}表格记录已导入{% elif doc.kb_id in feed_owned_child_ids %}AI 提炼源文档{% else %}{{ doc.chunk_count }} 个片段{% endif %}
           {% if doc.file_type == 'pdf' and doc.page_embed %}<span class="doc-badge badge-vis" title="整页视觉入库：每页渲染成图入多模态向量库">视觉模式</span>{% endif %}
-          <span class="doc-desc" data-doc-desc>{{ doc.description }}</span>
+          <span class="doc-desc" data-doc-desc data-doc-description="{{ doc.description }}" translate="no">{{ doc.description }}</span>
         {% elif doc.status == 'failed' %}
           <span class="doc-badge badge-failed"><svg class="kb-ui-icon" aria-hidden="true" focusable="false"><use href="#kb-i-x"></use></svg>失败</span> {{ doc.error_msg|truncatechars:80 }}
         {% elif doc.status == 'pending' %}
@@ -168,7 +171,7 @@
 {% if show_tracker_data %}</details>{% endif %}
 {% endblock %}
 
-{% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=1" defer></script>
+{% block scripts %}<script src="{% static 'js/kb_access.js' %}?v=2-library-layout" defer></script>
 <script>
 // ── 名称/描述 编辑弹窗（POST kb_rename，AJAX；与全站 fos-dialog 同款）──
 (function(){
@@ -197,12 +200,17 @@
       const data = await r.json().catch(() => ({}));
       if (!data.ok) { err.textContent = data.message || '保存失败'; err.hidden = false; return; }
       document.querySelector('h1').childNodes[0].textContent = data.name + ' ';
+      if (data.description) txt.setAttribute('translate', 'no');
+      else txt.removeAttribute('translate');
       txt.textContent = data.description || '（无描述）';
       document.getElementById('kbAccessBadge').textContent=data.access_label||data.department;
+      document.dispatchEvent(new CustomEvent('fos:activefieldschange'));
       // 追踪表开关即时反映到顶部入口按钮（无需刷新）
-      const entry = document.getElementById('trkEntry');
-      if (entry) entry.style.display = form.tracker_enabled.checked ? '' : 'none';
-      else if (form.tracker_enabled.checked) location.reload();  // 无按钮（未启用过）→ 刷新出现
+      if (form.tracker_enabled) {
+        const entry = document.getElementById('trkEntry');
+        if (entry) entry.style.display = form.tracker_enabled.checked ? '' : 'none';
+        else if (form.tracker_enabled.checked) location.reload();  // 无按钮（未启用过）→ 刷新出现
+      }
       dlg.close();
       if (window.fosToast) fosToast('已保存', 'ok');
     } catch(ex) {
@@ -222,7 +230,7 @@
     if (!btn) return;
     const item = btn.closest('.doc-item');
     const span = item && item.querySelector('[data-doc-desc]');
-    const cur = span ? span.textContent : '';
+    const cur = span ? (span.dataset.docDescription ?? window.FOSI18n?.originalText(span) ?? span.textContent) : '';
     const v = await fosPrompt({
       title: '编辑文档描述',
       label: '描述（可选）', value: cur, multiline: true, confirmText: '保存',
@@ -236,7 +244,10 @@
     });
     const data = await r.json().catch(() => ({}));
     if (data.ok) {
-      if (span) span.textContent = data.description || '';
+      if (span) {
+        span.dataset.docDescription = data.description || '';
+        span.textContent = span.dataset.docDescription;
+      }
       if (window.fosToast) fosToast(data.description ? '描述已保存' : '描述已清除', 'ok');
     } else if (window.fosToast) {
       fosToast('保存失败', 'err');
@@ -338,7 +349,7 @@ function kbIcon(name){
 }
 
 /* ---------- 批量上传：多选 / 选文件夹 / 拖拽（含文件夹递归） ---------- */
-const OK_EXT = ['pdf','md','markdown','txt','csv','tsv','xlsx','xlsm','docx','eml','msg','jpg','jpeg','png','webp'];
+const OK_EXT = {% if kb.table_query %}['xlsx','xlsm','csv','tsv']{% else %}['pdf','md','markdown','txt','csv','tsv','xlsx','xlsm','docx','eml','msg','jpg','jpeg','png','webp']{% endif %};
 let pendingFiles = [];   // 待上传队列（去重按 name+size）
 
 function addFiles(list){
@@ -616,8 +627,8 @@ function renderDocRow(d) {
     : `<div class="doc-name">${ftypeBadge(d.name, d.file_type)}<span class="doc-name-text">${esc(d.name)}</span></div>`;
 
   if (d.status === 'completed') {
-    html += `<div class="doc-detail"><span class="doc-badge badge-completed">${kbIcon('check')}已完成</span> · ${d.feed_owned ? 'AI 提炼源文档' : `${d.chunk_count} 个片段`}`
-      + `<span class="doc-desc" data-doc-desc>${esc(d.desc || '')}</span></div>`;
+    html += `<div class="doc-detail"><span class="doc-badge badge-completed">${kbIcon('check')}已完成</span> · {% if kb.table_query %}表格记录已导入{% else %}${d.feed_owned ? 'AI 提炼源文档' : `${d.chunk_count} 个片段`}{% endif %}`
+      + `<span class="doc-desc" data-doc-desc data-doc-description="${esc(d.desc || '')}" translate="no">${esc(d.desc || '')}</span></div>`;
   } else if (d.status === 'failed') {
     html += `<div class="doc-detail"><span class="doc-badge badge-failed">${kbIcon('x')}失败</span> ${esc(d.error) || '处理失败'}</div>`;
   } else {
@@ -662,5 +673,5 @@ const hasProcessing = document.querySelectorAll('[data-status="pending"],[data-s
 if (hasProcessing) setTimeout(poll, 2000);
 </script>
 {% if show_tracker_data and can_manage %}<script src="{% static 'js/tracker_record_editor.js' %}?v=1" defer></script>{% endif %}
-{% if show_tracker_data %}<script src="{% static 'js/feed_kb_detail.js' %}?v=10" defer></script>{% endif %}
+{% if show_tracker_data %}<script src="{% static 'js/chart_tooltip.js' %}?v=1" defer></script><script src="{% static 'js/feed_kb_detail.js' %}?v=13-chart-hover" defer></script>{% endif %}
 {% endblock %}

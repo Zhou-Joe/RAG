@@ -1,6 +1,6 @@
 """数据模型：KnowledgeBase（向量库）+ Document（上传文档）。
 
-每个 KnowledgeBase 对应一个独立的 Chroma collection（persist_directory = data/chroma/<slug>/）。
+文档模式的 KnowledgeBase 使用独立 Chroma collection；表格查询模式直接保存结构化行。
 """
 from __future__ import annotations
 
@@ -33,6 +33,9 @@ class KnowledgeBase(models.Model):
     is_folder = models.BooleanField("是否文件夹", default=False)
     category = models.CharField('资料分类', max_length=16,
         choices=[('manual','手册库'),('business','业务数据')], default='manual')
+    table_query = models.BooleanField("主要用于表格查询", default=False)
+    # None follows the complete schema; an explicit list is presentation-only.
+    active_fields = models.JSONField("展示字段", null=True, blank=True, default=None)
     # 部门可见性：「通用」= 所有部门可见；其它值 = 仅该部门可见。
     # 文件夹与其子库保持同值（改文件夹部门时级联更新子库，见 kb/access.py）。
     department = models.CharField(
@@ -304,7 +307,9 @@ class KbTracker(models.Model):
 
 
 class TrackerRow(models.Model):
-    """追踪表的一行 = 一份文档的抽取结果（同库同文档唯一，重试原地更新）。
+    """一行是一份文档的 AI 摘录，或手动表格的一条原始数据行。
+
+    AI 摘录同库同文档唯一；表格行按工作表与来源行号唯一，导入时整体原子替换。
 
     重试带旧值重抽（提示词要求保旧）：结果有变化 → 状态 proposed 挂起，
     proposed_values 存新值，等管理员在改前/改后对比弹窗里逐字段采纳；
@@ -324,6 +329,8 @@ class TrackerRow(models.Model):
     document = models.ForeignKey(
         Document, on_delete=models.CASCADE, related_name="tracker_rows", null=True, blank=True,
     )
+    source_sheet = models.CharField("来源工作表", max_length=255, blank=True, default="")
+    source_row = models.PositiveIntegerField("来源行号", null=True, blank=True)
     feed = models.ForeignKey('KnowledgeFeed',null=True,blank=True,on_delete=models.CASCADE,related_name='tracker_rows')
     feed_run = models.ForeignKey('FeedRun',null=True,blank=True,on_delete=models.RESTRICT,related_name='tracker_rows')
     external_id = models.CharField(max_length=200,blank=True,default='')
@@ -339,8 +346,9 @@ class TrackerRow(models.Model):
 
     class Meta:
         ordering = ["-document__created_at"]
-        unique_together = [("tracker", "document")]
         constraints = [
+            models.UniqueConstraint(fields=['tracker', 'document'], condition=models.Q(source_row__isnull=True), name='unique_tracker_document_summary'),
+            models.UniqueConstraint(fields=['tracker', 'document', 'source_sheet', 'source_row'], condition=models.Q(source_row__isnull=False), name='unique_tracker_spreadsheet_row'),
             models.UniqueConstraint(fields=['tracker','feed','external_id'],condition=models.Q(feed_run__isnull=True),name='unique_tracker_feed_current'),
             models.UniqueConstraint(fields=['tracker','feed','external_id','feed_run'],name='unique_tracker_feed_snapshot'),
         ]
@@ -352,6 +360,8 @@ class TrackerRow(models.Model):
 
     @property
     def record_name(self):
+        if self.document_id and self.source_row is not None:
+            return f'{self.document.original_name} · {self.source_sheet}!{self.source_row}'
         return self.document.original_name if self.document_id else str(self.values.get('标题') or self.external_id or '数据记录')
 
 
@@ -570,6 +580,27 @@ class Message(models.Model):
 
     def __str__(self):
         return f"[{self.role}] {self.content[:30]}"
+
+
+class ChatAttachment(models.Model):
+    """Private files supplied with a user message; never knowledge-base uploads."""
+
+    from .chat_attachments import ChatAttachmentStorage, attachment_upload_path
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='attachments')
+    original_name = models.CharField(max_length=255)
+    file = models.FileField(storage=ChatAttachmentStorage(), upload_to=attachment_upload_path)
+    kind = models.CharField(max_length=12, choices=[('image', 'Image'), ('document', 'Document')])
+    content_type = models.CharField(max_length=100)
+    size = models.PositiveIntegerField()
+    digest = models.CharField(max_length=64)
+    extracted_text = models.TextField(blank=True, default='')
+    visual_pages = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
 
 
 class StructuredDataset(models.Model):
@@ -937,6 +968,7 @@ class FeedReportPlan(models.Model):
     feed = models.OneToOneField(KnowledgeFeed, on_delete=models.CASCADE, related_name='report_plan')
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     spec = models.JSONField(default=dict, blank=True)
+    trigger_state = models.JSONField(default=dict, blank=True)
     destination = models.TextField(blank=True)
     schedule_mode = models.CharField(max_length=20, default='manual', choices=[('cron','独立定时'),('manual','按需发送'),('after_collection','采集后发送（兼容）')])
     cron = models.CharField(max_length=100, blank=True)
@@ -964,6 +996,8 @@ class FeedReportDelivery(models.Model):
     error = models.CharField(max_length=400, blank=True)
     filename = models.CharField(max_length=100, blank=True)
     content = models.BinaryField(default=bytes)
+    digest = models.JSONField(default=dict, blank=True)
+    html_content = models.BinaryField(default=bytes)
     token_digest = models.CharField(max_length=64, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

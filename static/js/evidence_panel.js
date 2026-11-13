@@ -22,6 +22,7 @@
   let pendingPreview;
   let activeDialog;
   let requestSequence = 0;
+  const replacedDialogs = new WeakSet();
 
   window.fosEvidencePanel = async function (chunkId, opts) {
     opts = opts || {};
@@ -31,7 +32,6 @@
     const sequence = ++requestSequence;
     if (pendingPreview) pendingPreview.abort();
     pendingPreview = new AbortController();
-    if (activeDialog) activeDialog.close();
     let data;
     try {
       const r = await fetch('/kb/evidence/' + encodeURIComponent(chunkId) + '/preview/', {signal: pendingPreview.signal, cache: 'no-store'});
@@ -48,12 +48,27 @@
       return;
     }
 
+    if (activeDialog) { replacedDialogs.add(activeDialog); activeDialog.close(); }
     const pages = data.pages || [0, 0];
     const sourcePages = data.source_pages && data.source_pages.length ? data.source_pages : [pages[0]];
     const multi = sourcePages.length > 1;
-    let pagePosition = 0;
     let cur = sourcePages[0];
     let zoomed = false;
+    const alternatives = [], seen = new Set();
+    const candidates = Array.isArray(opts.citations) && opts.citations.length ? opts.citations
+      : Array.isArray(opts.chunks) ? opts.chunks : [];
+    for (const item of candidates) {
+      if (!item || typeof item.chunk_id !== 'string' || !item.chunk_id || seen.has(item.chunk_id)) continue;
+      seen.add(item.chunk_id); alternatives.push(item);
+    }
+    if (!seen.has(chunkId)) alternatives.unshift({chunk_id: chunkId, source: data.source, page: data.page_label});
+    const position = alternatives.findIndex(item => item.chunk_id === chunkId);
+    const navigationOptions = {...opts, citations: alternatives};
+    const labels = () => window.FOSI18n?.language === 'zh-hans'
+      ? {prev: '上一条引用', next: '下一条引用', citation: '引用', choose: '选择引用', page: '页码',
+         pages: '引用内页码', unknown: '页码未知'}
+      : {prev: 'Previous Citation', next: 'Next Citation', citation: 'Citation', choose: 'Choose Citation', page: 'Page',
+         pages: 'Page Within Citation', unknown: 'Page Unknown'};
 
     const dlg = document.createElement('dialog');
     dlg.className = 'fos-dialog ev-dialog';
@@ -71,10 +86,10 @@
     const toolbar = document.createElement('div');
     toolbar.className = 'ev-toolbar';
     const prev = document.createElement('button');
-    prev.type = 'button'; prev.className = 'btn outline sm'; prev.textContent = '‹ 上一页';
+    prev.type = 'button'; prev.className = 'btn outline sm ev-prev-citation';
     const pageIdx = document.createElement('span'); pageIdx.className = 'ev-page-idx';
     const next = document.createElement('button');
-    next.type = 'button'; next.className = 'btn outline sm'; next.textContent = '下一页 ›';
+    next.type = 'button'; next.className = 'btn outline sm ev-next-citation';
     const zoom = document.createElement('button');
     zoom.type = 'button'; zoom.className = 'btn outline sm'; zoom.textContent = '放大';
     const docLink = document.createElement('a');
@@ -82,20 +97,31 @@
     docLink.href = '/kb/doc/' + encodeURIComponent(data.doc_id) + '/html/';
     docLink.textContent = '整篇文档';
     toolbar.append(prev, pageIdx, next, zoom, docLink);
-    const alternatives = opts.chunks || [];
+    let select, pageSelect;
     if (alternatives.length > 1) {
-      const select = document.createElement('select');
-      select.setAttribute('aria-label', '选择出处片段');
-      alternatives.forEach(function (item, i) {
+      select = document.createElement('select'); select.className = 'ev-citation-select';
+      alternatives.forEach(function (item) {
         const option = document.createElement('option');
         option.value = item.chunk_id;
-        option.textContent = '片段 ' + (i + 1) + ' · ' + (item.page || '页码未知');
         option.selected = item.chunk_id === chunkId;
         select.appendChild(option);
       });
-      select.addEventListener('change', function () { window.fosEvidencePanel(select.value, opts); });
+      select.addEventListener('change', function () { window.fosEvidencePanel(select.value, navigationOptions); });
       toolbar.prepend(select);
     }
+    if (multi) {
+      pageSelect = document.createElement('select'); pageSelect.className = 'ev-citation-page-select';
+      for (const pageNumber of sourcePages) {
+        const option = document.createElement('option'); option.value = String(pageNumber);
+        option.selected = pageNumber === cur; pageSelect.appendChild(option);
+      }
+      pageSelect.addEventListener('change', function () {
+        const requested = Number(pageSelect.value);
+        if (sourcePages.includes(requested)) { cur = requested; renderPage(); }
+      });
+      toolbar.appendChild(pageSelect);
+    }
+    for (const control of [prev, pageIdx, next, select, pageSelect].filter(Boolean)) control.setAttribute('translate', 'no');
     const precision = document.createElement('span');
     precision.textContent = '红圈为解析区域定位，非精确单元格';
     toolbar.appendChild(precision);
@@ -129,14 +155,44 @@
     dlg.append(head, body);
     document.body.appendChild(dlg);
     closeBtn.addEventListener('click', function () { dlg.close(); });
-    dlg.addEventListener('close', function () { dlg.remove(); });
+    dlg.addEventListener('close', function () {
+      document.removeEventListener('fos:languagechange', updateNavigation);
+      if (!replacedDialogs.delete(dlg)) {
+        requestSequence++;
+        if (pendingPreview) pendingPreview.abort();
+      }
+      if (activeDialog === dlg) activeDialog = null;
+      dlg.remove();
+    });
     dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });
 
+    function updateNavigation() {
+      const text = labels();
+      prev.textContent = '‹ ' + text.prev; prev.setAttribute('aria-label', text.prev);
+      next.textContent = text.next + ' ›'; next.setAttribute('aria-label', text.next);
+      const pageName = data.has_pdf ? text.page + ' ' + (cur + 1) : (data.page_label || text.unknown);
+      const reference = alternatives[position].citation_number;
+      pageIdx.textContent = text.citation + ' ' + (position + 1) + ' / ' + alternatives.length
+        + (Number.isSafeInteger(reference) && reference > 0 ? ' · [' + reference + ']' : '') + ' · ' + pageName;
+      prev.disabled = position === 0; next.disabled = position === alternatives.length - 1;
+      if (select) {
+        select.setAttribute('aria-label', text.choose);
+        for (const [index, option] of Array.from(select.children).entries()) {
+          const item = alternatives[index], number = Number.isSafeInteger(item.citation_number) && item.citation_number > 0
+            ? '[' + item.citation_number + '] ' : '';
+          option.textContent = text.citation + ' ' + (index + 1) + ' · ' + number
+            + (item.source || data.source) + ' · ' + (item.page || text.unknown);
+        }
+      }
+      if (pageSelect) {
+        pageSelect.setAttribute('aria-label', text.pages);
+        for (const option of pageSelect.children) option.textContent = text.page + ' ' + (Number(option.value) + 1);
+      }
+    }
+    document.addEventListener('fos:languagechange', updateNavigation);
+
     function renderPage() {
-      pageIdx.textContent = multi ? ((cur + 1) + ' / ' + (pages[1] + 1) + ' 页')
-                                 : '第 ' + (cur + 1) + ' 页';
-      prev.disabled = !multi || pagePosition === 0;
-      next.disabled = !multi || pagePosition === sourcePages.length - 1;
+      updateNavigation();
       page.innerHTML = '';
       const renderedPage = cur;
       if (!data.has_pdf) {
@@ -174,8 +230,12 @@
       });
     }
 
-    prev.addEventListener('click', function () { if (pagePosition > 0) { cur = sourcePages[--pagePosition]; renderPage(); } });
-    next.addEventListener('click', function () { if (pagePosition < sourcePages.length - 1) { cur = sourcePages[++pagePosition]; renderPage(); } });
+    prev.addEventListener('click', function () {
+      if (position > 0) window.fosEvidencePanel(alternatives[position - 1].chunk_id, navigationOptions);
+    });
+    next.addEventListener('click', function () {
+      if (position < alternatives.length - 1) window.fosEvidencePanel(alternatives[position + 1].chunk_id, navigationOptions);
+    });
     zoom.addEventListener('click', function () {
       zoomed = !zoomed;
       page.classList.toggle('zoomed', zoomed);

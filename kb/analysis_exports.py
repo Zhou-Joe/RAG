@@ -109,6 +109,114 @@ def scalar(value):
     return value if isinstance(value, (str, int, float)) and not isinstance(value, bool) else None
 
 
+def interactive_chart(data, params, title):
+    """Use full, permission-checked analysis results in the shared chat renderer.
+
+    This payload stays outside the model's bounded textual evidence. Publication
+    validation rebuilds it from the same database query before it can be sent or
+    restored from chat history; the model never supplies chart coordinates.
+    """
+    if data.get('kind') not in ('tracker_summary', 'trend'):
+        return None
+    metric = params.get('chart_metric', 'value')
+    if metric not in ('value', 'change', 'change_pct'):
+        raise ValueError('Chart metric must be value, change or change_pct.')
+    if data['kind'] != 'trend' and metric != 'value':
+        raise ValueError('Change and change_pct charts require trend mode.')
+    kind = params.get('chart_type', 'auto')
+    if kind not in ('auto', 'metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'):
+        raise ValueError('Chart type must be auto, metric, line, bar, pie, combo, area, scatter or doughnut.')
+
+    def number(value):
+        # Empty strings, booleans and warning dictionaries must not become zero.
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return None
+        try:
+            return value if math.isfinite(value) else None
+        except OverflowError:
+            raise ValueError('An analysis chart value exceeds the drawable numeric range.') from None
+
+    groups = data.get('groups', [])
+    single_value = (data['kind'] == 'tracker_summary' and not params.get('group')
+                    and len(groups) == 1 and not groups[0].get('by')
+                    and set(groups[0].get('metrics', {})) == {'value'})
+    if kind == 'metric' or kind == 'auto' and single_value:
+        if not single_value:
+            raise ValueError('A value card requires one overall summary value. Remove grouping or use a chart for multiple results.')
+        operation = params.get('op', 'count')
+        names = {'count': 'Records', 'sum': 'Total', 'avg': 'Average', 'min': 'Minimum', 'max': 'Maximum'}
+        caption = names.get(operation, 'Value')
+        measure = params.get('measure', '') if operation != 'count' else ''
+        total = data.get('total_matched', 0)
+        result = {'type': 'metric', 'title': (f'{measure} · {caption}' if measure else caption)[:120],
+                  'subtitle': str(title)[:120], 'value': number(groups[0]['metrics']['value']),
+                  'language': 'en', 'meta': {'system_metric': metric, 'system_summary': True,
+                                            'system_operation': operation}}
+        valid = groups[0].get('valid_numeric_values', {}).get('value')
+        if operation == 'count':
+            valid = total
+        if type(total) is int and type(valid) is int and 0 <= valid <= total:
+            result['quality'] = {'valid': valid, 'records': total}
+        return result
+
+    metric_label = {'value': 'Value', 'change': 'Change', 'change_pct': 'Change (%)'}[metric]
+    chart = {'type': 'line' if data['kind'] == 'trend' else 'bar',
+             'title': str(title)[:120], 'labels': [], 'series': [],
+             'options': {'legend': True, 'y_label': metric_label}, 'language': 'en',
+             'meta': {'system_metric': metric, 'system_summary': data['kind'] == 'tracker_summary'}}
+    if data['kind'] == 'trend':
+        items = data.get('series', [])
+        if len(items) > 8 or any(len(item.get('points', [])) > 500 for item in items):
+            raise ValueError('Interactive analysis charts support up to 8 series and 500 periods.')
+        points = items[0].get('points', []) if items else []
+        chart['labels'] = [str(point.get('label', point.get('bucket', ''))) for point in points]
+        buckets = [point.get('bucket') for point in points]
+        for item in items:
+            current = item.get('points', [])
+            if [point.get('bucket') for point in current] != buckets:
+                raise ValueError('Interactive analysis chart periods must align across series.')
+            part = {'label': str(item.get('object_value', '')), 'values': [number(point.get(metric)) for point in current]}
+            if params.get('op', 'count') != 'count':
+                part['quality'] = [{'valid': point.get('valid_numeric_values', 0),
+                                    'records': point.get('records', 0)} for point in current]
+            chart['series'].append(part)
+    else:
+        groups = data.get('groups', [])
+        if len(groups) > 50:
+            raise ValueError('Interactive summary charts support up to 50 groups. Narrow the grouping or export Excel.')
+        group = params.get('group', '')
+        chart['labels'] = [str(item.get('by', {}).get(group, 'Overall')) for item in groups]
+        chart['series'] = [{'label': metric_label,
+                            'values': [number(item.get('metrics', {}).get('value')) for item in groups]}]
+    if kind != 'auto':
+        chart['type'] = kind
+    if kind in ('pie', 'doughnut'):
+        if len(chart['series']) != 1:
+            raise ValueError('Pie and doughnut charts require one series. Select one object or use a summary.')
+        if params.get('op', 'count') not in ('count', 'sum') or metric != 'value':
+            raise ValueError('Pie and doughnut charts require count or sum values. Use a bar or line chart for averages or changes.')
+        if any(value is not None and value < 0 for value in chart['series'][0]['values']):
+            raise ValueError('Pie and doughnut charts cannot contain negative values. Use a bar or line chart.')
+    elif kind == 'combo':
+        if len(chart['series']) < 2:
+            raise ValueError('Combo charts require at least two series. Select two or more objects in a trend analysis.')
+        for index, item in enumerate(chart['series']):
+            item['type'] = 'bar' if index == 0 else 'line'
+    elif kind == 'scatter':
+        if data['kind'] == 'trend':
+            raise ValueError('Scatter charts require a numeric grouping field. Use summary mode with numeric groups.')
+        x_values = []
+        for label in chart['labels']:
+            if not re.fullmatch(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', label.strip()):
+                raise ValueError('Scatter chart group values must be numeric. Choose a numeric grouping field.')
+            value = float(label)
+            if not math.isfinite(value):
+                raise ValueError('Scatter chart group values must be finite numbers.')
+            x_values.append(value)
+        chart['x_values'] = x_values
+    return chart
+
+
 def excel(data, params, title):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
@@ -341,6 +449,7 @@ def agent_analysis(user, allowed, service, slug, params, output):
         files = []
         if params['kind'] == 'options' and output != 'preview':
             raise ValueError('先选择 summary/trend 分析方式，再生成文件。')
+        chart = interactive_chart(data, params, kb.name) if output in ('plot', 'both') else None
         generated = {}
         if output in ('excel', 'both'):
             generated['xlsx'] = excel(data, params, kb.name)
@@ -364,6 +473,8 @@ def agent_analysis(user, allowed, service, slug, params, output):
                         'query': {'kb_slug': slug}, 'analysis_query': params, 'preview_limit': limit,
                         'files': files,
                         'data_digest': digest(encode(data)), 'result_digest': digest(source_text)}
+            if chart is not None:
+                snapshot['chart'] = chart
             if snapshot not in service.evidence:
                 service.evidence.append(snapshot)
         service.remaining -= len(text)
@@ -378,6 +489,17 @@ def validate_analysis_snapshot(snapshot, user):
                 or type(limit) is not int or not 1 <= limit <= 20):
             return False
         kb, data = query_analysis(user, snapshot['query']['kb_slug'], snapshot['analysis_query'])
+        if 'chart' in snapshot:
+            chart_params = snapshot['analysis_query']
+            # Before value cards, auto rendered an ungrouped summary as bars.
+            # Rebuild that exact old presentation so valid saved answers survive
+            # the new default without relaxing verification of their values.
+            if (isinstance(snapshot['chart'], dict) and snapshot['chart'].get('type') == 'bar'
+                    and chart_params.get('chart_type', 'auto') == 'auto'
+                    and data.get('kind') == 'tracker_summary' and not chart_params.get('group')):
+                chart_params = {**chart_params, 'chart_type': 'bar'}
+            if not isinstance(snapshot['chart'], dict) or snapshot['chart'] != interactive_chart(data, chart_params, kb.name):
+                return False
         files = snapshot.get('files', [])
         for file in files:
             token = file['url'].rstrip('/').rsplit('/', 1)[-1]

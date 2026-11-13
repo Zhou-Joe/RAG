@@ -1496,6 +1496,12 @@ def run_indexing(md_content: str, kb_slug: str, source_name: str, doc_id=None,
     且 content_list（MinerU 版面条目）提供时为每个 chunk 写页码/坐标溯源
     （ChunkProvenance，证据面板与「第 N 页」引用的数据源）。
     """
+    if doc_id:
+        from .models import Document
+        from .spreadsheet_rows import is_table_query_kb
+        source_doc = Document.objects.select_related('kb__parent').filter(pk=doc_id).first()
+        if source_doc is not None and is_table_query_kb(source_doc.kb):
+            raise ValueError('表格查询库不生成向量索引，请使用表格导入流程。')
     clean_md = _md_for_embedding(md_content)
     if md_content.strip() and not clean_md.strip():
         raise ValueError("解析内容清洗后为空，停止索引，请核对原文")
@@ -1654,6 +1660,10 @@ def process_document(doc_id: str) -> None:
 
     try:
         doc = Document.objects.get(id=doc_id)
+        from .spreadsheet_rows import is_table_query_kb, import_spreadsheet_document
+        if is_table_query_kb(doc.kb):
+            import_spreadsheet_document(doc)
+            return
         from .feeds import is_current_feed_document, is_nonembedded_feed_document
         if not is_current_feed_document(doc):
             doc.status = Document.Status.SUPERSEDED

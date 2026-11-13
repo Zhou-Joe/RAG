@@ -1,0 +1,20 @@
+.chat-table-card{box-sizing:border-box;display:block;width:100%;max-width:340px;min-width:0;margin:12px 0;border:1px solid var(--rule-soft,#e0e8f0);border-radius:14px;background:var(--surface,#fff);color:var(--text,#16324f);overflow:hidden;box-shadow:var(--shadow-sm,0 3px 14px #14324b05)}
+.chat-table-card.is-expanded{max-width:none;width:100%}
+.chat-table-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--rule-soft,#e0e8f0)}
+.chat-table-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0;font-size:13px;font-weight:650;color:var(--text,#16324f)}
+.chat-table-toggle{flex:none;padding:4px 8px;border:1px solid var(--rule-soft,#dce5ef);border-radius:7px;background:transparent;color:var(--brand,#3574d5);font:inherit;font-size:11px;line-height:1.4;cursor:pointer}
+.chat-table-toggle:hover{background:var(--surface-2,#edf4fc)}
+.chat-table-toggle:focus-visible{outline:2px solid var(--brand,#3574d5);outline-offset:2px}
+.chat-table-viewport{max-height:220px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.chat-table-card.is-expanded .chat-table-viewport{max-height:520px}
+.chat-table-card .chat-table-viewport table{width:max-content;min-width:100%;max-width:none;margin:0;border:0;font-size:12px}
+.chat-table-card.is-expanded .chat-table-viewport table{width:100%}
+.chat-table-card .chat-table-viewport th,.chat-table-card .chat-table-viewport td{padding:8px 10px}
+.chat-chart-images .chat-image-card{margin:12px 0;text-align:left}
+.chat-image-card .chat-table-viewport{max-height:none;overflow:hidden}
+.chat-image-card .chat-table-viewport figure{margin:0}
+.chat-image-card .chat-table-viewport img{display:block;box-sizing:border-box;width:100%;max-width:100%;height:auto;max-height:220px;object-fit:contain;margin:0;border:0;border-radius:0;cursor:zoom-in}
+.chat-image-card.is-expanded .chat-table-viewport{max-height:none}
+.chat-image-card.is-expanded .chat-table-viewport img{max-height:none;cursor:zoom-out}
+@media(max-width:400px){.chat-table-card{max-width:100%}}
+@media print{.chat-table-card{max-width:none;box-shadow:none;break-inside:avoid}.chat-table-toggle{display:none}.chat-table-card .chat-table-viewport{max-height:none;overflow:visible}.chat-table-card .chat-table-viewport table{width:100%}}

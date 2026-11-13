@@ -279,13 +279,19 @@ def main(spec):
     state=json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
     class NoRedirect(HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs):return None
-    headers={}
-    for key,env in spec.get('header_env',{}).items():
-        if not os.environ.get(env):raise ValueError('Missing environment variable: '+env)
-        headers[key]=os.environ[env]
+    profiles=[];profile_path=Path(__file__).with_name('connector_credentials.json')
+    if profile_path.exists():
+        from credential_routing import environment_profiles,scoped_headers
+        profiles=environment_profiles(json.loads(profile_path.read_text(encoding='utf-8')))
+        headers=scoped_headers(profiles,spec['url'])
+    else:
+        headers={}
+        for key,env in spec.get('header_env',{}).items():
+            if not os.environ.get(env):raise ValueError('Missing environment variable: '+env)
+            headers[key]=os.environ[env]
     if spec.get('source_type')=='browser':
         from browser_runtime import BrowserSession
-        browser=BrowserSession(approved_urls=[spec['url']],headers=headers,credential_origin=spec['url'],allow_private=args.allow_private,
+        browser=BrowserSession(approved_urls=[spec['url'],*(profile['url'] for profile in profiles)],headers=headers,credential_origin=spec['url'],credential_profiles=profiles,allow_private=args.allow_private,
             login={'username':os.environ.get('FOS_FEED_LOGIN_USERNAME',''),'password':os.environ.get('FOS_FEED_LOGIN_PASSWORD','')},timezone=spec.get('timezone','Asia/Shanghai'))
         try:data=browser.call('collect',spec=spec)
         finally:browser.close()

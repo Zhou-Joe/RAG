@@ -18,6 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .models import Conversation, Document, KnowledgeBase, Message
+from .active_fields import field_options, validate_selection, visible_fields
 
 
 # ------------------------------------------------------------------
@@ -149,6 +150,10 @@ def _create_manual_document(kb: KnowledgeBase, upload, user,
 
     fname = Path(upload.name).name
     ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+    from .spreadsheet_rows import is_table_query_kb
+    table_query = is_table_query_kb(kb)
+    if table_query and ext not in {"csv", "tsv", "xlsx", "xlsm"}:
+        raise ValueError("表格查询库仅支持 Excel（XLSX/XLSM）和 CSV/TSV；其他资料请上传到文档知识库。")
     file_types = {
         "pdf": "pdf", "md": "md", "markdown": "md", "txt": "txt",
         "csv": "csv", "tsv": "tsv", "xlsx": "xlsx", "xlsm": "xlsm",
@@ -172,6 +177,7 @@ def _create_manual_document(kb: KnowledgeBase, upload, user,
                 is_folder=False,
                 parent=kb,
                 category=kb.category,
+                table_query=table_query,
                 department=kb.department,  # 子库继承父库部门，保持检索可见性一致
                 created_by=user,
             )
@@ -223,6 +229,7 @@ def manage_list(request):
                     description=(request.POST.get("description") or "").strip()[:200],
                     created_by=request.user,
                     is_folder=True, parent=None,
+                    table_query=request.POST.get("table_query") == "on",
                     **scope,
                 )
                 ok, msg = True, f"手册库「{name}」已创建，可以上传手册了。"
@@ -283,7 +290,7 @@ def manage_list(request):
     _visible = kb_access.visible_kbs(request.user)
     _visible_pks = [kb.pk for kb in _visible]
     _writable = {kb.pk for kb in _visible if kb.can_manage}
-    from .models import KnowledgeBasePin
+    from .models import KnowledgeBasePin, KnowledgeFeed
     _pinned_rank = {kb_id: rank for rank, kb_id in enumerate(
         KnowledgeBasePin.objects.filter(user=request.user, kb_id__in=_visible_pks)
         .order_by('-created_at', '-pk').values_list('kb_id', flat=True))}
@@ -292,10 +299,12 @@ def manage_list(request):
                       KnowledgeBase.objects.filter(pk__in=_visible_pks, category='business')
                       .annotate(business_row_count=Count(
                           'tracker__rows', filter=Q(tracker__rows__status='done')))}
+    _auto_kbs = set(KnowledgeFeed.objects.filter(kb_id__in=_visible_pks).values_list('kb_id', flat=True))
     pinned_kbs, kbs, business_kbs, read_kbs = [], [], [], []
     for kb in _visible:
         kb.can_manage = kb.pk in _writable
         kb.business_row_count = _business_rows.get(kb.pk, 0)
+        kb.auto_collected = kb.pk in _auto_kbs
         kb.is_pinned = kb.pk in _pinned_rank
         if kb.is_pinned:
             pinned_kbs.append(kb)
@@ -384,7 +393,9 @@ def manage_detail(request, slug):
             "kb": kb,
             "feeds": kb.feeds.order_by("created_at"),
             "total_rows": TrackerRow.objects.filter(feed__kb=kb, status=TrackerRow.Status.DONE).count(),
-            "tracker_fields": [field["label"] for field in (tracker.fields if tracker else [])],
+            "tracker_fields": visible_fields(kb, tracker),
+            "active_field_options": field_options(kb, tracker),
+            "active_fields_all": kb.active_fields is None,
             "tracker_enabled": bool(tracker and tracker.enabled),
             "can_manage": can_manage,
             "is_global_admin": kb_access.is_global_admin(request.user),
@@ -410,7 +421,9 @@ def manage_detail(request, slug):
         "chunks_total": chunks_total,
         "show_tracker_data": show_tracker_data,
         "is_document_feed": document_feed,
-        "tracker_fields": [field["label"] for field in tracker.fields] if show_tracker_data else [],
+        "tracker_fields": visible_fields(kb, tracker) if show_tracker_data else [],
+        "active_field_options": field_options(kb, tracker),
+        "active_fields_all": kb.active_fields is None,
         "tracker_rows_count": tracker_rows_count,
         "doc_list_count": docs.count() if show_tracker_data else None,
         "is_global_admin": kb_access.is_global_admin(request.user),
@@ -478,6 +491,19 @@ def kb_rename(request, slug):
         return JsonResponse({"ok": False, "message": "名称不能为空"}, status=400)
     if len(name)>100:
         return JsonResponse({"ok": False, "message": "请填写不超过100字符的知识库名称。"}, status=400)
+    selected_fields = kb.active_fields
+    active_fields_supplied = "active_fields" in request.POST or "active_fields_mode" in request.POST
+    if active_fields_supplied:
+        from .models import KbTracker
+        try:
+            raw = request.POST.get("active_fields", "null")
+            mode = request.POST.get("active_fields_mode")
+            if not (kb.category == "business" or kb.table_query) or len(raw) > 30000 or mode not in (None, 'all', 'selected'):
+                raise ValueError('展示字段配置无效。')
+            value = (None if mode == 'all' else request.POST.getlist('active_field')) if mode else json.loads(raw)
+            selected_fields = validate_selection(value, KbTracker.objects.filter(kb=kb).first())
+        except (TypeError, ValueError) as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=400)
     if 'access_level' in request.POST:
         try:
             level=request.POST['access_level']
@@ -487,13 +513,16 @@ def kb_rename(request, slug):
         except ValueError as exc:return JsonResponse({'ok':False,'message':str(exc)},status=400)
     kb.name = name
     update_fields = ["name", "updated_at"]
+    if active_fields_supplied:
+        kb.active_fields = selected_fields
+        update_fields.append("active_fields")
     if "description" in request.POST:
         kb.description = (request.POST.get("description") or "").strip()
         update_fields.append("description")
     kb.save(update_fields=update_fields)
     # 可选：一并开关追踪表。取消勾选的 checkbox 不会发包，所以用隐藏的
     # tracker_present 标记识别"表单带了开关"（列表页改名弹窗不带，不动追踪表）。
-    if request.POST.get("tracker_present") == "1":
+    if request.POST.get("tracker_present") == "1" and not kb.table_query:
         from .models import KbTracker
         tr, _ = KbTracker.objects.get_or_create(kb=kb, defaults={"fields": []})
         tr.enabled = request.POST.get("tracker_enabled") == "on"
@@ -510,7 +539,8 @@ def kb_rename(request, slug):
     if is_ajax:
         kb.refresh_from_db()
         return JsonResponse({"ok": True, "name": kb.name, "department": kb.department,
-                             "description": kb.description,"access_level":kb.access_level,"access_label":kb.access_label})
+                             "description": kb.description,"access_level":kb.access_level,"access_label":kb.access_label,
+                             "active_fields": kb.active_fields})
     messages.success(request, f"已更新「{kb.name}」。")
     return redirect("kb:manage_list")
 
@@ -705,6 +735,8 @@ def tracker_view(request, slug):
     if not kb_access.kb_accessible(request.user, kb):
         raise Http404("知识库不存在")
     can_manage = kb_access.can_manage_kb(request.user, kb)
+    if kb.table_query and request.method == "GET" and request.GET.get("xlsx") != "1":
+        return redirect("kb:manage_detail", slug=slug)
     if can_manage:
         tr, _ = KbTracker.objects.get_or_create(kb=kb, defaults={"fields": []})
     else:
@@ -714,6 +746,7 @@ def tracker_view(request, slug):
         if tr is None:
             raise Http404("追踪表不存在")
     docs_qs = Document.objects.filter(kb_id__in=_scope_kb_ids(kb,request.user))
+    displayed_fields = visible_fields(kb, tr)
     _json_dumps = lambda obj: json.dumps(obj, ensure_ascii=False)  # noqa: E731
 
     # 回收卡死的行：daemon 线程随进程退出被杀，行会永久停在 running。
@@ -737,6 +770,12 @@ def tracker_view(request, slug):
             messages.error(request, denied)
             return redirect("kb:tracker", slug=slug)
         action = request.POST.get("action", "")
+        if kb.table_query and action in {"enable", "disable", "config_save", "backfill", "row_retry", "row_confirm"}:
+            message = "表格查询库的字段来自上传表头，记录按原始行导入，无需 AI 抽取。"
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse({"ok": False, "message": message}, status=409)
+            messages.error(request, message)
+            return redirect("kb:manage_detail", slug=slug)
         error_status = 200
         response_data = {}
         if action == "enable":
@@ -856,6 +895,8 @@ def tracker_view(request, slug):
                         ok, msg, error_status = False, "记录不存在或无权编辑。", 404
                     elif row.status != TrackerRow.Status.DONE:
                         ok, msg, error_status = False, "只能编辑已完成的记录，请等待处理结束。", 409
+                    elif row.source_row is not None and isinstance(current_cell, str) and len(current_cell) > 2000:
+                        ok, msg, error_status = False, "此单元格超过编辑长度，已保留完整原值，请修改原表后重新上传。", 409
                     elif expected_updated_at and expected_updated_at != row.updated_at.isoformat():
                         ok, msg, error_status = False, "记录已更新，请刷新后重试。", 409
                     elif (expected_value_supplied and
@@ -947,14 +988,16 @@ def tracker_view(request, slug):
         def _safe_cell(v):
             # 公式注入防护：以 = + - @ 开头的字符串强制为文本（openpyxl 默认
             # 会把 = 开头当公式写入，=WEBSERVICE/HYPERLINK/DDE 可外泄数据）
-            s2 = str(v or "")
+            if kb.table_query and isinstance(v, (int, float, bool)):
+                return v
+            s2 = "" if v is None else str(v)
             return "'" + s2 if s2[:1] in ("=", "+", "-", "@") else s2
 
         wb = Workbook()
         ws = wb.active
         ws.title = "追踪表"
         # 表头同样过 _safe_cell：字段名可以以 = + - @ 开头（sanitize 只剥尖括号）
-        headers = (["文档名"] + [_safe_cell(f["label"]) for f in tr.fields]
+        headers = (["文档名"] + (["工作表", "原始行号"] if kb.table_query else []) + [_safe_cell(label) for label in displayed_fields]
                    + ["状态", "字段已变更", "记录时间", "错误"])
         ws.append(headers)
         head_fill = PatternFill("solid", fgColor="1F2937")
@@ -968,8 +1011,12 @@ def tracker_view(request, slug):
         smap = dict(TrackerRow.Status.choices)
 
         for r in tr.rows.select_related("document").order_by("-created_at","-pk"):
+            if kb.table_query and any(isinstance(r.values.get(label), str) and len(r.values[label]) > 32767
+                                      for label in displayed_fields):
+                return JsonResponse({"ok": False, "message": "单元格超过 Excel 的 32767 字符上限，无法完整导出为 XLSX；完整原值已保留，请下载原始文件。"}, status=400)
             ws.append([_safe_cell(r.record_name)]
-                      + [_safe_cell(r.values.get(f["label"], "")) for f in tr.fields]
+                      + ([_safe_cell(r.source_sheet), r.source_row] if kb.table_query else [])
+                      + [_safe_cell(r.values.get(label, "")) for label in displayed_fields]
                       + [smap.get(r.status, r.status),
                          "是" if r.schema_version < tr.schema_version else "",
                          r.updated_at.strftime("%Y-%m-%d %H:%M"),
@@ -996,7 +1043,7 @@ def tracker_view(request, slug):
 
     done_doc_ids = list(tr.rows.filter(status=TrackerRow.Status.DONE)
                         .values_list("document_id", flat=True))
-    field_labels = [f["label"] for f in tr.fields]
+    field_labels = displayed_fields
     # 追跟表可能上千行（每行还要渲染字段 chip、明细行与确认弹窗 JSON），
     # 整表输出是几 MB 的 HTML，浏览器解析/展开/轮询刷新都卡 → 服务端分页。
     # Excel 导出不受影响（上面那个分支本来就是全量）。
@@ -1029,7 +1076,7 @@ def tracker_view(request, slug):
             "error": r.error,
             "updated_at": r.updated_at,
             "pairs": pairs,
-            "stale": r.schema_version < tr.schema_version,
+            "stale": not kb.table_query and r.schema_version < tr.schema_version,
             # 确认弹窗数据（HTML 属性内联 JSON，autoescape 处理引号）
             "payload": _json_dumps({"row": r.id, "doc": r.record_name,
                                     "fields": field_labels,
@@ -1038,6 +1085,7 @@ def tracker_view(request, slug):
     return render(request, "kb/tracker.html", {
         "kb": kb,
         "tracker": tr,
+        "displayed_fields": displayed_fields,
         "rows": rows,
         "can_manage": can_manage,
         # 趋势分析不跑模型（只是表内已完成采集行的 DB 聚合），能看追跟表就能用；
@@ -1476,14 +1524,27 @@ async def chat_stream(request):
 
     message = (request.POST.get("message") or "").strip()
     thread_id = request.POST.get("thread_id") or ""
+    uploads = request.FILES.getlist("files")
+    if not message and uploads:
+        message = "Please review the attached files."
 
     if not message:
         return HttpResponse("missing 'message'", status=400)
     if not thread_id:
         return HttpResponse("missing 'thread_id'", status=400)
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', thread_id):
+        return JsonResponse({"message": "会话标识无效，请新建对话后重试。"}, status=400)
 
     # 在同步上下文里一次性解析配置 + 取/建会话（避免在 async 生成器中访问数据库）
     from django.db import transaction, IntegrityError
+    saved_uploads = []
+
+    def cleanup_uploads():
+        for attachment in saved_uploads:
+            try:
+                attachment.file.delete(save=False)
+            except OSError:
+                pass
 
     @transaction.atomic
     def _prepare():
@@ -1516,15 +1577,16 @@ async def chat_stream(request):
             return conv, None, False, "answer active"
         from .publication import visible_citations
         current_llm = llm_settings()
-        from .history import load_context, recent_history
-        conversation_context = load_context(conv, request.user)
-        published_history = [] if conversation_context else recent_history(
-            conv.messages.order_by("created_at", "pk"),
-            enhanced=current_llm.get("qa_enhance", False),
-            visible=lambda citations: visible_citations(citations, request.user),
-        )
+        from .chat_attachments import prepare_uploads, save_attachments, attachment_info, validate_conversation_context
+        prepared_uploads = prepare_uploads(uploads, vision=bool(current_llm.get("vision"))) if uploads else []
+        validate_conversation_context(conv, prepared_uploads, vision=bool(current_llm.get("vision")))
+        from .history import conversation_history
+        conversation_context, published_history = conversation_history(
+            conv, request.user, enhanced=current_llm.get("qa_enhance", False))
         # 记录用户消息
-        Message.objects.create(conversation=conv, role=Message.Role.USER, content=message)
+        user_message = Message.objects.create(conversation=conv, role=Message.Role.USER, content=message)
+        if prepared_uploads:
+            saved_uploads.extend(save_attachments(user_message, prepared_uploads))
         conv.save(update_fields=["updated_at"])  # 刷新排序
         answer = Message.objects.create(conversation=conv, role=Message.Role.AI, content="", completion_status="queued")
         # All tools enforce the same current-user allowlist; no KB is preselected.
@@ -1540,13 +1602,23 @@ async def chat_stream(request):
             "top_k": retrieval_settings()["top_k"],
             "department": user_depts,
             "overview_kb_slug":overview_kb.slug if overview_kb else "",
+            "attachment_ids": [str(attachment.pk) for attachment in saved_uploads],
+            "attachment_info": [attachment_info(attachment) for attachment in saved_uploads],
+            "user_message_id": user_message.pk,
         }
         return conv, cfg, created, None
 
     try:
         prepared = await sync_to_async(_prepare)()
     except IntegrityError:
+        cleanup_uploads()
         return JsonResponse({"message": "该会话已有回答任务，请等待或停止后再提问。"}, status=409)
+    except ValueError as exc:
+        cleanup_uploads()
+        return JsonResponse({"message": str(exc)}, status=400)
+    except Exception:
+        cleanup_uploads()
+        raise
     conv, agent_config, _created, prep_err = prepared
     if prep_err == "answer active":
         return JsonResponse({"message": "该会话已有回答任务，请等待或停止后再提问。"}, status=409)
@@ -1582,6 +1654,10 @@ async def chat_stream(request):
                         agent_context=agent_config["next_context"])
             await sync_to_async(persist)()
         try:
+            yield "event: attachments\ndata: " + json.dumps({
+                "message_id": agent_config["user_message_id"],
+                "attachments": agent_config["attachment_info"],
+            }, ensure_ascii=False) + "\n\n"
             from contextlib import aclosing
             async with aclosing(bounded_events(run_agent_stream(
                 message, full_thread, "", agent_config,
@@ -1660,15 +1736,51 @@ def conversation_messages(request, thread_id):
     from .answer_tasks import ACTIVE, reconcile, state
     reconcile(list(conv.messages.filter(completion_status__in=ACTIVE)))
     active = conv.messages.filter(completion_status__in=ACTIVE).first()
-    msgs = list(conv.messages.order_by("created_at").values("role", "content", "citations", "completion_status", "failure_reason"))
+    from .chat_attachments import attachment_info
+    records = conv.messages.prefetch_related("attachments").order_by("created_at", "pk")
+    msgs = [{"role": item.role, "content": item.content, "citations": item.citations,
+             "completion_status": item.completion_status, "failure_reason": item.failure_reason,
+             "attachments": [attachment_info(attachment) for attachment in item.attachments.all()]}
+            for item in records]
     from .publication import visible_citations
     for msg in msgs:
         if msg["role"] == Message.Role.AI and msg["citations"] and not visible_citations(msg["citations"], request.user):
             msg["content"] = "此回答的来源已不可访问或已变化，请重新检索。"
             msg["citations"] = []
+    from .citation_numbers import annotate_citations, visible_kb_names
+    citation_names = visible_kb_names([citation for msg in msgs for citation in msg['citations']], request.user)
+    for msg in msgs:
+        if msg['role'] == Message.Role.AI and msg['citations']:
+            annotate_citations(msg['citations'], kb_names=citation_names, display_only=True)
     return JsonResponse({"thread_id": conv.thread_id, "title": conv.title,
                          "kb_slug": "", "messages": msgs,
                          "active_answer": ({"id": active.pk, **(state(active.pk) or {})} if active else None)})
+
+
+@login_required
+@require_http_methods(["GET", "HEAD"])
+def chat_attachment(request, attachment_id):
+    """Serve private chat files only to the owner of an accessible conversation."""
+    from django.http import FileResponse
+    from .models import ChatAttachment
+    from .access import conversation_accessible
+
+    attachment = get_object_or_404(
+        ChatAttachment.objects.select_related('message__conversation__kb__parent'),
+        pk=attachment_id, message__conversation__user=request.user,
+    )
+    if not conversation_accessible(request.user, attachment.message.conversation):
+        raise Http404("附件不存在")
+    try:
+        source = attachment.file.open('rb')
+    except (OSError, ValueError):
+        raise Http404("附件不存在")
+    response = FileResponse(source, as_attachment=attachment.kind != 'image',
+                            filename=attachment.original_name, content_type=attachment.content_type)
+    response['Cache-Control'] = 'private, no-store'
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Content-Security-Policy'] = "default-src 'none'; sandbox"
+    return response
 
 
 @login_required

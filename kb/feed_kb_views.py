@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET
 
 from . import access
+from .active_fields import visible_fields
 from .models import Document, FeedRun, KbTracker, KnowledgeBase, KnowledgeFeed, TrackerRow
 from .tracker_query import NUMERIC, TrackerQuery, TrackerText, cell
 
@@ -240,7 +241,7 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
     row_scope &= time_scope
     analysis_base_scope = trend_scope if trend_scope is not None else record_scope
 
-    fields = [field["label"] for field in (tracker.fields if tracker else [])]
+    fields = visible_fields(kb, tracker)
     kind = request.GET.get("kind", "rows")
     export_format = request.GET.get("export", "")
     full = bool(export_format or getattr(request, "analysis_full_result", False))
@@ -256,6 +257,8 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
             filters = json.loads(raw_filters)
             if not isinstance(filters, list):
                 raise ValueError("分析筛选条件必须为列表。")
+            if any(isinstance(item, dict) and item.get('field') not in fields for item in filters):
+                raise ValueError('筛选字段无效。')
             search = request.GET.get("analysis_search", "")
             if search or filters:
                 ids = TrackerQuery(lambda library: library.pk == kb.pk, row_scope=analysis_base_scope).lookup(
@@ -283,7 +286,8 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
         row = get_object_or_404(TrackerRow.objects.filter(record_scope), pk=row_id,
                                 tracker=tracker, status=TrackerRow.Status.DONE)
         response = JsonResponse({"ok": True, "row_id": row.pk, "source_id": row.external_id,
-                                 "values": {key: cell(value, 2000) for key, value in row.values.items()}})
+                                 "source_sheet": row.source_sheet, "source_row": row.source_row,
+                                 "values": {key: cell(row.values[key], 2000) for key in fields if key in row.values}})
         response["Cache-Control"] = "private, no-store"
         return response
     try:
@@ -296,6 +300,7 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
     common = {**common,
         "ok": True,
         "fields": fields,
+        "active_fields_all": kb.active_fields is None,
         "column_offset": column_offset,
         "timezone": str(zone),
         "range_from": first.isoformat() if first else None,

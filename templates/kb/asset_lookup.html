@@ -161,8 +161,8 @@
 
 <section class="import-panel">
   <div class="section-title">
-    <div><h2>需要上传或更新资料？</h2><p>手册和所有 CSV/XLSX 业务数据现已统一到资料上传中心。</p></div>
-    {% if user.is_staff %}<a class="btn primary" href="{% url 'kb:manage_list' %}">前往资料上传中心</a>{% else %}<span class="warn-chip">请联系管理员上传</span>{% endif %}
+    <div><h2>需要上传或更新资料？</h2><p>手册和所有 CSV/XLSX 业务数据现已统一到知识库中心。</p></div>
+    {% if user.is_staff %}<a class="btn primary" href="{% url 'kb:manage_list' %}">前往知识库中心</a>{% else %}<span class="warn-chip">请联系管理员上传</span>{% endif %}
   </div>
 </section>
 

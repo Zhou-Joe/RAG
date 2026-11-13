@@ -95,6 +95,7 @@ urlpatterns = [
     # 问答页面（所有登录用户）
     path("ask/", views.ask, name="ask"),
     path("stream/", views.chat_stream, name="stream"),
+    path("chat/attachments/<uuid:attachment_id>/", views.chat_attachment, name="chat_attachment"),
 
     # 浏览器沙箱执行结果回报（write_analysis 自修复回路）
     path("analysis/report/", views.analysis_report, name="analysis_report"),

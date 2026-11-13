@@ -155,7 +155,7 @@ class RuntimeTests(SimpleTestCase):
     def test_generated_zip_is_stdlib_and_compiles_without_executing_user_code(self):
         config=spec(name="报告'\n__import__('os')")
         archive=zipfile.ZipFile(io.BytesIO(package(config)))
-        self.assertEqual(set(archive.namelist()),{'connector.py','connector.json','connector_runtime.py','connector_calculations.py','feed_client.py','requirements.txt','.env.example','README.md'})
+        self.assertEqual(set(archive.namelist()),{'connector.py','connector.json','connector_runtime.py','connector_calculations.py','credential_routing.py','feed_client.py','requirements.txt','.env.example','README.md'})
         compile(archive.read('connector.py'),'connector.py','exec')
         self.assertIn(b'No pip',archive.read('requirements.txt'))
         # 独立启动只检查命令行，不导入Django，不接触网络。

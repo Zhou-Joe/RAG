@@ -239,3 +239,45 @@ test('cron builder progress counters follow the language in both live and saved 
   assert.equal(translate('工具活动 · 5 次调用','en'),'Tool activity · 5 calls');
   assert.equal(translate('正在理解当前消息并接续对话。','en'),'Reading your message and continuing the conversation.');
 });
+
+test('Knowledge Library navigation, actions and counters switch in both languages',()=>{
+  const merged={messages:{},patterns:[],englishSource:{}};
+  const directory=path.join(__dirname,'../../static/i18n');
+  for(const filename of fs.readdirSync(directory).filter(name=>name.endsWith('.json'))){
+    const part=JSON.parse(fs.readFileSync(path.join(directory,filename),'utf8'));
+    Object.assign(merged.messages,part.messages);
+    merged.patterns.push(...(part.patterns||[]));
+    Object.assign(merged.englishSource,part.englishSource||{});
+  }
+  const {translate}=load(merged);
+  for(const [zh,en] of [
+    ['知识库中心','Knowledge Library'],
+    ['知识库中心 · SHDR RAG','Knowledge Library · SHDR RAG'],
+    ['前往知识库中心','Go to Knowledge Library'],
+    ['手册和所有 CSV/XLSX 业务数据现已统一到知识库中心。','Manuals and all CSV/XLSX business data are now managed in Knowledge Library.'],
+    ['知识库名称','Knowledge base name'],
+    ['筛选账号','Filter accounts'],
+    ['删除部门','Delete department'],
+    ['网格','Grid'],
+    ['7 份文档','7 documents'],
+    ['12 个向量块','12 vector chunks'],
+    ['3 条采集记录','3 collection records'],
+    ['回答内容过长，请缩短后再提交（最多500字）。','Your answer is too long. Shorten it to 500 characters or fewer before submitting.'],
+    ['请刷新页面后重试发送报告。','Refresh the page and try sending the report again.'],
+    ['发送结果尚未确认，请检查工作流记录；使用同一按钮重试不会重复发送。','Delivery has not been confirmed. Check the workflow history; retrying with the same button will not send a duplicate.'],
+    ['3条记录格式变化，已保留原文，请查看文档的采集提示。','3 records changed format. Their original content was retained; see collection notices in the documents.'],
+  ]){
+    assert.equal(translate(zh,'en'),en,`EN label for ${zh}`);
+    assert.equal(translate(en,'zh-hans'),zh,`CN label for ${en}`);
+  }
+  assert.equal(translate('My Favorite','zh-hans'),'我的收藏');
+  assert.equal(translate('我的收藏','en'),'My Favorite');
+  const root=path.join(__dirname,'../../templates');
+  const nav=fs.readFileSync(path.join(root,'kb/_base.html'),'utf8');
+  const library=fs.readFileSync(path.join(root,'kb/manage_list.html'),'utf8');
+  const lookup=fs.readFileSync(path.join(root,'kb/asset_lookup.html'),'utf8');
+  assert.match(nav,/class="nav-item" href="\/kb\/manage\/"[^\n]*知识库中心<\/span>/);
+  assert.match(library,/<h1>知识库中心<\/h1>/);
+  assert.match(lookup,/>前往知识库中心<\/a>/);
+  assert.doesNotMatch(nav+library+lookup,/资料上传中心|>资料上传<\/span>/);
+});

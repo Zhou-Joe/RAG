@@ -1,4 +1,4 @@
-"""The KB name is authoritative; legacy name fields are synchronized copies."""
+"""Source names follow the KB; delivery titles describe their own purpose."""
 from django.db.models import Q
 from django.utils import timezone
 
@@ -10,7 +10,7 @@ def current_name(feed):
 
 def named_spec(spec,name):
     if not isinstance(spec,dict) or not spec:return spec
-    if spec.get('kind')=='report':return {**spec,'title':name}
+    if spec.get('kind')=='report':return {**spec,'title':spec.get('title') or name}
     if 'name' in spec or 'body_fields' in spec:return {**spec,'name':name}
     return spec
 

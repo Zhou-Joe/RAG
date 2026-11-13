@@ -1,19 +1,24 @@
 {
   "messages": {
-    "知识库工作台": "Knowledge workspace",
+    "知识库工作台": "Knowledge Workspace",
     "工作台": "Workspace",
     "资料上传": "Upload documents",
-    "自主数据引擎": "Data collection",
+    "知识库中心": "Knowledge Library",
+    "自主数据引擎": "Data Collection",
     "综合搜索": "Search",
-    "知识图谱": "Knowledge graph",
-    "设备模型知识库": "Equipment models",
-    "运维数据工作台": "Operations workspace",
+    "知识图谱": "Knowledge Graph",
+    "设备模型知识库": "Equipment Models",
+    "运维数据工作台": "Operations Workspace",
     "运营": "Activity",
-    "运行日志": "Activity dashboard",
-    "用户管理": "User management",
+    "运行日志": "Activity Dashboard",
+    "用户管理": "User Management",
+    "筛选账号": "Filter accounts",
+    "级别": "Role",
+    "通用部门级别": "General department role",
+    "删除部门": "Delete department",
     "系统": "System",
-    "站点配置": "Site settings",
-    "检索评估": "Retrieval evaluation",
+    "站点配置": "Site Settings",
+    "检索评估": "Retrieval Evaluation",
     "后台管理": "Administration",
     "侧边栏": "Sidebar",
     "主导航": "Main navigation",
@@ -232,6 +237,10 @@
   },
   "patterns": [
     {
+      "source": "{name}部门级别",
+      "target": "Department role: {name}"
+    },
+    {
       "source": "近 {count} 天问答趋势",
       "target": "Questions and answers over {count} days"
     },
@@ -245,7 +254,7 @@
     },
     {
       "source": "共 {count} 份",
-      "target": "{count} documents"
+      "target": "Total: {count} files"
     },
     {
       "source": "{count} 个库",

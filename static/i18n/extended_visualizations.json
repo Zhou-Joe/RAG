@@ -1,0 +1,80 @@
+{
+  "messages": {
+    "创建交互式数据视图…": "Create Interactive Data View…"
+  },
+  "englishSource": {
+    "Visualization settings must be an object.": "可视化设置必须为对象。",
+    "Visualization settings contain an unsupported option.": "可视化设置包含不支持的选项。",
+    "Use progress, sparkline, heatmap, pareto, timeline or table.": "请选择 progress、sparkline、heatmap、pareto、timeline 或 table。",
+    "Use count, sum, avg, min or max.": "请选择 count、sum、avg、min 或 max。",
+    "Sparkline period must be day, month or year.": "迷你趋势图的周期必须为 day、month 或 year。",
+    "A numeric measure field is required for this operation.": "此运算需要指定实际数值字段。",
+    "A progress target must be greater than zero.": "进度目标必须大于零。",
+    "An actual x_field is required for this visualization.": "此可视化需要指定实际横轴字段 x_field。",
+    "A heatmap needs two distinct grouping fields.": "热力图需要两个不同的分组字段。",
+    "Pareto charts require an additive count or sum.": "帕累托图需要可累加的计数或合计值。",
+    "A timeline requires label_field, start_field and end_field.": "时间轴需要 label_field、start_field 和 end_field。",
+    "A visualization label is too long; choose a shorter label field.": "可视化标签过长，请选择更短的标签字段。",
+    "No completed data matches this visualization query.": "没有已完成的数据匹配此可视化查询。",
+    "Sparkline dates must use ISO business-date values.": "迷你趋势图的日期必须使用 ISO 格式的业务日期。",
+    "A signed-in user is required to create a visualization.": "请先登录，再创建可视化。",
+    "Knowledge base not found or unavailable.": "知识库不存在或不可访问。",
+    "A progress value cannot be negative.": "进度数值不能为负数。",
+    "A heatmap supports at most 32 categories per axis; narrow the query.": "热力图每个轴最多支持 32 个类别，请缩小查询范围。",
+    "Pareto contributions must be nonnegative numeric values.": "帕累托图的贡献值必须为非负数值。",
+    "No completed tasks match this timeline query.": "没有已完成的任务匹配此时间轴查询。",
+    "A timeline task cannot end before it starts.": "时间轴任务的结束时间不能早于开始时间。",
+    "Visualization data is too large; select fewer columns or narrow the query.": "可视化数据过大，请减少字段或缩小查询范围。",
+    "Visualization summary exceeds the available context budget.": "可视化摘要超过可用的上下文预算。",
+    "The inline visualization uses the permission-checked query. Only selected fields are available.": "内联可视化使用已校验权限的查询结果，仅包含所选字段。",
+    "Extended visual fields must reference actual report output columns.": "扩展可视化字段必须引用实际报告输出列。",
+    "Extended visuals accept only field-based configuration, never code or literal data.": "扩展可视化仅接受基于字段的配置，不接受代码或直接数据。",
+    "Extended visual titles must be text of up to 120 characters.": "扩展可视化标题必须为最多 120 个字符的文本。",
+    "Extended visual item limit is invalid.": "扩展可视化的项目数量限制无效。",
+    "Extended visual options cannot contain custom code or unsupported settings.": "扩展可视化选项不能包含自定义代码或不支持的设置。",
+    "Extended visual ordering is invalid; Pareto charts require descending values.": "扩展可视化排序无效；帕累托图需要按数值降序排列。",
+    "This visual requires exactly one aggregate series.": "此可视化需要且仅支持一个聚合系列。",
+    "Extended visual series use only a field, aggregate and optional label.": "扩展可视化系列仅接受字段、聚合方式和可选标签。",
+    "Extended visual aggregate is invalid.": "扩展可视化的聚合方式无效。",
+    "Extended visual series labels must be text of up to 80 characters.": "扩展可视化系列标签必须为最多 80 个字符的文本。",
+    "Pareto charts require a count or sum series.": "帕累托图需要计数或合计系列。",
+    "Extended visual units must be text of up to 80 characters.": "扩展可视化单位必须为最多 80 个字符的文本。",
+    "A progress visual requires an explicit positive numeric target.": "进度可视化需要明确指定大于零的数值目标。",
+    "An interactive table requires 1 to 12 unique report fields.": "交互表格需要 1 至 12 个不重复的报告字段。",
+    "Extended visual labels exceed 500 characters; choose shorter labels.": "扩展可视化标签超过 500 个字符，请使用更短的标签。",
+    "Timeline and date-axis fields must contain valid ISO dates or datetimes.": "时间轴和日期轴字段必须包含有效的 ISO 日期或日期时间。",
+    "A timeline date is outside the supported range.": "时间轴日期超出支持范围。",
+    "Progress values cannot be negative.": "进度数值不得小于零。",
+    "The timeline exceeds its item limit; narrow the report range.": "时间轴超过项目数量限制，请缩小报告范围。",
+    "Timeline end dates cannot precede start dates.": "时间轴结束日期不能早于开始日期。",
+    "Interactive table values must be finite.": "交互表格中的数值必须为有限数值。",
+    "The interactive table is too large; reduce its rows or columns.": "交互表格过大，请减少行数或列数。",
+    "Sparkline axes must use consistent finite numeric positions or ISO dates.": "迷你趋势图坐标轴必须使用一致的有限数值位置或 ISO 日期。",
+    "The sparkline exceeds its point limit; narrow or aggregate the report dates.": "迷你趋势图超过数据点限制，请缩小报告日期范围或按日期汇总。",
+    "The heatmap exceeds its axis or cell limit; narrow the report range.": "热力图超过坐标轴或单元格数量限制，请缩小报告范围。",
+    "The Pareto chart exceeds its category limit; narrow the report range.": "帕累托图超过类别数量限制，请缩小报告范围。",
+    "Pareto contributions must be nonnegative numeric counts or sums.": "帕累托图的贡献值必须为非负数值计数或合计。"
+  },
+  "patterns": [
+    {
+      "source": "{name} 必须为最多 {limit} 个字符的文本。",
+      "target": "{name} must be text of up to {limit} characters."
+    },
+    {
+      "source": "{name} 必须为有限数值。",
+      "target": "{name} must be a finite number."
+    },
+    {
+      "source": "此可视化最多支持 {maximum} 个分组，请缩小查询范围。",
+      "target": "This visualization supports at most {maximum} groups; narrow the query."
+    },
+    {
+      "source": "{name} 必须包含有效的 ISO 日期或日期时间。",
+      "target": "{name} must contain valid ISO dates or date-times."
+    },
+    {
+      "source": "时间轴最多支持 {maximum} 个匹配任务，请缩小查询范围。",
+      "target": "A timeline supports at most {maximum} matching tasks; narrow the query."
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{% if active_field_options %}{% if kb.category == 'business' or kb.table_query %}
+<fieldset class="field kb-active-fields">
+  <legend>展示字段</legend>
+  <p class="dialog-hint">仅影响页面展示与分析选项；采集与原始数据保持完整，可随时恢复字段。</p>
+  <label>展示方式<select name="active_fields_mode"><option value="all"{% if active_fields_all %} selected{% endif %}>全部字段（包括后续新增字段）</option><option value="selected"{% if not active_fields_all %} selected{% endif %}>只展示所选字段</option></select></label>
+  <details{% if not active_fields_all %} open{% endif %}><summary>选择关键字段</summary>
+    <div style="display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 0">
+      {% for field in active_field_options %}<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" name="active_field" value="{{ field.label }}"{% if field.selected %} checked{% endif %}><span translate="no">{{ field.label }}</span></label>{% endfor %}
+    </div>
+  </details>
+</fieldset>
+{% endif %}{% endif %}

@@ -11,6 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import AsyncGenerator, Literal
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from .clocked_chat import ClockedChatOpenAI as ChatOpenAI
 
@@ -81,7 +82,7 @@ def _image_content_block(doc_id: str, name: str) -> dict | None:
             from .models import Document
             from .pipeline import _render_page_jpeg
             doc = Document.objects.get(id=doc_id)
-            raw = _render_page_jpeg(Path(doc.file.path), int(name[4:]))
+            raw = _render_page_jpeg(Path(doc.file.path), int(name[4:]) - 1)
             if raw:
                 data, mime = raw, "image/jpeg"
         except Exception:
@@ -92,7 +93,7 @@ def _image_content_block(doc_id: str, name: str) -> dict | None:
             data = p.read_bytes()
         except OSError:
             return None
-        mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+        mime = {'.png': 'image/png', '.webp': 'image/webp'}.get(p.suffix.lower(), 'image/jpeg')
     try:
         from PIL import Image
         with Image.open(_io.BytesIO(data)) as im:
@@ -106,6 +107,49 @@ def _image_content_block(doc_id: str, name: str) -> dict | None:
     return {"type": "image",
             "base64": _b64.b64encode(data).decode(),
             "mime_type": mime}
+
+
+def _text_only_tool_history(messages):
+    """Keep saved captions while omitting pixels unsupported by this model."""
+    from langchain_core.messages import ToolMessage
+
+    def caption_status(text):
+        try:
+            result = json.loads(text)
+        except (TypeError, ValueError):
+            return text
+        if not isinstance(result, dict) or result.get('kind') != 'rag_chunks':
+            return text
+        statuses = result.get('image_inputs')
+        if not isinstance(statuses, list):
+            return text
+        changed = False
+        for item in statuses:
+            if isinstance(item, dict) and item.get('status') in ('delivered', 'already_delivered'):
+                item.update(status='caption_only', reason='vision_disabled')
+                changed = True
+        return json.dumps(result, ensure_ascii=False, separators=(',', ':')) if changed else text
+
+    prepared = []
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            prepared.append(message)
+            continue
+        content = message.content
+        if isinstance(content, str):
+            content = caption_status(content)
+        elif isinstance(content, list):
+            parts = []
+            for part in content:
+                if isinstance(part, dict) and part.get('type') in ('image', 'image_url', 'input_image'):
+                    parts.append({'type': 'text', 'text': 'Image pixels omitted for the current text-only model; only the caption is available.'})
+                elif isinstance(part, dict) and part.get('type') == 'text':
+                    parts.append({**part, 'text': caption_status(part.get('text', ''))})
+                else:
+                    parts.append(part)
+            content = parts
+        prepared.append(message.model_copy(update={'content': content}))
+    return prepared
 
 
 def _softmax_probs(dists: list, temp: float = _IMG_PROB_TEMP) -> list[float]:
@@ -254,6 +298,7 @@ def _kb_tree_text(dept_filter: dict) -> str:
     单份文档的内容——帮助 LLM 判断该检索哪个库/引用哪份文档。
     """
     from .models import KbTracker, KnowledgeBase
+    from .active_fields import visible_fields
     lines = []
 
     # 追踪表信息：kb_id → 摘要（启用状态/字段数/登记条数）。字段名清单不在树里
@@ -264,7 +309,8 @@ def _kb_tree_text(dept_filter: dict) -> str:
         if not tr.fields and not n_rows:
             continue  # 空壳行（首次访问设置页时自动创建），树里不显示
         mark = "✓" if tr.enabled else "✗"
-        fields_txt = f"{len(tr.fields)}字段" if tr.fields else "无字段"
+        field_count = len(visible_fields(tr.kb, tr))
+        fields_txt = f"{field_count}字段" if field_count else "无字段"
         trk_info[tr.kb_id] = f"追踪表:{mark}{fields_txt}/{n_rows}条登记"
 
     def _trk(kb) -> str:
@@ -273,7 +319,8 @@ def _kb_tree_text(dept_filter: dict) -> str:
 
     def _desc(obj) -> str:
         d = (getattr(obj, "description", "") or "").strip()
-        return f"｜说明: {d[:80]}" if d else ""
+        mode = "｜表格查询模式：逐行结构化数据，请用 tracker_preview / tracker_lookup 查询与统计" if getattr(obj, 'table_query', False) else ""
+        return (f"｜说明: {d[:80]}" if d else "") + mode
 
     def _doc_lines(kb, indent: str) -> list[str]:
         """文档级说明：每份文档一行（上限 4 份，超出提示）。"""
@@ -535,14 +582,20 @@ def _image_search_core(query: str, target: str, lane_slugs: list[str],
         if rows:
             directory=json.loads(selection.discover(rows,lane_slugs,query=query,limit=len(rows)))
             ids=[item['candidate_id'] for item in directory.get('candidates',[])]
-            loaded=selection.read(ids,include_images=False) if ids else json.dumps(directory,ensure_ascii=False)
+            loaded=selection.read(ids,include_images=vision_on) if ids else json.dumps(directory,ensure_ascii=False)
+            read_parts=loaded if isinstance(loaded,list) else [{'type':'text','text':loaded}]
             ready={(selection.candidates[cid]['row']['doc_id'],selection.candidates[cid]['row'].get('image'))
                    for cid in ids if cid in selection.loaded}
             shown=[i for i in shown if (str(unique[i]['doc_id']),unique[i]['image']) in ready]
             confirmed=[i for i in confirmed if i in shown]
             text_out=(('已载入图片来源与完整图注，视觉复核状态见下。' if shown else '没有载入可用图片依据，见读取结果。')+
-                '\n'+head.replace('已自动附到回答引用区','将在选定依据后附到回答引用区').replace('已附到回答引用区供用户查看','将在选定依据后附到引用区供用户查看')+
-                '\n'+loaded+'\n调用 kb_select_evidence 选择实际采用的已读 candidate_id，然后回答；不采用的文本候选无需读取。')
+                '\n'+head.replace('已自动附到回答引用区','将在选定依据后附到回答引用区').replace('已附到回答引用区供用户查看','将在选定依据后附到引用区供用户查看'))
+            notice=('以 image_inputs 的 delivered/already_delivered 判断是否已收到图片本体；caption_only 只读到图注，不能声称看过图片。'
+                '\n调用 kb_select_evidence 选择实际采用的已读 candidate_id，然后回答；不采用的文本候选无需读取。')
+            # Use the shared reader for delivery, identity labels and the per-turn
+            # image cap. A relevance judge seeing pixels is not the answer model
+            # receiving those pixels, and must not mark them as delivered.
+            return [{'type':'text','text':text_out}]+read_parts+[{'type':'text','text':notice}]
         else:text_out=head
     # Legacy callers can still collect citations; agent calls use final selection.
     for i in shown if selection is None else []:
@@ -630,10 +683,28 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         if access.root_kb(kb_obj).visibility=='individual':return False
         return not dept_scoped or kb_obj.department in dept_scope
 
+    from .active_fields import field_selection_owner
+    from .spreadsheet_rows import is_table_query_kb
+
+    def _structured_target(kb_obj):
+        if is_table_query_kb(kb_obj):
+            return kb_obj if kb_obj.table_query else kb_obj.parent
+        owner = field_selection_owner(kb_obj)
+        return owner if owner and owner.active_fields is not None else None
+
+    def _structured_notice(target):
+        return json.dumps({'query_mode': 'table', 'kb_slug': target.slug,
+            'notice': 'Query this library using tracker_preview, tracker_lookup or tracker_analyze. '
+                      'Only selected fields are available. Raw source documents are not returned '
+                      'to EnGenie while fields are hidden.'}, ensure_ascii=False)
+
+    def _document_allowed(kb_obj):
+        return _dept_allowed(kb_obj) and _structured_target(kb_obj) is None
+
     from .rag_selection import RagSelection
     from .kb_links import RelationshipScope
     relationship_scope = RelationshipScope(_dept_allowed, relationship_conversation_id, relationship_user_id)
-    rag_selection = RagSelection(_dept_allowed,evidence_sink,cite_sink,retrieval_state,
+    rag_selection = RagSelection(_document_allowed,evidence_sink,cite_sink,retrieval_state,
         image_reader=_image_content_block if llm_cfg.get('vision') else None, relationship_scope=relationship_scope,
         saved=(conversation_context or {}).get('rag'))
     if retrieval_state is not None:
@@ -658,10 +729,10 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
 1. **选库**：不确定有哪些文档库时调一次 list_knowledge_bases 查看层级与 slug，之后按需用 kb_slug 定位到具体文档库。不要每次都调。
 2. **检索（两种工具，按需选择）**：
    - **kb_search**：只返回候选目录：各KB/文档的召回数量、candidate_id、章节/页码和短预览；不返回完整正文、不自动引用。先选择正确KB、文档和版本，再调用kb_read_chunks读取所需candidate_id。
-   - **kb_read_chunks**：只把所选候选的完整正文载入上下文。先读少量最相关片段，不为填满额度读全部候选。not_loaded不是已读内容；不得用未读的预览作事实依据。
+   - **kb_read_chunks**：把所选候选的完整正文载入上下文，图片候选按需返回本体。先读少量最相关片段，不为填满额度读全部候选。not_loaded不是已读内容；不得用未读的预览作事实依据。读取文字片段时，linked_images会列出该片段关联图片的独立candidate_id、图注和已有页码；它只是图片目录，不表示你已看到图片，也不自动引用。问题涉及图示、布局、部件外观、图中数据或文字不足以回答时，再用kb_read_chunks读取相关图片candidate_id。
    - **kb_select_evidence**：读取后、回答前，明确选出实际支持回答的已读candidate_id；它替换本轮RAG引用和核对依据，已读但未采用的片段也不引用。可选空数组后澄清歧义或说明不足。补读后必须重新选择最终依据。来源数量仅为本次有界召回统计，不是全库精确命中数。
-   - **多模态检索**：kb_search候选可能包含图片，但目录中的图注不表示已经看到图片。视觉模式下用kb_read_chunks明确选择图片候选，才会收到图片本体；最终用kb_select_evidence采用的图片才附在引用区。不要拼接图片链接，也不暗附其它文档的图片。
-   - **kb_image_search（找一张图时优先用）**：用户明确想【找图/看图】（「有没有……的示意图/布置图/结构图/照片」「找一张……的图」）时用它，不要用 kb_search 凑合。它先用多模态向量召回候选图片并计算相对概率，再把概率排前 3 且≥15% 的候选逐张交给视觉模型复核，只输出确认匹配的图（自动附到引用区）。回答时说明匹配图片的来源文档与页码、复核结论；无确认匹配时如实说明，并建议用户换更具体的描述重试。视觉模式开启时确认图片会以本体附在工具结果里——请依据图片内容本身描述图中细节，不要凭图注想象。若工具报告「均未确认匹配」或「复核未完成」，说明你没有看到图片本体——严禁声称已查看图片或描述图中细节。
+   - **多模态检索与图片引用**：kb_search也可能返回图片候选；目录与图注不表示已经看到图片。读取结果的image_inputs中delivered表示本次已附图片本体，already_delivered表示先前已附；caption_only/not_loaded仅有图注或尚未读到本体，不得凭它描述视觉细节。每张本体前的image_candidate_id、source、page标签说明它的实际来源，不把相邻图片混为一张。linked_images的embedded_reference是原文插图引用，adjacent_reference是片段边界的邻接图片，content_list_sequence是提取顺序关联；position只用于来源定位，不能推断像素坐标或PDF精确版式。只读与问题相关的图片，视觉未开启、文件不可读或限额不足时如实依据文字回答。实际采用图片时，kb_select_evidence同时保留回答使用的文字与图片candidate_id；选中的图片会以可放大的图片卡片显示在对话中，并关联来源引用。相关结论使用真实[N]来源和已有页码，不编造页码或图片URL。
+   - **kb_image_search（找一张图时优先用）**：用户明确想【找图/看图】（「有没有……的示意图/布置图/结构图/照片」「找一张……的图」）时用它，不要用 kb_search 凑合。它先用多模态向量召回候选图片并计算相对概率，再把概率排前 3 且≥15% 的候选逐张交给视觉模型复核。确认匹配仍须kb_select_evidence采用才显示图片卡片。回答时说明匹配图片的来源文档与已有页码；无确认匹配时如实说明，并建议用户换更具体的描述重试。是否实际收到本体以image_inputs为准，不把复核模型看过图片当成你已收到图片。若工具报告「均未确认匹配」或「复核未完成」，不要凭图注想象图片细节。
    - **kb_fetch_doc**：按文档/章节/关键词列出候选，不按相似度排序。需要完整表格时先用表名定位表头，再用实际材料牌号/编号等定位其它候选；必须用kb_read_chunks选择读取正文，再按文档顺序拼表。达到limit不代表已经取全；未读条目不能补写为事实。
    - **kb_neighbor_chunk**：从已读正文原样复制至少6个字符作为anchor，传实际source和kb_slug，direction=prev/next/both；列出原文相邻候选。仍须kb_read_chunks读取、kb_select_evidence确认后才引用。
    - **tracker_preview**：先查看追踪表真实字段、样例、条数，理解数据格式。样例不是全部记录，不能用样例算总数。
@@ -675,9 +746,9 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
 9. 若知识库中无相关内容，如实说明，不得编造（禁止幻觉）。
 
 如果用户只要求「列个表格」「整理成表格」，直接返回简洁的 Markdown 表格，不调用 write_analysis，不生成 Python 或下载文件。表格按资料中真实条目组织，避免重复双语和冗长前言；不要把未检索到的条目补齐。
-只有用户明确要求计算分析、画图、下载或导出 Excel/CSV/文件时：
+业务数据的统计、趋势和对比问题应按下方规则主动选择适合的内联可视化，不必等用户明确要求画图。优先使用 tracker_analyze；普通模式中只有结构化工具不支持所需自由分析时，才使用以下 Python 沙箱流程：
 - 会话中已有足够数据时直接复用；需要补充数据时，文档表格用kb_fetch_doc或kb_search定位候选，再kb_read_chunks读取并kb_select_evidence确认。不能仅凭目录或一页候选宣称全量。新增台账统计用tracker_lookup的metrics。
-- 再调用 write_analysis，传入完整可运行的 Python 代码（code 参数）。
+- 需要自由分析时再调用 write_analysis，传入完整可运行的 Python 代码（code 参数）；仅为显示已有台账的值卡片或图表，不要生成脚本。
 - 代码会在用户浏览器的 Pyodide 沙箱里运行，常用库 pandas、numpy、matplotlib 已在初始化时预装；scipy 也已本地托管，需要时直接 `import scipy.stats` 等即可（首次使用会即时加载，稍慢，只一次）。
 - 把检索到的数据作为字面量写进代码，例如：df = pd.DataFrame([...])。沙箱里【没有】用户本地文件或任何输入文件——禁止 pd.read_excel/read_csv 去读本地路径，数据一律来自检索结果构造的 DataFrame。
 - **字符串引号安全**：中文/英文字符串内部若含双引号，用单引号定义该字符串，或用「」代替内部双引号。绝对禁止在 "..." 字符串内部出现未转义的双引号——会导致 SyntaxError。生成代码后自查所有字符串字面量的引号配对。
@@ -742,9 +813,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         target = KnowledgeBase.objects.filter(slug=kb_slug).first()
         if target is None or not _dept_allowed(target):
             return "知识库不存在，请用 list_knowledge_bases 查看可选项。"
+        structured = _structured_target(target)
+        if structured is not None:
+            return _structured_notice(structured)
         scopes = [target.slug]
         if target.is_folder:
-            scopes.extend(child.slug for child in target.children.all() if _dept_allowed(child))
+            scopes.extend(child.slug for child in target.children.all() if _document_allowed(child))
         result = lookup_facts(scopes, query)
         for snapshot in result["facts"]:
             if snapshot not in evidence_sink:
@@ -779,9 +853,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         target_kb = KnowledgeBase.objects.filter(slug=target).first()
         if target_kb is None or not _dept_allowed(target_kb):
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
+        structured = _structured_target(target_kb)
+        if structured is not None:
+            return _structured_notice(structured)
         try:
             if target_kb.is_folder:
-                scopes = [kb.slug for kb in KnowledgeBase.objects.filter(slug__in=target_kb.child_doc_slugs()) if _dept_allowed(kb)]
+                scopes = [kb.slug for kb in KnowledgeBase.objects.select_related('parent').filter(slug__in=target_kb.child_doc_slugs()) if _document_allowed(kb)]
                 results = _search_folder(scopes,query,k=k,graph_scope_slugs=[target]) if scopes else []
             else:
                 scopes = [target]
@@ -796,10 +873,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         return rag_selection.discover(results,scopes,query=query,limit=k)
 
     def kb_read_chunks(candidate_ids: list[str]):
-        """读取本会话候选目录中所选candidate_id的完整正文，最多16个，受本轮正文预算限制。
+        """读取所选candidate_id的完整文字或图片，最多16个，受本轮预算限制。
 
         先按KB、文档和版本选对来源；不要批量读取所有候选。正文不截断，装不下的候选列入not_loaded。
-        必须在读取后调用kb_select_evidence，确认实际支持最终回答的已读编号。
+        文字的linked_images列出关联图片candidate_id；按问题需要再次调用本工具读取图片本体。
+        image_inputs.status为delivered/already_delivered才表示已收到本体，caption_only不能支持视觉描述。
+        读取后用kb_select_evidence选择实际使用的文字和图片编号；所选图片显示为对话中的来源图片卡片。
         """
         return rag_selection.read(candidate_ids)
 
@@ -810,6 +889,19 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         已读但未选中的片段也会从引用移除。补读后重新选择。资料不足/需澄清时可用空数组。
         """
         return rag_selection.select(candidate_ids)
+
+    def kb_show_value(candidate_id: str, title: str, value: float, quote: str, unit: str = '') -> str:
+        """Display an exact numeric answer from a selected document passage as a value card.
+
+        Use for simple manual/specification questions too, not only business data.
+        First read the passage and select it with kb_select_evidence. Copy quote
+        exactly (up to400 characters); value and its original unit must appear
+        together in it. No calculation, unit conversion or unsourced values.
+        title is a short, clear business label. The card appears above the answer.
+        Once shown, answer a simple exact query with only the assigned [N] citation;
+        do not repeat the number or add insights, caveats, or boilerplate.
+        """
+        return rag_selection.show_value(candidate_id, title=title, value=value, unit=unit, quote=quote)
 
     def kb_image_search(query: str, kb_slug: str = "", top: int = 0):
         """按图片描述在知识库里精确找图（向量召回候选 → 概率前列候选逐张视觉复核）。
@@ -827,6 +919,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             kb_slug: 要找图的知识库标识。必须明确提供本次选择的库；传文件夹 slug
                      会跨其下所有文档库找图。
             top: 最多输出的确认匹配图片数（0 = 默认 3）。
+        Selected image results are displayed directly inside the answer as compact,
+        expandable image cards with their source number and document/page details.
+        Do not generate duplicate Markdown image links or invent image URLs. Explain
+        the selected results briefly and use their assigned [N] source references.
+        A caption-only selection is not a visually verified match.
         """
         from .models import KnowledgeBase
         target = kb_slug
@@ -837,8 +934,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
         if not _dept_allowed(target_kb):
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
+        structured = _structured_target(target_kb)
+        if structured is not None:
+            return _structured_notice(structured)
         if target_kb.is_folder:
-            lane_slugs=[item.slug for item in KnowledgeBase.objects.select_related('parent').filter(slug__in=target_kb.child_doc_slugs()) if _dept_allowed(item)]
+            lane_slugs=[item.slug for item in KnowledgeBase.objects.select_related('parent').filter(slug__in=target_kb.child_doc_slugs()) if _document_allowed(item)]
         else:
             lane_slugs = [target]
         return _image_search_core(query, target, lane_slugs, llm_cfg,
@@ -883,6 +983,9 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
         if not _dept_allowed(target_kb):
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
+        structured = _structured_target(target_kb)
+        if structured is not None:
+            return _structured_notice(structured)
         if target_kb.is_folder:
             return (f"「{target}」是文件夹，本工具只能提取单个文档库的片段。"
                     f"请先用 list_knowledge_bases 找到其下的文档库 slug，再用该 slug 调用本工具。")
@@ -1057,8 +1160,9 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
                         group: str = '', measure: str = '', date_from: str = '', date_to: str = '',
                         object_field: str = '', object_values: list[str] | None = None,
                         period: Literal['minute', 'hour', 'day', 'week', 'month', 'year'] = 'day',
-                        span: int = 1, output: Literal['preview', 'excel', 'plot', 'both'] = 'preview',
+                        span: int = 1, output: Literal['auto', 'preview', 'excel', 'plot', 'both'] = 'auto',
                         chart_metric: Literal['value', 'change', 'change_pct'] = 'value',
+                        chart_type: Literal['auto', 'metric', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'] = 'auto',
                         feed_id: str = '', query: str = '', filters: list[TrackerFilter] | None = None) -> str:
         """直接分析完整台账历史并生成真实 Excel/图表；普通和增强模式均可用，无需编写代码。
 
@@ -1072,18 +1176,32 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             period+span 指每N分钟/小时/天/周/月/年，最多500周期；自动计算较上期变化及变化率。
         date_from/date_to 按【记录更新时间】筛选，建议明确提供；ISO日期或时间，时区按数据源/站点。
             日期结束值包含当天，日期时间结束值不包含该时刻。未提供时summary用全部历史，trend用默认最近范围。
-        output=preview仅返回有界预览；excel导出全部匹配分组（最多50000组），plot生成可下载SVG；both同时生成。
+        output=auto为默认：单个总体summary自动显示值卡片，其它分析返回预览。
+            preview显式选择纯文字结果；excel导出全部匹配分组（最多50000组），plot显示图表；both同时生成。
             图表summary最多50组，trend最多8对象。chart_metric仅控制趋势图口径，不改变Excel的完整列。
         数值字符串参与计算，非数值排除并报告有效条数；缺失周期不补零，上期为0不算变化率。
         feed_id可选，仅用于结构化采集表。文件直接来自数据库，返回真实下载URL，不把预览抄成全量Excel。
+        Proactively use output='plot' for a business-data question that benefits from
+        a value card, comparison or trend chart; the user need not request a chart.
+        Use output='both' when an Excel export is also requested. Respect explicit
+        text-only or table-only preferences. The full, permission-checked
+        result is displayed as an interactive chart directly in the chat, with value
+        tooltips and legend controls. chart_type selects the requested supported view;
+        'metric' displays one overall summary as a title and highlighted value;
+        remove grouping and request the actual aggregate rather than adding values
+        across output groups. 'auto' selects a metric card for one ungrouped value,
+        bars for grouped summaries and lines for trends. Pie/doughnut require one
+        nonnegative series; combo requires multiple series. Files remain downloadable.
         """
         from .analysis_exports import agent_analysis
         if not kb_slug:
             return '请明确提供本次选择的 kb_slug。'
+        if output == 'auto':
+            output = 'plot' if mode == 'summary' and not group else 'preview'
         params = {'kind': mode, 'op': operation, 'group': group, 'measure': measure,
                   'from': date_from, 'to': date_to, 'object_field': object_field,
                   'object_value': object_values or [], 'period': period, 'span': str(span),
-                  'chart_metric': chart_metric, 'feed': feed_id, 'analysis_search': query,
+                  'chart_metric': chart_metric, 'chart_type': chart_type, 'feed': feed_id, 'analysis_search': query,
                   'analysis_filters': json.dumps(filters or [], ensure_ascii=False)}
         try:
             text = agent_analysis(actor, _dept_allowed, tracker_query, kb_slug, params, output)
@@ -1092,10 +1210,60 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         _tracker_citations()
         return text
 
+    def tracker_visualize(kb_slug: str,
+                          kind: Literal['progress', 'sparkline', 'heatmap', 'pareto', 'timeline', 'table'],
+                          title: str = '', operation: Literal['count', 'sum', 'avg', 'min', 'max'] = 'count',
+                          measure: str = '', x_field: str = '', y_field: str = '', label_field: str = '',
+                          start_field: str = '', end_field: str = '', group_field: str = '',
+                          columns: list[str] | None = None, filters: list[TrackerFilter] | None = None,
+                          query: str = '', target: float | None = None, unit: str = '',
+                          period: Literal['day', 'month', 'year'] = 'day', limit: int = 100) -> str:
+        """Display a compact, interactive business-data view from a verified database query.
+
+        Available in normal and enhanced chat. Choose real visible fields; inspect
+        tracker_preview first only when the schema is unknown. Values are computed
+        from complete matching data, not from a sample copied into model context.
+        - progress: one aggregate measure versus an explicit positive target. Never
+          invent a target; use a user-provided or verified business target. A value
+          above target remains above target in its label. Optional unit is displayed.
+        - sparkline: one aggregate over the actual business-date x_field, grouped by
+          day/month/year. Missing data remains missing; do not substitute updated_at.
+        - heatmap: aggregate by actual x_field and y_field; at most 32 categories per
+          axis. For hour/day views use real preexisting hour/day fields.
+        - pareto: count or sum by categorical x_field; descending bars and cumulative
+          percentage from the full nonnegative result, at most 50 categories.
+        - timeline: real label_field, start_field and end_field; optional group_field;
+          ISO dates/times only, at most 100 matching tasks. Never invent schedule dates.
+        - table: selected columns (up to12), optional filters, bounded limit1..500.
+          Sort, search and paginate loaded rows in the card; a truncated table clearly
+          shows loaded versus matching totals. Do not call it the full dataset.
+        Use operation=count/sum/avg/min/max with measure for non-count aggregates.
+        query/filters have the same semantics as tracker_lookup and honor hidden fields.
+        Titles describe the business question; no KB/source subtitle is added.
+        The interface automatically renders the selected view; no Python, HTML or
+        invented image URL is needed. Retain the assigned [N] source in the answer.
+        """
+        from .tracker_visualizations import agent_visualization
+        if not kb_slug:
+            return tracker_query.error('Please select a knowledge base before creating a visualization.')
+        params = dict(kind=kind, title=title, operation=operation, measure=measure,
+                      x_field=x_field, y_field=y_field, label_field=label_field,
+                      start_field=start_field, end_field=end_field, group_field=group_field,
+                      columns=columns, filters=filters, query=query, target=target,
+                      unit=unit, period=period, limit=limit)
+        try:
+            text = agent_visualization(actor, _dept_allowed, tracker_query, kb_slug, params)
+        except (TypeError, ValueError, OverflowError) as exc:
+            return tracker_query.error(exc)
+        _tracker_citations()
+        return text
+
     def tracker_lookup(query: str = "", kb_slug: str = "", columns: list[str] | None = None,
                        filters: list[TrackerFilter] | None = None, order_by: list[TrackerOrder] | None = None,
                        metrics: list[TrackerMetric] | None = None, group_by: list[TrackerGroup] | None = None,
-                       limit: int = 20, offset: int = 0, status: str = "done", cell_chars: int = 800) -> str:
+                       limit: int = 20, offset: int = 0, status: str = "done", cell_chars: int = 800,
+                       presentation: Literal['auto', 'text'] = 'auto', card_title: str = '', unit: str = '',
+                       card_field: str = '', card_row_id: int | None = None) -> str:
         """在数据库查询追踪表；字段已知时直接查询，不清楚结构才用 tracker_preview。明确指定库，默认已完成记录。
 
         query: 文档名、来源ID或已配置字段值中的关键词；筛选覆盖全部历史，不限最近200条。
@@ -1114,11 +1282,50 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         limit/offset: 每页1至100条，依据next_offset翻页；has_more表示还有记录/分组。
         status: 默认done，可显式选择proposed/pending/running/failed/all；待确认值不当作已批准事实。
         cell_chars: 单元格最多80至8000字符，默认800；长文本应按$row_id精确过滤并只选一列，再提高本值。
-        返回JSON；单元格truncated表示省略，需缩小columns/过滤或用metrics，不把省略文本当完整数据。
+        presentation=auto会把明确的数值答案自动显示为卡片；名称、对象和日期等上下文列可以一起查询。
+            card_field指定本次问题关注的已返回字段或metrics别名，card_row_id指定实际返回的row_id。
+            明确选中的值也可为营业时间、状态等简短原文，或本身包含单位的原始值；文本已有单位时不要重复附加unit。
+            已知用户关注的字段时在查询中明确设置card_field；需要先检查多个可能答案时，可暂用presentation=text检索，再用tracker_show_value选择相关值。
+            可先获取多列、多条候选，匹配用户对象/日期后用tracker_show_value选择所需字段和记录生成卡片，无需重新查成单列。
+            查询最新值时按真实业务时间order_by排序且limit=1，或根据已返回的业务日期选定对应row_id；不要用总和替代当前值。
+            card_title用简短业务标题，unit仅用资料中已知单位。卡片在回答顶部，只显示标题和值（含单位）。
+            简单问题的精确答案已由卡片显示时，最终仅输出真实[N]引用，不重复数值、不补洞察或免责声明。
+            用户明确要求纯文字时传presentation=text；需解释、比较或分析时按用户需要补充，不能凭样例推断。
+        返回JSON和可供tracker_show_value复用的result_id；单元格truncated表示省略，需缩小columns/过滤或用metrics，不把省略文本当完整数据。
         """
         if not kb_slug:return '请明确提供本次选择的 kb_slug；需要选库时调用 list_knowledge_bases。'
         text = tracker_query.call('lookup', kb_slug=kb_slug, query=query, columns=columns,
-            filters=filters, order_by=order_by, metrics=metrics, group_by=group_by, limit=limit, offset=offset, status=status, cell_chars=cell_chars)
+            filters=filters, order_by=order_by, metrics=metrics, group_by=group_by, limit=limit, offset=offset,
+            status=status, cell_chars=cell_chars, presentation=presentation, card_title=card_title, unit=unit,
+            card_field=card_field, card_row_id=card_row_id, presentation_version=2)
+        _tracker_citations()
+        return text
+
+    def tracker_show_value(field: str, row_id: int | None = None, title: str = '', unit: str = '',
+                           result_id: str = '', group: dict | None = None) -> str:
+        """Display the relevant verified value from an already retrieved tracker result.
+
+        Retrieve the columns needed to identify the requested object, business date
+        and measures with tracker_lookup, then choose the value that answers the
+        user's question. Context columns and other candidate rows can stay in the
+        source result; a one-column query is not required. This tool accepts no
+        model-authored value: field must be a returned value column or metric
+        alias. Numeric values and exact short source text, such as opening hours,
+        status or a value with its original unit, can be selected. Keep that text
+        intact, and do not add a duplicate unit already present in the value.
+        For raw rows, use the actual returned row_id when choosing among records.
+        For a grouped metric, supply its exact returned by-values in group.
+        result_id identifies the lookup result; omit it to use the latest lookup.
+        title is a short business label, and unit must come from verified data.
+        A broad lookup followed by this tool completes the visualization in the
+        same response; do not ask the user to request a card again. Multiple
+        independent requested values may use separate calls. For comparisons,
+        trends or detailed lists, choose tracker_analyze or tracker_visualize.
+        The card appears above the answer with its assigned [N] citation. For a
+        simple exact answer, return only that citation after displaying the card.
+        """
+        text = tracker_query.show_value(field=field, row_id=row_id, title=title, unit=unit,
+                                        result_id=result_id, group=group)
         _tracker_citations()
         return text
 
@@ -1140,6 +1347,14 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         参数:
             code: 完整可运行的 Python 代码字符串。
             filename: 若代码生成文件，使用的文件名（默认 analysis.xlsx）。
+        Standard matplotlib line, bar, pie, doughnut, scatter and mixed bar/line
+        figures are also captured as interactive chat charts from the actual plotted
+        data. Keep PNG output for downloads and unsupported figure types. Do not emit
+        JavaScript, HTML scripts or fabricated chart data.
+        For a single highlighted metric, call engenie_metric(title, value, unit='',
+        subtitle='') with the actual computed scalar. This creates a title/value card
+        directly in the chat. For example, engenie_metric('Total Requests', len(df)).
+        Use several calls for separate KPIs; do not use a chart with one point instead.
         """
         import os as _os
 
@@ -1200,9 +1415,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         target = KnowledgeBase.objects.filter(slug=kb_slug).first()
         if target is None or not _dept_allowed(target):
             return '知识库不存在，请用list_knowledge_bases查看可选项。'
+        structured = _structured_target(target)
+        if structured is not None:
+            return _structured_notice(structured)
         scopes = [target.slug] if not target.is_folder else target.child_doc_slugs()
-        docs = [doc for doc in Document.objects.select_related('kb').filter(kb__slug__in=scopes,
-            original_name=source,status='completed') if _dept_allowed(doc.kb)]
+        docs = [doc for doc in Document.objects.select_related('kb__parent').filter(kb__slug__in=scopes,
+            original_name=source,status='completed') if _document_allowed(doc.kb)]
         if len(docs)!=1:
             return '来源文档不存在或不唯一，请用准确的文档库kb_slug限定范围。'
         doc = docs[0]; rows = get_chunks(doc.kb.slug,doc.original_name)
@@ -1248,23 +1466,88 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         '统计、趋势、比较优先用metrics或tracker_analyze，不逐页拉明细到上下文自己计算；'
         '需要明细时只选必要columns，先取5至20条，不因has_more就自动遍历全表。'
         '仅当用户需要更多具体明细、当前结果不足且输出预算允许时继续精确查询。'
-        '业务工具每次最多返回10000字符，本轮共用20000字符；预算不足直接基于已有材料回答或询问范围，'
-        '不要重复调用同一查询。大量完整结果通过导出文件交付，只把摘要和下载链接留在会话中。'
+        '业务查询每次最多返回10000字符，本轮查询输出共用20000字符；不要重复调用同一查询。'
+        '达到查询输出预算后，已有结果仍可用tracker_show_value的独立呈现额度选卡，无需再次检索或复制整批数据；'
+        '不能因为原始查询输出预算用完就省略所需卡片或退回纯文字。只有现有资料确实不足以判断业务答案时才说明缺失或询问范围。'
+        '大量完整结果通过导出文件交付，只把摘要和下载链接留在会话中。'
         '\n追踪表汇总/周期比较及Excel、图表优先使用 tracker_analyze：直接查询完整数据库，'
         'output=excel/plot/both 返回真正生成的文件链接，普通与增强模式都支持。'
         '按已有真实字段选择分组、数值字段、时间范围和对象；mode=options可识别数值字段/查对象值。'
         '不要把tracker_preview/lookup/analyze的有限预览复制成声称完整的文件。'
         'tracker_analyze支持query/filters和更新日期范围；多指标/多维度分析用tracker_lookup。'
-        '拿到files后在最终回答给出其原样URL的Markdown下载链接；不要编造路径，也不要改为request_verified_export。'
+        '用户要求下载或导出时，在最终回答给出files中原样URL的Markdown下载链接；不要编造路径，也不要改为request_verified_export。'
+        '仅为回答问题自动显示内联可视化时，不必另写下载说明或重复来源清单。'
         '只有需要这些工具不支持的自由分析时，普通模式才用write_analysis/check_analysis。'
     )
+    system_prompt += (
+        '\n主动选择有用的可视化：用户问具体业务数据、统计、对比、变化或趋势时，'
+        '优先用现有可视化工具直接回答，不要求用户再说“画图”或确认一次。'
+        '简单或随口的精确数值问题（如“现在多少度”“这个项目要等多久”“一共多少”）也默认用单值卡片，'
+        '不能因为问题简单、口语化或没有要求画图而只给文字。卡片显示在回答最上方。'
+        '营业时间、状态或带单位的原始值等精确简短答案，也可明确选择对应字段用卡片展示，保持原文及含义。'
+        '简单查询已有精确答案时，卡片和真实引用就是完整回答：最终仅输出分配的[N]引用，'
+        '不要加开场白、重复数值、解释、洞察、建议、免责声明或泛泛的“以现场为准”等附言。'
+        '用户要求原因、解读、对比或有必须澄清的歧义时才补必要说明；没有可靠答案时明确说明不足。'
+        '复杂问题按需要配1至2个紧凑卡片或图表，并在相关结论旁保留真实[N]来源标注。'
+        '检索和呈现分开考虑：tracker_lookup可以同时查询名称、对象、业务日期和多个数值字段，先匹配用户请求再选择要显示的答案。'
+        '名称、日期或其它上下文列不能成为不显示卡片的理由，也不必为了卡片把检索压成一列。'
+        '已知用户关注的目标字段时，在tracker_lookup中设置card_field，已知所需记录时用card_row_id；默认presentation=auto会把明确的单值答案自动呈现。'
+        '探索查询中有多个可能答案、需要先看上下文再决定时，可用presentation=text取数，再用tracker_show_value选出相关答案；这不要求单列查询。'
+        '用户明确只要文字时遵从其偏好，不调用选卡工具；探索阶段暂不自动出卡不代表用户要求纯文字。'
+        '首次查询返回普通行集或多个指标时，在同一次回答结束前调用tracker_show_value，给已返回的result_id、实际field和需要的row_id，'
+        '从已取回结果中选出与问题对应的数值或简短原文；分组指标用实际指标别名及返回的by值作为group。无需重新查询或等待用户要求画卡片。'
+        '根据名称、业务日期、状态等上下文判断哪个结果符合需求；不能任取首行，也不能把一页样例汇总成全量统计。'
+        '用户需要几个独立指标就按需分别选卡；对比、趋势或清单使用相应图表或表格。'
+        '只有对象、时间或业务口径确有歧义且现有数据不足以判断时才澄清。可视化字段选择和工具调用由你完成，'
+        '不要以查询返回了几列、自动卡片未触发等内部展示规则作为拒绝，也不要让用户再次要求可视化。'
+        '查询当前值或最新值时保留真实业务日期依据，可在查询中按该字段排序且limit=1，或从结果中选择对应row_id，给简短标题及已知unit。'
+        '简单问题的数值来自文档原文时，读取并用kb_select_evidence选定后调用kb_show_value，'
+        '给实际candidate_id、简短title、原文value和unit及原样quote；不要为了卡片生成Python脚本。'
+        '卡片必须保留用户指定对象、口径与必要条件，不拿另一对象或另一个日期的精确数值冒充答案。'
+        '只问一个业务总数、合计、平均值、最小值或最大值时，使用'
+        'tracker_analyze(mode="summary", group="", operation=实际运算, output="plot", chart_type="metric")；'
+        '除count外提供实际measure字段。卡片只显示清楚的业务标题和数值（可带单位），'
+        '不添加额外的记录/样本数说明、知识库名称、来源标签或重复说明。'
+        '按部门、设备或类别对比时用summary加实际group字段和bar；'
+        '按时间看变化时，在时间口径正确的前提下用trend和line，按用户需要选择period/span及对象。'
+        '份额或构成问题仅在一个非负count/sum系列且总量为正时选pie/doughnut；'
+        '需要组合视图且有至少两个兼容的真实趋势系列时才选combo，不为了装饰使用饼图或组合图。'
+        'tracker_analyze默认output="auto"会把无分组summary显示为值卡片；其它图表明确传output="plot"。'
+        '只有用户同时需要Excel时才用output="both"，不要为了显示卡片附送不需要的导出说明。'
+        '已有上下文足够时复用真实字段与查询条件；仅在结构未知时调用tracker_preview，'
+        '不为画图额外读取整表、隐藏字段或超过需要的明细。统计和绘图基于同一个完整、权限校验后的查询。'
+        'trend按记录更新时间分桶，不能把它冒充用户指定的业务发生日期；业务日期趋势必须按真实业务日期字段计算。'
+        '现有工具无法准确呈现要求的日期轴或比较时，普通模式可在取得完整且有界的真实汇总结果后用Python工具；'
+        '增强模式保持现有工具限制，改用准确的表格并简短说明限制，不生成不实图表。'
+        '用户明确要纯文字、只要表格或不需要图时遵从。普通聊天、解释性追问或没有可靠数据时直接文字回答；'
+        '不要重复已显示且无需更新的图表，不把每次回答扩充成仪表盘。'
+    )
+    system_prompt += (
+        '\n更多可视化使用tracker_visualize（普通与增强模式均可）：'
+        '完成率/预算/目标对比用progress，target必须来自用户或已核对的业务目标；'
+        '简短日期趋势用sparkline并给实际业务日期x_field；'
+        '二维集中度用heatmap并给真实x_field/y_field；'
+        '主要原因贡献用pareto（按原因x_field的非负count/sum）；'
+        '排期/维护时长用timeline（真实label_field/start_field/end_field，可加group_field）；'
+        '需要查阅、搜索、排序具体记录时用table并只选择必要columns。'
+        '有界表格只在已加载行内搜索/排序，必须保留已加载/匹配总数说明。'
+        '没有真实目标、两个分组维度或起止时间时不要编造；改用已有数据可支持的视图或简短询问缺失条件。'
+        '这些视图自动内联显示，无需write_analysis或生成HTML；原有单KPI、折线、柱状、饼图仍用tracker_analyze。'
+    )
+    from .citation_numbers import CitationGuide
+    from .models import KnowledgeBase
+    citation_names = {kb.slug: kb.name for kb in KnowledgeBase.objects.select_related('parent').filter(**_dept_filter)
+                      if _dept_allowed(kb)}
+    citation_guide = CitationGuide(cite_sink, citation_names)
+    if retrieval_state is not None:
+        retrieval_state['citation_guide'] = citation_guide
     return create_agent(
-        middleware=[RetrievalBudget(max_rounds=7,selection=rag_selection)],
+        middleware=[citation_guide, RetrievalBudget(max_rounds=7,selection=rag_selection)],
         model=_get_llm(llm_cfg),
-        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, request_verified_export]
+        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_show_value, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_show_value, tracker_analyze, tracker_visualize, request_verified_export]
                if llm_cfg.get("qa_enhance") else
-               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, write_analysis, check_analysis, request_verified_export]),
-        system_prompt=system_prompt + ("\n增强模式：可直接复用会话中已有的原文、工具结果或已核对的图谱事实，不要求每轮重新检索。历史回答可帮助理解，但核实时使用保存的原文依据。展示有出处的文本或 Markdown 表格。台账Excel和图表使用tracker_analyze返回真实下载链接；来源数据在发布前复核。其它已核对Markdown表格可调用request_verified_export生成CSV。此模式不执行自由生成脚本。" if llm_cfg.get("qa_enhance") else ""),
+               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_show_value, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_show_value, tracker_analyze, tracker_visualize, write_analysis, check_analysis, request_verified_export]),
+        system_prompt=system_prompt + ("\n增强模式：可直接复用会话中已有的原文、工具结果或已核对的图谱事实，不要求每轮重新检索。历史回答可帮助理解，但核实时使用保存的原文依据。精确单值问题仅显示卡片与引用；其它问题按需展示有出处的文本或 Markdown 表格。台账Excel和图表使用tracker_analyze返回真实下载链接；来源数据在发布前复核。其它已核对Markdown表格可调用request_verified_export生成CSV。此模式不执行自由生成脚本。" if llm_cfg.get("qa_enhance") else ""),
         checkpointer=checkpointer,
         name="engenie",
     )
@@ -1291,12 +1574,19 @@ async def run_agent_stream(
         # never resumed, while successful tool results keep their original order.
         checkpointer = None
         context = (config or {}).get('conversation_context') or {}
+        from .history import field_visibility_scope, field_visibility_current
+        field_scope = await sync_to_async(field_visibility_scope)((config or {}).get('user_id'))
+        history_allowed = not context or field_visibility_current(context, None, scope=field_scope)
+        if not history_allowed:
+            context = {}
         from copy import deepcopy
         from langchain_core.messages import AIMessage, HumanMessage, convert_to_messages, messages_from_dict, messages_to_dict
         history_messages = (messages_from_dict(context['messages']) if context.get('messages')
-                            else convert_to_messages((config or {}).get('published_history', [])))
+                            else convert_to_messages((config or {}).get('published_history', []) if history_allowed else []))
         from .history import remove_legacy_kb_defaults
         history_messages=remove_legacy_kb_defaults(history_messages)
+        if not cfg.get('vision'):
+            history_messages = _text_only_tool_history(history_messages)
         from .manual_overview import is_manual_overview
         overview_target=(config or {}).get('overview_kb_slug') or kb_slug
         overview = bool(overview_target) and is_manual_overview(message) and not history_messages
@@ -1307,6 +1597,11 @@ async def run_agent_stream(
         # 本轮检索证据累积器（带页码的命中片段；答案核实步对照用）
         evidence: list[dict] = deepcopy(context.get('evidence', []))
         retrieval_state: dict = {}
+        from .citation_numbers import annotate_citations, citation_marker_issues, numbered_evidence
+        def public_citations():
+            guide = retrieval_state.get('citation_guide')
+            return list(annotate_citations(citations,
+                registry=guide.registry if guide else None, kb_names=guide.kb_names if guide else None))
         # 本轮 token 用量累计（每次 LLM 调用的 usage_metadata 相加）
         usage_in = 0
         usage_out = 0
@@ -1317,10 +1612,10 @@ async def run_agent_stream(
         # ---- 管线增强 · 问题规划（query_plan）----
         # 改写/拆解问题注入 agent 输入；闲聊或规划失败 → 跳过，不影响主流程
         agent_input = message
-        if enhance and not overview and not history_messages:
+        if enhance and not overview and not history_messages and not (config or {}).get('attachment_ids'):
             yield SSE_STEP, {"stage": "query_plan", "status": "start"}
             from .qa_steps import plan_query
-            plan_text, p_usage = await plan_query(cfg, message, history=(config or {}).get("published_history", []))
+            plan_text, p_usage = await plan_query(cfg, message, history=(config or {}).get("published_history", []) if history_allowed else [])
             usage_in += p_usage["input_tokens"]
             usage_out += p_usage["output_tokens"]
             max_in = max(max_in, p_usage["input_tokens"])
@@ -1334,7 +1629,6 @@ async def run_agent_stream(
                 yield SSE_STEP, {"stage": "query_plan", "status": "skip",
                                  "detail": "无需规划（闲聊）或规划不可用"}
 
-        from asgiref.sync import sync_to_async
         agent = await sync_to_async(_build_agent)(overview_target if overview else "", thread_id, cfg, top_k, checkpointer,
                              citations=citations, department=department,
                              evidence=evidence, allowed_kb_slugs=(config or {}).get("allowed_kb_slugs"),
@@ -1346,7 +1640,22 @@ async def run_agent_stream(
             # Keep overview material in its original turn, rather than changing
             # the system prefix or prefetching it again on every follow-up.
             agent_input += '\n\n' + retrieval_state['input_context']
-        input_messages = history_messages + [HumanMessage(content=agent_input)]
+        attachment_ids = (config or {}).get('attachment_ids') or []
+        current_message = HumanMessage(content=agent_input, additional_kwargs=(
+            {'chat_attachment_ids': attachment_ids} if attachment_ids else {}))
+        from .chat_attachments import hydrate_messages, evidence_for_attachments, compact_messages
+        input_messages = await sync_to_async(hydrate_messages)(
+            history_messages + [current_message], user_id=(config or {}).get('user_id'),
+            conversation_id=(config or {}).get('conversation_id'), vision=bool(cfg.get('vision')))
+        all_attachment_ids = list(dict.fromkeys(
+            str(identity) for item in input_messages if isinstance(item, HumanMessage)
+            for identity in item.additional_kwargs.get('chat_attachment_ids', [])))
+        if all_attachment_ids:
+            snapshots = await sync_to_async(evidence_for_attachments)(
+                all_attachment_ids, user_id=(config or {}).get('user_id'),
+                conversation_id=(config or {}).get('conversation_id'))
+            known = {item.get('attachment_id') for item in evidence if item.get('kind') == 'chat_attachment'}
+            evidence.extend(item for item in snapshots if item['attachment_id'] not in known)
         completed_messages = None
         # recursion_limit 是顶层 key（不在 configurable 内）。
         # 每次工具调用 ≈ 2 个节点（agent + tool）。取完整表格时可能用到
@@ -1397,7 +1706,7 @@ async def run_agent_stream(
                         pending_reasoning.append(content)
                         selection_pending = retrieval_state.get('used') and not retrieval_state.get('finalized')
                         if not enhance and not selection_pending and len(pending_reasoning)==1:
-                            image_evidence=[item for item in evidence if item.get('kind')=='image']
+                            image_evidence=[item for item in evidence if item.get('kind') in ('image', 'chat_attachment')]
                             if image_evidence:
                                 from .publication import validate_sources
                                 if not await sync_to_async(validate_sources)(image_evidence,(config or {}).get('user_id')):
@@ -1408,7 +1717,7 @@ async def run_agent_stream(
                         if not enhance and not selection_pending and len(pending_reasoning) == 1 and citations:
                             # Publish source identity with visible text so an interrupted
                             # answer keeps its access checks when reopened.
-                            yield SSE_CITATIONS, {"citations": list(citations),"replace":True}
+                            yield SSE_CITATIONS, {"citations": public_citations(),"replace":True}
                         if not enhance and not selection_pending:
                             full_text.append(content)
                         if not answer_step_on:
@@ -1500,8 +1809,8 @@ async def run_agent_stream(
 
             elif etype == "on_tool_end":
                 output = data.get("output")
-                if name in ('kb_read_chunks','kb_select_evidence'):
-                    yield SSE_CITATIONS, {'citations':list(citations),'replace':True}
+                if name in ('kb_read_chunks','kb_select_evidence','kb_show_value','tracker_show_value'):
+                    yield SSE_CITATIONS, {'citations':public_citations(),'replace':True}
                 # write_analysis 结束 → 发出 code_run，前端在 Pyodide 沙箱执行
                 if name == "write_analysis" and run_id in pending_code:
                     pc = pending_code.pop(run_id)
@@ -1522,7 +1831,7 @@ async def run_agent_stream(
                 }
 
         if retrieval_state.get('used') and not retrieval_state.get('finalized'):
-            yield SSE_CITATIONS, {'citations':list(citations),'replace':True}
+            yield SSE_CITATIONS, {'citations':public_citations(),'replace':True}
             yield SSE_ERROR, {'message':'尚未选择已读原文依据，未发布回答；候选预览不能代替原文。',
                              'code':'evidence_not_selected'}
             return
@@ -1535,14 +1844,20 @@ async def run_agent_stream(
         if enhance:
             from .qa_steps import verify_answer
             from .publication import validate_sources
-            from asgiref.sync import sync_to_async
             answer_text = "".join(t for t in full_text if isinstance(t, str)).strip()
+            public_citations()
+            marker_issues = citation_marker_issues(answer_text, citations)
+            verifier_evidence = numbered_evidence(evidence, citations)
             AnswerText().feed(answer_text, final=True)
             yield SSE_STEP, {"stage": "answer_verification", "status": "start"}
             verdict = None
             source_ok = await sync_to_async(validate_sources)(evidence, (config or {}).get("user_id"))
-            if final_complete and source_ok and answer_text:
-                verdict, v_usage = await verify_answer(cfg, message, answer_text, evidence)
+            if final_complete and source_ok and answer_text and not marker_issues:
+                if any(item.get('kind') == 'chat_attachment' for item in evidence):
+                    verdict, v_usage = await verify_answer(cfg, message, answer_text, verifier_evidence,
+                                                         user_id=(config or {}).get('user_id'))
+                else:
+                    verdict, v_usage = await verify_answer(cfg, message, answer_text, verifier_evidence)
                 usage_in += v_usage["input_tokens"]
                 usage_out += v_usage["output_tokens"]
                 max_in = max(max_in, v_usage["input_tokens"])
@@ -1591,13 +1906,13 @@ async def run_agent_stream(
                 transcript[-1] = transcript[-1].model_copy(update={'content': published_answer})
             session = retrieval_state.get('session')
             config['next_context'] = {
-                'version': 1, 'messages': messages_to_dict(transcript),
+                'version': 1, 'messages': messages_to_dict(compact_messages(transcript)),
                 'rag': session.snapshot() if session else context.get('rag', {}),
-                'evidence': evidence, 'citations': citations,
+                'evidence': evidence, 'citations': citations, 'field_visibility': field_scope,
             }
 
         # 流结束：发出本轮来源出处（前端据此渲染可点击的文档链接）
-        yield SSE_CITATIONS, {"citations": list(citations),"replace":True}
+        yield SSE_CITATIONS, {"citations": public_citations(),"replace":True}
 
         # 流结束：发出本轮 token 用量统计（累计 + 单次最大，后者用于估测模型上下文窗口）
         yield SSE_USAGE, {
@@ -1635,6 +1950,8 @@ def _reason_from_tool_calls(tool_calls: list) -> str:
             parts.append('正在读取所选文档的原文片段。')
         elif name == 'kb_select_evidence':
             parts.append('正在确认本次回答实际采用的原文依据。')
+        elif name in ('kb_show_value', 'tracker_show_value'):
+            parts.append('正在展示答案卡片。')
         elif name == "kb_fetch_doc":
             c = args.get("contains") or args.get("section") or ""
             parts.append(f"我从文档中提取完整的相关片段{('（'+c+'）') if c else ''}。")
@@ -1652,10 +1969,13 @@ def _tool_label(name: str) -> str:
         "kb_read_chunks": "读取所选原文片段…",
         "kb_relationships": "查看知识库关联…",
         "kb_select_evidence": "确认最终引用依据…",
+        "kb_show_value": "展示答案卡片…",
         "kb_graph_search": "查询已核对的图谱关系…",
         "tracker_preview": "查看追踪表字段与样例…",
         "tracker_lookup": "筛选或统计追踪表…",
+        "tracker_show_value": "展示答案卡片…",
         "tracker_analyze": "分析台账并生成报告…",
+        "tracker_visualize": "创建交互式数据视图…",
         "kb_fetch_doc": "提取文档片段…",
         "write_analysis": "生成分析脚本…",
     }.get(name, f"调用工具 {name}…")

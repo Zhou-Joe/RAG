@@ -24,7 +24,7 @@ from fos_rag.interface_language import normalize_response_language
 from .feed_reports import delivery_context
 from .connector_agent import MAX_CALLS, MAX_TOOLS, MAX_SECONDS, authorize, recover_stale
 from .connector_tools import check_spec, redact
-from .feed_credentials import api_origin, bindings, discard_if_unused, parse_auth, request_headers, secret_values, store, summary
+from .feed_credentials import api_origin, authentication_headers, bindings, credential_urls, discard_if_unused, export_profiles, normalize_auth, request_headers, secret_values, store, summary
 from .feed_http import validate_headers
 from .feed_protocol import validate_url, MAX_ITEMS, MAX_BYTES
 from .feed_views import _managed
@@ -91,17 +91,19 @@ def _credentials(request,data,url):
     """录入新凭据或复用用户自己草稿中的已保存引用。"""
     auth=data.get('authentication',{'type':'none'})
     if not isinstance(auth,dict):raise ValueError('认证配置格式无效。')
+    auth=normalize_auth(auth)
     if auth.get('type')=='saved':
         previous=_job(request,data.get('credential_job'))
         if previous.credential_id:
-            if api_origin(url)!=previous.credential.api_origin:raise ValueError('API 主机已改变，请重新填写该主机的凭据。')
+            if api_origin(url) not in {previous.credential.api_origin,*(api_origin(target) for target in credential_urls(previous))}:raise ValueError('API 主机已改变，请重新填写该主机的凭据。')
             return previous.credential,bindings(previous.credential)
         if previous.header_env:
             if api_origin(url)!=api_origin(previous.api_url):raise ValueError('API 主机已改变，请重新填写凭据。')
             return None,previous.header_env
         raise ValueError('没有可复用的凭据，请重新填写。')
     if auth.get('type','none')!='none':
-        credential=store(request.user,url,auth)
+        previous=_job(request,data['credential_job']).credential if data.get('credential_job') else None
+        credential=store(request.user,url,auth,previous=previous)
         return credential,bindings(credential)
     headers=validate_headers(data.get('header_env',{}))
     if headers and not access.is_global_admin(request.user):raise ValueError('环境变量认证仅供全局管理员配置，请直接使用页面认证表单。')
@@ -304,6 +306,7 @@ def credentials(request,job_id):
             url=data.get('api_url') or job.api_url
             validate_url(url)
             if job.spec and api_origin(url)!=api_origin(job.spec['url']):raise ValueError('API 主机已改变，请重新生成连接器。')
+            data.setdefault('credential_job',str(job.pk))
             credential,headers=_credentials(request,data,url)
             old_id=job.credential_id
             job.api_url=url;job.credential=credential;job.header_env=headers
@@ -331,7 +334,9 @@ def test_auth(request):
         if not isinstance(private,bool):raise ValueError('内网开关格式无效。')
         auth=data.get('authentication',{'type':'none'})
         if isinstance(auth,dict) and auth.get('type')=='saved':headers=request_headers(_job(request,data.get('credential_job')),url)
-        else:_,headers,_=parse_auth(auth)
+        else:
+            previous=_job(request,data['credential_job']).credential if data.get('credential_job') else None
+            headers=authentication_headers(auth,url,previous=previous)
         status_code,headers_out,_=read_url(url,allow_private=private,headers=headers)
         content_type=headers_out.get('content-type','').lower()
         good=status_code==200 and ('json' in content_type or 'html' in content_type)
@@ -372,26 +377,32 @@ def refine(request,job_id):
     except (ValueError,TypeError,AttributeError) as exc:return JsonResponse({'ok':False,'error':str(exc)},status=400)
 
 
-def package(spec: dict) -> bytes:
+def package(spec: dict, resource=None) -> bytes:
     """只打包可信运行时和校验后的配置；无用户文件、密钥或任意生成代码。"""
     data = io.BytesIO()
     source = 'from __future__ import annotations\nimport json\nfrom connector_runtime import main\nSPEC = json.loads('+repr(json.dumps(spec,ensure_ascii=False))+')\nif __name__ == "__main__":\n    main(SPEC)\n'
-    environment = '\n'.join(name+'=' for name in sorted(set(spec.get('header_env',{}).values())))
+    profiles=export_profiles(resource) if resource is not None else []
+    variables=({name for profile in profiles for key in ('header_env','login_env') for name in profile[key].values()}
+               if profiles else set(spec.get('header_env',{}).values()))
+    environment = '\n'.join(name+'=' for name in sorted(variables))
     browser=spec.get('source_type')=='browser'
     with zipfile.ZipFile(data,'w',compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('connector.py',source)
         archive.writestr('connector.json',json.dumps(spec,ensure_ascii=False,indent=2))
         archive.write(Path(settings.BASE_DIR)/'kb/connector_runtime.py','connector_runtime.py')
         archive.write(Path(settings.BASE_DIR)/'kb/connector_calculations.py','connector_calculations.py')
+        archive.write(Path(settings.BASE_DIR)/'kb/credential_routing.py','credential_routing.py')
+        if profiles:archive.writestr('connector_credentials.json',json.dumps(profiles,ensure_ascii=False,indent=2))
         archive.write(Path(settings.BASE_DIR)/'scripts/connectors/feed_client.py','feed_client.py')
         if browser:
             archive.write(Path(settings.BASE_DIR)/'kb/browser_runtime.py','browser_runtime.py')
             archive.write(Path(settings.BASE_DIR)/'kb/browser_dom.py','browser_dom.py')
         archive.writestr('requirements.txt','playwright==1.58.0\nhttpx==0.28.1\n' if browser else '# Python 3.10+ standard library only. No pip packages required.\n')
-        archive.writestr('.env.example',environment+'\nFOS_FEED_INGEST_URL=\nFOS_FEED_PUSH_TOKEN=\n'+('FOS_FEED_LOGIN_USERNAME=\nFOS_FEED_LOGIN_PASSWORD=\n' if browser else ''))
+        archive.writestr('.env.example',environment+'\nFOS_FEED_INGEST_URL=\nFOS_FEED_PUSH_TOKEN=\n'+('FOS_FEED_LOGIN_USERNAME=\nFOS_FEED_LOGIN_PASSWORD=\n' if browser and not profiles else ''))
         archive.writestr('README.md',f'''# {spec['name']}
 
 Python 3.10+。{'网页脚本需安装 requirements.txt 和 Chromium：python -m pip install -r requirements.txt；python -m playwright install chromium。Windows 默认复用现有 Edge。' if browser else 'API脚本无需额外依赖。'}环境变量由运行环境设置；脚本不自动读取 .env。
+{'多组凭据的服务地址及环境变量引用见 connector_credentials.json；各组仅用于对应服务，不包含已保存的凭据值。网页登录可用 credential="名称.username" 或 "名称.password"。' if profiles else ''}
 预览：`python connector.py --preview`
 
 独立 cron 接入：先在自动更新知识库中新建「外部脚本推送」数据源并生成令牌，
@@ -416,4 +427,4 @@ def download(request,job_id):
     job = _job(request,job_id)
     if job.status not in ('ready','enabled'): return JsonResponse({'ok':False,'error':'请先完成连接器校验。'},status=400)
     spec = check_spec(job,job.spec)
-    return FileResponse(io.BytesIO(package(spec)),as_attachment=True,filename='fos-api-connector.zip',content_type='application/zip')
+    return FileResponse(io.BytesIO(package(spec,job)),as_attachment=True,filename='fos-api-connector.zip',content_type='application/zip')

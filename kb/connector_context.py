@@ -11,10 +11,11 @@ from fos_rag.ai_clock import clock_context
 
 def conversation_context(job):
     """保留多轮修改及问题/回答，最近的非空方案不被一轮追问清空。"""
-    history=[];candidate=job.parent if job.parent_id else None;seen=set();spec={};preview={};report={}
+    history=[];candidate=job.parent if job.parent_id else None;seen=set();spec={};preview={};report={};report_approved=False
     while candidate and candidate.pk not in seen and len(history)<100:
         seen.add(candidate.pk)
-        if not report and candidate.spec.get('kind')=='report':report=candidate.spec
+        if not report and candidate.spec.get('kind')=='report':
+            report=candidate.spec;report_approved=candidate.status=='enabled'
         if not spec and candidate.spec and candidate.spec.get('kind')!='report':spec=candidate.spec;preview=candidate.preview
         history.append({'user':candidate.feedback or candidate.prompt,'assistant_questions':candidate.questions,'assistant_answer':candidate.preview.get('answer','')})
         candidate=candidate.parent
@@ -22,6 +23,10 @@ def conversation_context(job):
     from .feed_names import current_name,named_spec
     feed=source_feed(job,required=False)
     if feed:
+        if not report or report_approved:
+            from .models import FeedReportPlan
+            plan=FeedReportPlan.objects.filter(feed=feed).first()
+            if plan and plan.spec.get('kind')=='report':report=plan.spec
         name=current_name(feed);spec=named_spec(spec,name);report=named_spec(report,name)
     return {'conversation':list(reversed(history)),'previous_connector':spec,'previous_report':report,'previous_examples':preview,'review_feedback':job.feedback,'report_delivery':delivery_context(job)}
 
@@ -34,7 +39,7 @@ def normalize_arguments(arguments):
     """兼容本地模型将对象参数二次JSON编码的常见格式，不执行任何代码。"""
     if not isinstance(arguments,dict):return arguments
     result=dict(arguments)
-    for key in ('spec','report','query','fields','computed','record'):
+    for key in ('spec','report','digest','query','fields','computed','record'):
         value=result.get(key)
         if isinstance(value,str) and value.lstrip().startswith('{'):
             try:parsed=json.loads(value)

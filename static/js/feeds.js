@@ -64,6 +64,7 @@
   form.reset();error.textContent='';form.elements.id.value=feed?.id||'';
   auth.load(feed?.authentication);
   for(const kind of ['email','teams']){const saved=feed?.workflow_settings?.saved_workflow_types?.includes(kind);document.getElementById(kind==='email'?'feedEmailWorkflowStatus':'feedTeamsWorkflowStatus').textContent=saved?'已保存，留空保留；填写新链接可替换。':'尚未配置；需要此发送方式时填写。';}
+  form.elements.html_attachments_supported.checked=feed?.workflow_settings?.html_attachments_supported===true;
   document.getElementById('feedUrlLabel').textContent=feed?.source_type==='browser'?'网页来源地址':'标准数据 API 地址';
   document.getElementById('feedSourceHint').textContent=(feed?.source_type==='browser'?'此来源使用 EnGenie 已试采的网页操作步骤。要调整采集内容，请与 EnGenie 对话并查看新样例。':'API 返回 fos-rag-feed/v1 JSON。网页或其他接口格式可通过 EnGenie 创建自动采集任务。')+(feed?.ingest_mode==='documents'?' 每条采集记录作为文档；入库方式已固定，其他设置仍可修改。':'');
   document.getElementById('feedEditorTitle').textContent=feed?'编辑数据源':'新建自动更新知识库';
@@ -73,6 +74,7 @@
   fields();editor.showModal();form.elements.kb_name.focus();
  }
  form.elements.kb.addEventListener('change',()=>{const option=form.elements.kb.selectedOptions[0];if(option?.value)form.elements.kb_name.value=option.textContent;fields();});form.elements.mode.addEventListener('change',fields);
+ form.elements.email_workflow_url.addEventListener('input',()=>{form.elements.html_attachments_supported.checked=false;});
  filter.addEventListener('change',refresh);
  document.addEventListener('fos:languagechange',()=>{fingerprint='';render();});
  document.addEventListener('click',e=>{const close=e.target.closest('[data-close]');if(close){const dialog=document.getElementById(close.dataset.close);dialog.close();if(dialog.id==='feedToken')document.getElementById('feedTokenValue').value='';}});
@@ -80,6 +82,7 @@
   event.preventDefault();const save=document.getElementById('feedSave');save.disabled=true;error.textContent='';
   try{
    const data=Object.fromEntries(new FormData(form));delete data.csrfmiddlewaretoken;data.action=data.id?'update':'create';delete data.allow_private;
+   data.html_attachments_supported=form.elements.html_attachments_supported.checked;
    data.authentication=auth.read();const result=await post(data);message.textContent=result.message;auth.load(result.feed.authentication);
    if(![...filter.options].some(option=>option.value===result.feed.kb)){const option=node('option',result.feed.kb_name);option.value=result.feed.kb;filter.append(option);form.elements.kb.append(option.cloneNode(true));}
    for(const select of [filter,form.elements.kb])for(const option of select.options)if(option.value===result.feed.kb)option.textContent=result.feed.kb_name;

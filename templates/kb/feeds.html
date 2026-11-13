@@ -4,7 +4,7 @@
 <div id="feedPage" data-state-url="{% url 'kb:feed_state' %}" data-action-url="{% url 'kb:feed_action' %}" data-global="{{ is_global_admin|yesno:'true,false' }}">
   <header class="page-head">
     <div class="page-head-main">
-      <a class="page-back" href="{% url 'kb:manage_list' %}">资料上传中心</a>
+      <a class="page-back" href="{% url 'kb:manage_list' %}">知识库中心</a>
       <h1>自主数据引擎</h1>
       <p class="page-desc">告诉 EnGenie 数据来源和更新时间，先查看采集样例，确认后自动更新到知识库。</p>
     </div>
@@ -38,6 +38,7 @@
     <h3 id="feedWorkflowsTitle">M365 报告发送</h3>
     <p class="fos-sub">仅任务创建者可编辑。链接加密保存，EnGenie 自动使用；报告内容在对话中设置，发送频率也可在任务卡片中调整。</p>
     <div class="field"><label for="feedEmailWorkflow">邮件工作流 URL</label><input id="feedEmailWorkflow" name="email_workflow_url" type="password" maxlength="8000" autocomplete="new-password" spellcheck="false" placeholder="粘贴邮件工作流的 HTTPS 触发地址"><small id="feedEmailWorkflowStatus"></small></div>
+    <div class="field feed-workflow-attachment-setting"><label class="feed-digest-toggle" for="feedHtmlAttachmentsSupported"><input id="feedHtmlAttachmentsSupported" name="html_attachments_supported" type="checkbox"><span>此邮件工作流已映射附件</span></label><small>仅在已将请求中的 attachments 数组映射到邮件操作的附件后勾选；每项 Name 对应附件名称，ContentBytes 对应 Base64 文件内容。格式：attachments: [{Name, ContentBytes}]。原有 Excel 字段仍可保留。</small></div>
     <div class="field"><label for="feedTeamsWorkflow">Teams 工作流 URL</label><input id="feedTeamsWorkflow" name="teams_workflow_url" type="password" maxlength="8000" autocomplete="new-password" spellcheck="false" placeholder="粘贴 Teams 工作流的 HTTPS 触发地址"><small id="feedTeamsWorkflowStatus"></small></div>
     <small>留空保留已保存的链接；两种链接分别保存，不能混用。保存链接不会改变采集或报告的计划及启用状态。</small>
   </section>
@@ -49,6 +50,7 @@
 <dialog class="fos-dialog feed-dialog" id="feedReportEditor"><form id="feedReportForm">
   <h2>调整报告发送频率</h2>
   <p id="feedReportTitle" class="fos-sub" translate="no"></p>
+  <div data-report-schedule-fields>
   <div class="field"><label for="feedReportFrequency">报告频率</label><select id="feedReportFrequency" name="frequency">
     <option value="daily">每天</option><option value="weekly">每周</option><option value="hourly">每隔数小时</option><option value="custom">自定义 Cron</option><option value="manual">仅按需发送</option><option value="after_collection" hidden>采集后发送（原有设置）</option>
   </select></div>
@@ -59,10 +61,24 @@
   <div class="field" data-report-frequency="custom" hidden><label for="feedReportCron">Cron（分 时 日 月 星期）</label><input id="feedReportCron" name="cron" maxlength="100" placeholder="0 9 * * *" required></div>
   <div class="field"><label for="feedReportTimezone">时区</label><input id="feedReportTimezone" name="timezone" value="Asia/Shanghai" maxlength="100" required></div>
   <p class="dialog-hint">仅调整 M365 报告发送，不改变数据采集。已暂停的报告保存后仍保持暂停。</p>
+  <p class="dialog-hint">条件触发报告按此频率检查；只有满足条件时才发送。通过 EnGenie 对话调整条件。</p>
+  </div>
+  <section class="feed-digest-editor" aria-label="EnGenie Digest">
+    <label class="feed-digest-toggle" for="feedReportDigestEnabled"><input id="feedReportDigestEnabled" type="checkbox" name="digest_enabled"><span>EnGenie Digest</span></label>
+    <p class="feed-digest-hint">为邮件或 Teams 添加 EnGenie 摘要和汇总数字。</p>
+    <div id="feedReportDigestFields" hidden>
+      <div class="field"><label for="feedReportDigestInstructions">摘要要求</label><textarea id="feedReportDigestInstructions" name="digest_instructions" maxlength="2000" rows="3" translate="no"></textarea></div>
+      <div class="field"><label for="feedReportDigestLanguage">Digest 语言</label><select id="feedReportDigestLanguage" name="digest_language"><option value="en">英语</option><option value="zh-hans">简体中文</option></select></div>
+      <label class="feed-digest-toggle" for="feedReportDigestSourceLinks"><input id="feedReportDigestSourceLinks" name="digest_source_links" type="checkbox"><span>包含来源链接</span></label>
+      <div class="field" id="feedReportDigestEmailFields" hidden><label for="feedReportDigestEmailFormat">报告展示方式</label><select id="feedReportDigestEmailFormat" name="digest_email_format"><option value="body">摘要正文</option><option value="html_link">HTML 报告链接</option><option value="html_attachment">HTML 邮件附件</option></select><small>HTML 报告链接需要配置可访问的站点地址；HTML 邮件附件需邮件工作流支持附件映射。</small></div>
+      <p class="feed-digest-capability-note" id="feedReportDigestAttachmentWarning" role="status" hidden>邮件工作流尚未确认附件映射；完成配置后才能发送 HTML 附件。</p>
+      <small>通过 EnGenie 对话设置分组和自定义统计；此处保留已有设置。</small>
+    </div>
+  </section>
   <p id="feedReportError" class="dialog-err" role="alert"></p>
   <div class="dialog-actions"><button type="button" class="btn outline" data-close="feedReportEditor">取消</button><button type="submit" class="btn primary" id="feedReportSave">保存报告频率</button></div>
 </form></dialog>
 <dialog class="fos-dialog feed-dialog" id="feedToken"><h2>脚本推送接入</h2><p>此令牌只显示一次；生成后旧令牌立即失效。</p><label>推送地址<input id="feedIngestUrl" readonly></label><label>Bearer 令牌<textarea id="feedTokenValue" readonly rows="2"></textarea></label><p>将令牌放入脚本运行环境，按接入包示例调用。暂停数据源或轮换令牌可停用旧接入。</p><button type="button" class="btn outline" data-close="feedToken">已保存，关闭</button></dialog>
-<link rel="stylesheet" href="{% static 'css/feeds.css' %}?v=3-report-controls">
+<link rel="stylesheet" href="{% static 'css/feeds.css' %}?v=6-credential-profiles">
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=1" defer></script><script src="{% static 'js/feeds.js' %}?v=10-document-mode" defer></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=2-credential-profiles" defer></script><script src="{% static 'js/report_trigger.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=5-digest-presentation" defer></script><script src="{% static 'js/feeds.js' %}?v=11-digest-delivery" defer></script>{% endblock %}

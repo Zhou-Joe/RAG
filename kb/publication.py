@@ -73,9 +73,13 @@ def image_snapshot_current(snapshot,user):
     from django.core.exceptions import ValidationError
     try:doc=Document.objects.select_related('kb__parent').filter(pk=snapshot.get('doc_id'),status='completed').first()
     except (ValueError,TypeError,ValidationError):return False
-    return bool(doc and kb_accessible(user,doc.kb) and doc.kb.slug==snapshot.get('kb_slug')
+    current = bool(doc and kb_accessible(user,doc.kb) and doc.kb.slug==snapshot.get('kb_slug')
         and digest(doc.md_content)==snapshot.get('document_digest') and snapshot.get('image_digest')
         and image_source_digest(doc,snapshot.get('image'))==snapshot['image_digest'])
+    if current and 'image_metadata_digest' in snapshot:
+        from .chunk_images import image_metadata_current
+        current = image_metadata_current(doc, snapshot)
+    return current
 
 
 def validate_sources(evidence, user_id):
@@ -88,6 +92,11 @@ def validate_sources(evidence, user_id):
     if user is None or not evidence:
         return False
     for ev in evidence:
+        if ev.get('kind') == 'chat_attachment':
+            from .chat_attachments import snapshot_current
+            if not snapshot_current(ev, user.pk):
+                return False
+            continue
         if ev.get('kind')=='image':
             if not image_snapshot_current(ev,user):return False
             continue
@@ -126,6 +135,10 @@ def validate_sources(evidence, user_id):
         rows = get_chunks(doc.kb.slug, doc.original_name)
         if not any(row.get('chunk_id') == ev['chunk_id'] and digest(row['text']) == ev['chunk_digest'] for row in rows):
             return False
+        if ev.get('value_cards'):
+            from .value_cards import grounded_card_current
+            if not isinstance(ev['value_cards'], list) or any(not grounded_card_current(card, ev) for card in ev['value_cards']):
+                return False
     return True
 
 
@@ -160,6 +173,20 @@ def visible_citations(citations, user):
             return False
         if citation.get('document_digest') and digest(doc.md_content) != citation['document_digest']:
             return False
+        if 'value_cards' in citation:
+            from .value_cards import grounded_card_current
+            cards = citation['value_cards']
+            if not isinstance(cards, list) or len(cards) > 8:
+                return False
+            rows = get_chunks(doc.kb.slug, doc.original_name)
+            for card in cards:
+                if not isinstance(card, dict):
+                    return False
+                row = next((row for row in rows if row.get('chunk_id') == card.get('chunk_id')), None)
+                if row is None or not grounded_card_current(card, {'kind': 'text', 'doc_id': str(doc.pk),
+                        'chunk_id': row['chunk_id'], 'document_digest': digest(doc.md_content),
+                        'chunk_digest': digest(row['text']), 'text': row['text']}):
+                    return False
         image_snapshots=citation.get('image_snapshots',[])
         if not isinstance(image_snapshots,list) or any(not isinstance(ev,dict) or ev.get('doc_id')!=str(doc.pk)
                 or not image_snapshot_current(ev,user) for ev in image_snapshots):return False

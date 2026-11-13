@@ -22,6 +22,8 @@ from zoneinfo import ZoneInfo
 
 try:from .browser_dom import OBSERVE_SCRIPT
 except ImportError:from browser_dom import OBSERVE_SCRIPT
+try:from .credential_routing import CREDENTIAL_REF, login_value, scoped_headers
+except ImportError:from credential_routing import CREDENTIAL_REF, login_value, scoped_headers
 
 MAX_RECORDS=50_000
 MAX_PAGES=100
@@ -63,7 +65,7 @@ def validate_plan(plan: dict,*,allow_refs=False) -> dict:
                 if key in step and (not isinstance(step[key],str) or len(step[key])>2000):raise ValueError('网页动作参数过长或格式无效。')
             if action=='goto':origin(step.get('url',''))
             elif action in ('click','fill','select') and not step.get('selector'):raise ValueError('网页动作需要 selector。')
-            if step.get('credential') not in (None,'username','password'):raise ValueError('只允许引用已保存的网页登录账号或密码。')
+            if step.get('credential') is not None and not CREDENTIAL_REF.fullmatch(step['credential']):raise ValueError('登录凭据使用 username/password 或 名称.username/名称.password 引用。')
             if action in ('fill','select') and 'value' not in step and 'credential' not in step:raise ValueError('填写或选择需要 value 或 credential 引用。')
             if step.get('state','visible') not in ('visible','attached','hidden'):raise ValueError('不支持的等待状态。')
             for key,limit in (('pixels',4000),('milliseconds',5000)):
@@ -166,10 +168,11 @@ class ResourceTransport:
 
 class BrowserSession:
     """独立事件循环中的真实浏览器，避免与模型的异步流互相阻塞。"""
-    def __init__(self,*,approved_urls,headers=None,credential_origin=None,login=None,allow_private=False,screenshot_path=None,checkpoint=None,timezone='Asia/Shanghai',fetcher=None):
+    def __init__(self,*,approved_urls,headers=None,credential_origin=None,login=None,credential_profiles=None,allow_private=False,screenshot_path=None,checkpoint=None,timezone='Asia/Shanghai',fetcher=None):
         self.approved={origin(url) for url in approved_urls};self.private_origins=frozenset(self.approved)
         self.headers=headers or {};self.credential_origin=origin(credential_origin) if credential_origin else None
         self.login=login or {};self.allow_private=allow_private;self.screenshot_path=Path(screenshot_path) if screenshot_path else None;self.checkpoint=checkpoint
+        self.credential_profiles=credential_profiles or []
         self.transport=ResourceTransport() if fetcher is None else None
         self.zone=timezone;self.fetcher=fetcher or self.transport;self.requests=0;self.bytes=0;self.network=[];self.responses={};self.response_count=0;self.visited=[];self.blocked=[]
         self.assets={};self.asset_bytes=0
@@ -243,11 +246,15 @@ class BrowserSession:
         try:
             target=origin(request.url)
             values=await request.all_headers()
-            if self.credential_origin==target:values.update(self.headers)
-            elif self.headers:
-                for key in self.headers:values.pop(key.lower(),None)
+            profiles=getattr(self,'credential_profiles',[])
+            credential_headers={key.lower() for key in self.headers}
+            credential_headers.update(key.lower() for profile in profiles for key in profile.get('headers',{}))
+            for key in list(values):
+                if key.lower() in credential_headers:values.pop(key,None)
+            if profiles:values.update(scoped_headers(profiles,request.url))
+            elif self.credential_origin==target:values.update(self.headers)
             cacheable=request.method=='GET' and request.resource_type in ('script','stylesheet')
-            sensitive={'cookie','authorization',*(key.lower() for key in self.headers)}
+            sensitive={'cookie','authorization',*credential_headers}
             cache_key=(request.url,tuple(sorted((key.lower(),value) for key,value in values.items() if key.lower() in sensitive)))
             public_key=(request.url,'public')
             cached=self.assets.get(public_key) or self.assets.get(cache_key) if cacheable else None
@@ -359,9 +366,12 @@ class BrowserSession:
             await self._click(self.page.locator(selector).first)
         elif action in ('fill','select'):
             if step.get('credential'):
-                if origin(self.page.url)!=self.credential_origin:raise ValueError('不能在其他主机的页面填写登录凭据。')
-                if step['credential'] not in self.login:raise ValueError('请在页面保存网页登录账号与密码。')
-                value=self.login[step['credential']]
+                profiles=getattr(self,'credential_profiles',[])
+                if profiles:value=login_value(profiles,self.page.url,step['credential'])
+                else:
+                    if origin(self.page.url)!=self.credential_origin:raise ValueError('不能在其他主机的页面填写登录凭据。')
+                    if step['credential'] not in self.login:raise ValueError('请在页面保存网页登录账号与密码。')
+                    value=self.login[step['credential']]
             else:value=step.get('value','')
             if action=='fill':await self.page.locator(selector).first.fill(value)
             else:await self.page.locator(selector).first.select_option(value)

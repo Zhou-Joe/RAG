@@ -29,7 +29,7 @@
     if (content !== undefined) node.textContent = content;
     return node;
   };
-  const clear = node => node.replaceChildren();
+  const clear = node => {node._fosChartTooltip?.destroy(); node.replaceChildren();};
   // 对象值多选：一个对象一条曲线，图例按颜色对应
   function renderChips() {
     const host = $('feedKbTrendChips');
@@ -80,10 +80,12 @@
     const trendField = $('feedKbTrendField');
     const selectedTrendField = trendField.value;
     clear(trendField);
-    trendField.append(new Option(trackerMode ? '文档名' : '来源 ID', trackerMode ? '$document_name' : '$source_id'));
+    const sourceField = trackerMode ? '$document_name' : '$source_id';
+    const allowSourceField = panel.dataset.sourceField !== 'false';
+    if (allowSourceField) trendField.append(new Option(trackerMode ? '文档名' : '来源 ID', sourceField));
     fields.forEach(field => { const option = new Option(field, field); option.setAttribute('translate', 'no'); trendField.append(option); });
-    trendField.value = [trackerMode ? '$document_name' : '$source_id', ...fields].includes(selectedTrendField)
-      ? selectedTrendField : (['景点', '设备', '标题'].find(field => fields.includes(field)) || trendField.options[0].value);
+    trendField.value = [...(allowSourceField ? [sourceField] : []), ...fields].includes(selectedTrendField)
+      ? selectedTrendField : (['景点', '设备', '标题'].find(field => fields.includes(field)) || trendField.options[0]?.value || '');
     if (trendField.value !== selectedTrendField) {
       clearObjects();
     }
@@ -167,7 +169,12 @@
   }
 
   function recordName(record) {
-    return record.document_name || record.values?.标题 || record.source_id || '数据记录';
+    const name = record.document_name || record.values?.标题 || record.source_id || '数据记录';
+    if (Number.isSafeInteger(record.source_row) && record.source_row > 0) {
+      const sheet = record.source_sheet ? `${valueText(record.source_sheet)} · ` : '';
+      return `${valueText(name)} · ${sheet}#${record.source_row}`;
+    }
+    return name;
   }
 
   function detailFields(record, values, list, fullRecord = false) {
@@ -176,7 +183,12 @@
       const pair = element('div');
       const head = element('div', 'fkd-detail-field-head');
       head.append(element('dt', 'notranslate', label));
-      if (editable && fullRecord && state.fields.includes(label)) {
+      // The editor accepts 2,000 characters. A shortened preview must never
+      // become the replacement for a longer value imported from a spreadsheet.
+      const completeValue = !(value && typeof value === 'object' && value.truncated);
+      const editText = value === null || value === undefined ? ''
+        : typeof value === 'object' ? JSON.stringify(value) : String(value);
+      if (editable && fullRecord && completeValue && editText.length <= 2000 && state.fields.includes(label)) {
         const edit = element('button', 'fkd-field-edit', '编辑');
         edit.type = 'button'; edit.setAttribute('aria-label', uiText(`编辑字段：${label}`));
         edit.addEventListener('click', async () => {
@@ -223,6 +235,35 @@
     $('feedKbRowsHead').replaceChildren(line);
   }
 
+  function setAnalysisControls(open) {
+    const controls = $('feedKbAnalysisControls'), toggle = $('feedKbAnalysisControlsToggle');
+    if (!controls || !toggle) return;
+    controls.hidden = !open; toggle.setAttribute('aria-expanded', String(open));
+    if (!open) setObjectOpen(false);
+  }
+
+  function initCompactAnalysis() {
+    const form = $('feedKbAnalysisForm');
+    if (!form || $('feedKbAnalysisToolbar')) return;
+    const modes = form.querySelector('.fkd-mode-switch'), footer = form.querySelector('.fkd-analysis-footer');
+    const apply = $('feedKbApply'), exportButton = $('feedKbExport');
+    const toolbar = element('div', 'fkd-analysis-toolbar'); toolbar.id = 'feedKbAnalysisToolbar';
+    const query = element('div', 'fkd-query-summary'); query.id = 'feedKbQuerySummary';
+    query.setAttribute('aria-live', 'polite');
+    const toggle = element('button', 'btn outline fkd-analysis-configure', uiText('筛选与设置'));
+    toggle.id = 'feedKbAnalysisControlsToggle'; toggle.type = 'button';
+    toggle.setAttribute('aria-controls', 'feedKbAnalysisControls'); toggle.setAttribute('aria-expanded', 'false');
+    const controls = element('div', 'fkd-analysis-controls'); controls.id = 'feedKbAnalysisControls'; controls.hidden = true;
+    if (footer) footer.remove();
+    toolbar.append(modes, query, toggle, apply);
+    while (form.firstChild) controls.appendChild(form.firstChild);
+    form.append(toolbar, controls);
+    const header = $('feedKbAggregate').querySelector('.fkd-analysis-heading');
+    if (header) header.appendChild(exportButton);
+    toggle.addEventListener('click', () => setAnalysisControls(controls.hidden));
+    form.addEventListener('invalid', () => setAnalysisControls(true), true);
+  }
+
   function updateApplyState() {
     const needsNumber = $('feedKbOperation').value !== 'count';
     $('feedKbApply').disabled = state.analysisLoading || state.optionsLoading || state.optionsError
@@ -230,6 +271,7 @@
       || (needsNumber && !$('feedKbMeasure').value) || (periodMode() && !state.objects.length);
     $('feedKbExport').disabled = state.exporting || state.analysisLoading || state.analysisDirty
       || !state.analysisValid || !state.appliedSignature;
+    syncCompactSummary();
   }
 
   function markAnalysisChanged() {
@@ -325,6 +367,8 @@
   }
 
   function setRangePreset(preset) {
+    $('feedKbAnalysisPreset').value = preset;
+    syncPeriodControls();
     if (preset === 'custom') return;
     if (preset === 'all' && state.dataFrom && state.dataTo) {
       $('feedKbAnalysisFrom').value = dateInput(new Date(Math.floor(new Date(state.dataFrom).getTime() / 60000) * 60000));
@@ -332,7 +376,7 @@
       return;
     }
     const now = new Date(), to = dateInput(new Date(Math.floor(now.getTime() / 60000) * 60000 + 60000));
-    const ago = new Date(now.getTime() - ({'24h': 1, '7d': 7, '30d': 30}[preset] || 0) * 86400000);
+    const ago = new Date(now.getTime() - ({'24h': 1, '7d': 7, '30d': 30, 'all': 7}[preset] || 0) * 86400000);
     $('feedKbAnalysisFrom').value = preset === 'today' ? to.slice(0, 10) + 'T00:00' : dateInput(ago);
     $('feedKbAnalysisTo').value = to;
   }
@@ -495,7 +539,9 @@
     }
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 900 260');
-    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('role', 'group');
+    svg.setAttribute('aria-label', uiText('周期趋势图'));
+    const tooltip = window.FosChartTooltip?.create(host);
     const add = (tag, attrs, parent = svg) => {
       const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
       Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
@@ -533,11 +579,15 @@
       flush();
       points.forEach((value, index) => {
         if (value === null) return;
-        const dot = add('circle', {cx: x(index), cy: y(value), r: labels.length > 150 ? 2.5 : 4,
-          class: 'fkd-trend-dot'});
+        const dot = add('circle', {cx: x(index), cy: y(value), r: labels.length > 150 ? 1.6 : 2.2,
+          class: 'fkd-trend-dot', 'aria-hidden': 'true', 'vector-effect': 'non-scaling-stroke'});
         dot.style.fill = color; dot.style.stroke = color;
-        const title = add('title', {}, dot);
-        title.textContent = `${labels[index]} · ${shown[seriesIndex].object_value}: ${numberText(value)}`;
+        const label = `${labels[index]} · ${shown[seriesIndex].object_value}: ${numberText(value)}`;
+        const hit = add('circle', {cx: x(index), cy: y(value), r: 9, class: 'fkd-trend-hit',
+          tabindex: '0', role: 'img', 'aria-label': label});
+        if (tooltip) tooltip.bind(hit, () => [shown[seriesIndex].object_value, labels[index],
+          `${uiText(modeNames[chartField()] || '')}: ${numberText(value)}`], {marker: dot});
+        else add('title', {}, hit).textContent = label;
       });
     });
     [...new Set([0, Math.floor((labels.length - 1) / 2), labels.length - 1])].forEach(index => {
@@ -574,8 +624,12 @@
     const headings = element('tr');
     headings.append(element('th', '', '周期'));
     series.forEach(item => {
-      headings.append(element('th', single ? '' : 'notranslate', single ? '统计值' : `${item.object_value} 值`));
-      headings.append(element('th', '', single ? '较上期变化' : `${item.object_value} 环比`));
+      for (const label of ['统计值', '较上期变化']) {
+        const heading = element('th');
+        if (!single) heading.append(element('span', 'notranslate', item.object_value), document.createTextNode(' · '));
+        heading.append(element('span', '', uiText(label)));
+        headings.append(heading);
+      }
     });
     if (single) ['变化率', '记录数', '有效数值'].forEach(label => headings.append(element('th', '', label)));
     $('feedKbSummaryHead').replaceChildren(headings);
@@ -620,15 +674,105 @@
     $('feedKbObjectControls').hidden = !period;
     $('feedKbSummaryGroupWrap').hidden = period;
     $('feedKbPeriodWrap').hidden = !period;
+    if ($('feedKbCustomPeriod')) $('feedKbCustomPeriod').hidden = !period;
     $('feedKbMeasureWrap').hidden = $('feedKbOperation').value === 'count';
     $('feedKbNumericNote').hidden = $('feedKbOperation').value === 'count';
-    $('feedKbChartModeWrap').hidden = !period;
+    $('feedKbChartModeWrap').hidden = !period || $('feedKbChart').hidden;
+    if ($('feedKbCustomRange')) $('feedKbCustomRange').hidden = $('feedKbAnalysisPreset').value !== 'custom';
     const maximum = {minute: 180, hour: 72, day: 92, week: 26, month: 60, year: 20}[periodUnit()];
     $('feedKbPeriodSpan').max = maximum;
     if (periodSpan() > maximum) $('feedKbPeriodSpan').value = maximum;
     document.querySelectorAll('[data-fkd-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.fkdMode === $('feedKbAnalysisMode').value)));
+    document.querySelectorAll('[data-fkd-operation]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.fkdOperation === $('feedKbOperation').value)));
+    document.querySelectorAll('[data-fkd-range]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.fkdRange === $('feedKbAnalysisPreset').value)));
+    const customPeriod = state.customPeriod || periodSpan() !== 1 || !['day', 'week', 'month'].includes(periodUnit());
+    document.querySelectorAll('[data-fkd-period]').forEach(button => {
+      button.disabled = !period;
+      button.setAttribute('aria-pressed', String(button.dataset.fkdPeriod === (customPeriod ? 'custom' : periodUnit())));
+    });
     if (!period) setObjectOpen(false);
+    syncAdvancedSummary();
     updateApplyState();
+  }
+
+  function syncAdvancedSummary() {
+    const host = $('feedKbAdvancedSummary');
+    if (!host) return;
+    const entries = [];
+    const choiceLabel = id => {
+      const choice = $(id).selectedOptions?.[0];
+      return choice ? uiText(window.FOSI18n?.originalText?.(choice) || choice.textContent) : $(id).value;
+    };
+    if (!periodMode() && $('feedKbSummaryGroup').value) entries.push(['分组字段', $('feedKbSummaryGroup').value, true]);
+    if (['min', 'max'].includes($('feedKbOperation').value)) entries.push(['统计方式', choiceLabel('feedKbOperation'), false]);
+    if (periodMode() && (state.customPeriod || periodSpan() !== 1 || !['day', 'week', 'month'].includes(periodUnit()))) {
+      entries.push(['对比周期', `${periodSpan()} × ${choiceLabel('feedKbGroup')}`, false]);
+    }
+    if (periodMode() && !$('feedKbChart').hidden && $('feedKbChartMode').value !== 'value') {
+      entries.push(['图表口径', choiceLabel('feedKbChartMode'), false]);
+    }
+    clear(host);
+    entries.forEach(([label, value, preserve], index) => {
+      if (index) host.append(document.createTextNode(' · '));
+      host.append(element('span', '', uiText(label)), document.createTextNode(': '),
+        element('span', preserve ? 'notranslate' : '', value));
+    });
+    host.hidden = !entries.length;
+  }
+
+  function syncCompactSummary() {
+    const host = $('feedKbQuerySummary');
+    if (!host) return;
+    const label = id => {
+      const node = $(id), option = node.selectedOptions?.[0];
+      return option ? uiText(window.FOSI18n?.originalText?.(option) || option.textContent) : node.value;
+    };
+    const entries = [[label('feedKbOperation'), false]];
+    if ($('feedKbOperation').value !== 'count' && $('feedKbMeasure').value) entries.push([$('feedKbMeasure').value, true]);
+    if ($('feedKbAnalysisPreset').value === 'custom') {
+      entries.push([`${$('feedKbAnalysisFrom').value.replace('T', ' ')} – ${$('feedKbAnalysisTo').value.replace('T', ' ')}`, true]);
+    } else entries.push([label('feedKbAnalysisPreset'), false]);
+    if (periodMode()) {
+      entries.push([`${periodSpan()} × ${label('feedKbGroup')}`, false]);
+      entries.push([state.objects.length ? uiText(`已选 ${state.objects.length} / 8 个对象`) : uiText('选择对象'), false, !state.objects.length]);
+    } else if ($('feedKbSummaryGroup').value) entries.push([`${uiText('分组字段')}: ${$('feedKbSummaryGroup').value}`, true]);
+    clear(host);
+    entries.forEach(([text, preserve, chooseItems], index) => {
+      if (index) host.append(document.createTextNode(' · '));
+      const node = element(chooseItems ? 'button' : 'span', chooseItems ? 'fkd-query-pick' : preserve ? 'notranslate' : '', text);
+      if (chooseItems) {
+        node.type = 'button';
+        node.addEventListener('click', () => { setAnalysisControls(true); setObjectOpen(true); });
+      }
+      host.append(node);
+    });
+  }
+
+  function bindAnalysisChips() {
+    document.querySelectorAll('[data-fkd-operation]').forEach(button => button.addEventListener('click', () => {
+      if (!['count', 'avg', 'sum', 'min', 'max'].includes(button.dataset.fkdOperation)) return;
+      $('feedKbOperation').value = button.dataset.fkdOperation;
+      $('feedKbOperation').dispatchEvent(new Event('change', {bubbles: true}));
+    }));
+    document.querySelectorAll('[data-fkd-range]').forEach(button => button.addEventListener('click', () => {
+      if (!['24h', '7d', '30d', 'today', 'all', 'custom'].includes(button.dataset.fkdRange)) return;
+      $('feedKbAnalysisPreset').value = button.dataset.fkdRange;
+      $('feedKbAnalysisPreset').dispatchEvent(new Event('change', {bubbles: true}));
+      if (button.dataset.fkdRange === 'custom') $('feedKbAnalysisFrom').focus();
+    }));
+    document.querySelectorAll('[data-fkd-period]').forEach(button => button.addEventListener('click', () => {
+      if (button.dataset.fkdPeriod === 'custom') {
+        state.customPeriod = true;
+        if ($('feedKbAdvanced')) $('feedKbAdvanced').open = true;
+        syncPeriodControls(); $('feedKbPeriodSpan').focus();
+      } else if (['day', 'week', 'month'].includes(button.dataset.fkdPeriod)) {
+        state.customPeriod = false;
+        $('feedKbGroup').value = '$period:' + button.dataset.fkdPeriod;
+        $('feedKbPeriodSpan').value = '1';
+        syncPeriodControls(); markAnalysisChanged();
+      }
+    }));
+    $('feedKbAdvanced')?.addEventListener('toggle', syncAdvancedSummary);
   }
 
   function promptForObject() {
@@ -655,6 +799,7 @@
     try {
       const data = await request('rows', append ? state.rowOffset : 0);
       if (token !== state.rowToken) return;
+      if (typeof data.active_fields_all === 'boolean') panel.dataset.sourceField = String(data.active_fields_all);
       if (Array.isArray(data.fields)) syncFields(data.fields);
       showRun(data); renderRows(data, append);
     } catch (error) {
@@ -681,6 +826,7 @@
       else renderSummary(data, append, snapshot);
       state.analysisDirty = false; state.appliedSignature = signature;
       state.analysisValid = true;
+      setAnalysisControls(false);
     } catch (error) {
       if (token === state.summaryToken) {
         state.analysisValid = false;
@@ -742,6 +888,7 @@
       await loadAnalysis();
     }
   }
+  initCompactAnalysis();
   $('feedKbFilters').addEventListener('submit', event => { event.preventDefault(); void loadRows(); });
   $('feedKbReset').addEventListener('click', () => {
     const previousFeed = $('feedKbFeed').value;
@@ -773,8 +920,12 @@
     syncPeriodControls(); markAnalysisChanged();
   }));
   ['feedKbGroup', 'feedKbPeriodSpan', 'feedKbSummaryGroup', 'feedKbOperation', 'feedKbMeasure']
-    .forEach(id => $(id).addEventListener('change', () => { syncPeriodControls(); markAnalysisChanged(); }));
-  $('feedKbChartMode').addEventListener('change', () => { if (state.renderedMode === 'trend') drawTrend(); });
+    .forEach(id => $(id).addEventListener('change', () => {
+      if (id === 'feedKbGroup' || id === 'feedKbPeriodSpan') state.customPeriod = true;
+      syncPeriodControls(); markAnalysisChanged();
+    }));
+  bindAnalysisChips();
+  $('feedKbChartMode').addEventListener('change', () => { syncPeriodControls(); if (state.renderedMode === 'trend') drawTrend(); });
   $('feedKbTrendChips').addEventListener('click', event => {
     const drop = event.target.closest('.fkd-chip-x');
     if (drop) toggleObject(drop.dataset.object, false);
@@ -818,10 +969,10 @@
     }
   });
   $('feedKbAnalysisPreset').addEventListener('change', () => {
-    setRangePreset($('feedKbAnalysisPreset').value); markAnalysisChanged(); void loadOptions();
+    setRangePreset($('feedKbAnalysisPreset').value); syncPeriodControls(); markAnalysisChanged(); void loadOptions();
   });
   ['feedKbAnalysisFrom', 'feedKbAnalysisTo'].forEach(id => $(id).addEventListener('change', () => {
-    $('feedKbAnalysisPreset').value = 'custom'; markAnalysisChanged(); void loadOptions();
+    $('feedKbAnalysisPreset').value = 'custom'; syncPeriodControls(); markAnalysisChanged(); void loadOptions();
   }));
   $('feedKbAnalysisForm').addEventListener('submit', event => { event.preventDefault(); setObjectOpen(false); void loadAnalysis(); });
   $('feedKbLegend').addEventListener('click', event => {
@@ -832,10 +983,21 @@
     drawTrend();
   });
   document.addEventListener('fos:languagechange', () => { syncPeriodControls(); renderChips(); renderObjectChoices(); });
+  document.addEventListener('fos:activefieldschange', () => {
+    state.fields = [];
+    $('feedKbFilterField').value = '';
+    $('feedKbSummaryGroup').value = '';
+    $('feedKbMeasure').value = '';
+    $('feedKbTrendField').value = '';
+    $('feedKbColumns').value = '0';
+    clearObjects(); markAnalysisChanged();
+    void reload();
+  });
   document.querySelectorAll('[data-fkd-view]').forEach(button => button.addEventListener('click', () => {
     const chartView = button.dataset.fkdView === 'chart';
     $('feedKbChart').hidden = !chartView;
     $('feedKbSummaryTableWrap').hidden = chartView;
+    syncPeriodControls();
     renderLegend();
     document.querySelectorAll('[data-fkd-view]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
   }));
@@ -855,11 +1017,14 @@
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.message || '保存失败');
         $('feedKbName').textContent = data.name;
+        if (data.description) $('feedKbDescription').setAttribute('translate', 'no');
+        else $('feedKbDescription').removeAttribute('translate');
         $('feedKbDescription').textContent = data.description || '自动采集的数据会在这里持续更新。';
         $('feedKbAccess').textContent = data.access_label || data.department;
         [...$('feedKbFeed').options].filter(option => option.value).forEach(option => { option.textContent = data.name; });
         document.title = `${data.name} · 自动采集知识库`;
         dialog.close();
+        document.dispatchEvent(new CustomEvent('fos:activefieldschange'));
         if (window.fosToast) fosToast('已保存', 'ok');
       } catch (error) { $('feedKbEditError').textContent = error.message; $('feedKbEditError').hidden = false; }
       finally { save.disabled = false; }
@@ -867,5 +1032,5 @@
   }
   syncPeriodControls();
   renderChips();
-  void (async () => { await loadRows(); if (await loadOptions()) { setRangePreset('7d'); if (await loadOptions()) await loadAnalysis(); } })();
+  void (async () => { await loadRows(); if (await loadOptions()) { setRangePreset($('feedKbAnalysisPreset').value); syncPeriodControls(); if (await loadOptions()) await loadAnalysis(); } })();
 })();

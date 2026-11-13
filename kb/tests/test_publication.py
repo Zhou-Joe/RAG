@@ -13,6 +13,15 @@ from kb.models import Document, FeedRecord, KnowledgeBase, KnowledgeFeed
 
 
 class PublicationStreamTests(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        # These streams use synthetic sources and user_id, not persisted KBs.
+        # Keep history's visibility lookup outside this publication fixture;
+        # source revocation and answer-verification boundaries stay exercised.
+        visibility = patch('kb.history.field_visibility_scope', return_value={})
+        visibility.start()
+        self.addCleanup(visibility.stop)
+
     def test_graph_lookup_respects_the_selected_verification_mode(self):
         class FakeAgent:
             async def astream_events(self, *args, **kwargs):

@@ -1,0 +1,11 @@
+{
+  "messages": {
+    "Teams 卡片预览": "Teams card preview",
+    "最多三个参数；相同行序的值对应同一项目。": "Up to three fields; values in the same position refer to the same item.",
+    "当前没有满足条件的项目，本次不会发送。": "No items meet the condition; nothing will be sent.",
+    "卡片空间有限，完整清单保留在 Excel 报告中。": "Card space is limited. The complete list remains in the Excel report."
+  },
+  "patterns": [
+    {"source": "已展示 {count} / {total} 项", "target": "Showing {count} / {total} items"}
+  ]
+}
