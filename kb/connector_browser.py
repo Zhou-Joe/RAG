@@ -8,7 +8,7 @@ from django.conf import settings
 
 from .browser_runtime import BrowserSession, origin
 from .connector_tools import declared_urls, redact
-from .feed_credentials import request_headers, secret_values, unpack
+from .feed_credentials import credential_profiles, credential_urls, request_headers, secret_values, unpack
 
 
 def screenshot_path(job_id) -> Path:
@@ -22,10 +22,13 @@ def session(resource,*,checkpoint=None,screenshot=None,timezone=None) -> Browser
     if not getattr(resource,'credential_id',None) and not resource.header_env:
         urls.extend(getattr(resource,'browser_state',{}).get('observed_urls',[]))
     if url and url not in urls:urls.append(url)
+    urls.extend(credential_urls(resource))
     credential=getattr(resource,'credential',None)
     login=unpack(credential).get('login',{}) if credential else {}
     headers=request_headers(resource,url) if url else {}
+    profiles=[{key:profile[key] for key in ('name','url','headers','login')} for profile in credential_profiles(resource)]
     return BrowserSession(approved_urls=urls,headers=headers,credential_origin=url if credential or headers else None,login=login,
+        credential_profiles=profiles,
         allow_private=resource.allow_private,screenshot_path=screenshot,checkpoint=checkpoint,
         timezone=timezone or getattr(resource,'timezone','Asia/Shanghai'))
 

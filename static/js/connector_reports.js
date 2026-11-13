@@ -86,7 +86,18 @@
   }
   return section;
  }
- root.ConnectorReportDigest={render,safeSourceURL,safeHTMLPreviewURL};
+ function renderCard(title,preview){
+  if(!preview||typeof preview!=='object')return null;
+  const section=node('section',undefined,'cx-report-digest cx-teams-card-preview');
+  section.append(node('h4',t('Teams 卡片预览')),node('strong',title,undefined,true),
+   node('p',t('最多三个参数；相同行序的值对应同一项目。'),'cx-meta'));
+  const facts=Array.isArray(preview.facts)?preview.facts.slice(0,3):[];
+  for(const fact of facts){const item=node('p');item.append(node('strong',fact.title+': ',undefined,true),node('span',fact.value,undefined,true));section.append(item);}
+  if(preview.omitted_rows)section.append(node('p',t('已展示 '+preview.shown_rows+' / '+preview.row_count+' 项')+' · '+t('卡片空间有限，完整清单保留在 Excel 报告中。'),'cx-note'));
+  else if(!preview.row_count&&!preview.will_send)section.append(node('p',t('当前没有满足条件的项目，本次不会发送。'),'cx-note'));
+  return section;
+ }
+ root.ConnectorReportDigest={render,renderCard,safeSourceURL,safeHTMLPreviewURL};
 })(typeof window!=='undefined'?window:globalThis);
 
 (()=>{

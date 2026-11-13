@@ -79,6 +79,6 @@
   <div class="dialog-actions"><button type="button" class="btn outline" data-close="feedReportEditor">取消</button><button type="submit" class="btn primary" id="feedReportSave">保存报告频率</button></div>
 </form></dialog>
 <dialog class="fos-dialog feed-dialog" id="feedToken"><h2>脚本推送接入</h2><p>此令牌只显示一次；生成后旧令牌立即失效。</p><label>推送地址<input id="feedIngestUrl" readonly></label><label>Bearer 令牌<textarea id="feedTokenValue" readonly rows="2"></textarea></label><p>将令牌放入脚本运行环境，按接入包示例调用。暂停数据源或轮换令牌可停用旧接入。</p><button type="button" class="btn outline" data-close="feedToken">已保存，关闭</button></dialog>
-<link rel="stylesheet" href="{% static 'css/feeds.css' %}?v=5-digest-delivery">
+<link rel="stylesheet" href="{% static 'css/feeds.css' %}?v=6-credential-profiles">
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=1" defer></script><script src="{% static 'js/report_trigger.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=5-digest-presentation" defer></script><script src="{% static 'js/feeds.js' %}?v=11-digest-delivery" defer></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/feed_auth.js' %}?v=2-credential-profiles" defer></script><script src="{% static 'js/report_trigger.js' %}?v=1" defer></script><script src="{% static 'js/feed_report_controls.js' %}?v=5-digest-presentation" defer></script><script src="{% static 'js/feeds.js' %}?v=11-digest-delivery" defer></script>{% endblock %}

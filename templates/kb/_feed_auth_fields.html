@@ -1,16 +1,34 @@
 <section class="feed-auth" data-auth-widget>
-  <h3>访问凭据（可选）</h3>
-  <p class="fos-sub">在这里填写密钥，不要放进需求描述。系统保存后会自动用于 AI 验证和定时采集，无需配置服务器。</p>
+  {% if not auth_single %}<h3>访问凭据（可选）</h3>
+  <p class="fos-sub">在这里填写密钥，不要放进需求描述。系统保存后会自动用于 AI 验证和定时采集，无需配置服务器。</p>{% endif %}
   <label>认证方式<select data-auth-type>
     <option value="none">无需认证</option><option value="bearer">Bearer Token（常见令牌）</option>
     <option value="api_key">API Key（请求头）</option><option value="basic">用户名与密码（Basic）</option>
     <option value="login">网页登录账号与密码</option>
     <option value="headers">自定义请求头</option><option value="saved" hidden>使用已保存的认证</option>
+    {% if not auth_single %}<option value="multiple">多组访问凭据</option>{% endif %}
   </select></label>
   <div data-auth-panel="bearer" hidden><label>Token<input data-auth-token type="password" autocomplete="new-password" spellcheck="false" placeholder="在这里粘贴 Token，如 eyJhbGci…"></label><small>只需粘贴令牌；系统自动添加 Bearer 前缀，也接受包含 Bearer 的完整值。</small></div>
   <div data-auth-panel="api_key" hidden><label>请求头名称<input data-auth-key-name value="X-API-Key" autocomplete="off" placeholder="按 API 手册填写，如 X-API-Key 或 api-key"></label><label>API Key<input data-auth-key-value type="password" autocomplete="new-password" spellcheck="false" placeholder="在这里粘贴 API Key"></label><small>手册写 X-API-Key: abc123 时，名称填 X-API-Key，值填 abc123。</small></div>
   <div data-auth-panel="basic login" hidden><label>用户名<input data-auth-username autocomplete="off" placeholder="登录账号"></label><label>密码<input data-auth-password type="password" autocomplete="new-password" placeholder="登录密码"></label><small>网页登录由 agent 操作登录表单；Basic 模式按接口要求发送认证头。</small></div>
   <div data-auth-panel="headers" hidden><p class="fos-sub">按手册逐项填写，例如 Authorization → ApiKey abc123；支持多个认证请求头。</p><div data-auth-header-list></div><button type="button" class="btn sm outline" data-auth-add>＋ 添加请求头</button></div>
   <p data-auth-saved hidden class="fos-sub"></p>
+  {% if not auth_single %}
+  <div data-auth-panel="multiple" hidden>
+    <p class="fos-sub">每组填写名称、接收服务地址和认证方式。支持网页登录与 API 认证组合，各组凭据仅用于其指定服务。</p>
+    <div data-auth-profile-list></div>
+    <button type="button" class="btn sm outline" data-auth-add-profile>＋ 添加凭据组</button>
+    <small>最多8组；修改一组时可以保留其它组已保存的凭据。</small>
+    <template data-auth-profile-template>
+      <fieldset class="feed-auth-profile">
+        <legend>访问凭据</legend>
+        <label>凭据名称<input data-auth-profile-name maxlength="40" translate="no" autocomplete="off" placeholder="例如 portal 或 service_api"></label>
+        <label>接收服务地址<input data-auth-profile-url type="url" maxlength="2000" translate="no" autocomplete="off" placeholder="https://service.example.com"></label>
+        {% include "kb/_feed_auth_fields.html" with auth_single=True %}
+        <button type="button" class="btn sm outline" data-auth-remove-profile>移除此组</button>
+      </fieldset>
+    </template>
+  </div>
   <p class="fos-sub">凭据加密保存，不回显，也不写入模型提示词、生成日志或脚本。更换密钥时在这里重新填写并保存。</p>
+  {% endif %}
 </section>

@@ -176,7 +176,8 @@ def api_origins(job):
     """有认证时只向专门填写的 API 主机发送凭据，不把文档主机视为认证目标。"""
     if job.header_env or getattr(job,'credential_id',None):
         if not job.api_url:raise ValueError('使用认证时请单独填写实际 API 地址，以确定凭据接收主机。')
-        return {origin(job.api_url)}
+        from .feed_credentials import credential_urls
+        return {origin(job.api_url),*(origin(url) for url in credential_urls(job))}
     return {origin(url) for url in declared_urls(job)}
 
 

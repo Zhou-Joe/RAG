@@ -14,7 +14,7 @@ def selection(plan):
     if isinstance(saved,dict) and saved.get('kind') in ('email','teams'):return saved
     # Legacy approvals did not persist their channel in the plan. Recover only
     # from an exactly matching approved definition, never from a report title.
-    keys=('kind','title','columns','range','filters','group_by','aggregates','schedule','trigger','digest')
+    keys=('kind','title','columns','range','filters','group_by','aggregates','schedule','trigger','digest','teams_card')
     for job in ConnectorDraft.objects.filter(feed=plan.feed,user_id=plan.created_by_id,status='enabled',spec__kind='report').order_by('-created_at')[:20]:
         if all(job.spec.get(key)==plan.spec.get(key) for key in keys):
             chosen=reports.delivery_selection(job)

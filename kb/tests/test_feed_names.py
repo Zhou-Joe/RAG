@@ -54,9 +54,9 @@ class UnifiedFeedNameTests(TestCase):
     def renamed(self):
         self.kb.name='Ride operations';self.kb.save(update_fields=['name','updated_at'])
 
-    def test_new_feed_and_report_use_only_the_kb_name(self):
+    def test_source_uses_kb_name_and_report_has_an_independent_title(self):
         self.assertEqual(self.feed.name,'Operations');self.assertEqual(self.feed.adapter_spec['name'],'Operations')
-        self.assertEqual(self.plan.spec['title'],'Operations')
+        self.assertEqual(self.plan.spec['title'],self.report['title'])
         normalized=reports.normalize({key:value for key,value in self.report.items() if key!='title'},self.feed)
         self.assertEqual(normalized['title'],'Operations')
 
@@ -68,8 +68,8 @@ class UnifiedFeedNameTests(TestCase):
         self.renamed()
         self.feed.refresh_from_db();self.plan.refresh_from_db();self.parent.refresh_from_db();self.draft.refresh_from_db();sibling.refresh_from_db();delivery.refresh_from_db()
         self.assertEqual(self.feed.name,self.kb.name);self.assertEqual(self.feed.adapter_spec['name'],self.kb.name)
-        self.assertEqual(self.plan.spec['title'],self.kb.name);self.assertEqual(self.parent.spec['name'],self.kb.name)
-        self.assertEqual(self.draft.spec['title'],self.kb.name);self.assertEqual(self.draft.preview['source_feed'],self.kb.name)
+        self.assertEqual(self.plan.spec['title'],self.report['title']);self.assertEqual(self.parent.spec['name'],self.kb.name)
+        self.assertEqual(self.draft.spec['title'],self.report['title']);self.assertEqual(self.draft.preview['source_feed'],self.kb.name)
         self.assertEqual(sibling.name,self.kb.name);self.assertEqual(delivery.content,b'old workbook')
         self.assertEqual(before_feed,(self.feed.pk,self.feed.url,self.feed.cron,self.feed.next_run_at,self.feed.enabled,self.feed.cursor))
         self.assertEqual(before_plan,(self.plan.pk,self.plan.cron,self.plan.next_run_at,self.plan.enabled,self.plan.destination))
@@ -79,7 +79,7 @@ class UnifiedFeedNameTests(TestCase):
         response=self.action(kb_name='Unified report data')
         self.assertEqual(response.status_code,200,response.content)
         state=response.json()['feed'];self.assertEqual(state['name'],'Unified report data');self.assertEqual(state['kb_name'],state['name'])
-        self.assertEqual(state['report']['title'],state['name'])
+        self.assertEqual(state['report']['title'],self.report['title'])
         self.kb.refresh_from_db();self.assertEqual(self.kb.name,state['name'])
         html=self.client.get(reverse('kb:feeds')).content.decode()
         self.assertEqual(html.count('name="kb_name"'),1);self.assertNotIn('name="name"',html)
@@ -108,7 +108,7 @@ class UnifiedFeedNameTests(TestCase):
         for name in ['', 'x'*101, 123]:self.assertEqual(self.action(kb_name=name).status_code,400)
         self.assertEqual(self.action(kb_name='Roll back',write_mode='invalid').status_code,400)
         self.kb.refresh_from_db();self.feed.refresh_from_db();self.plan.refresh_from_db()
-        self.assertEqual(self.kb.name,'Operations');self.assertEqual(self.feed.name,'Operations');self.assertEqual(self.plan.spec['title'],'Operations')
+        self.assertEqual(self.kb.name,'Operations');self.assertEqual(self.feed.name,'Operations');self.assertEqual(self.plan.spec['title'],self.report['title'])
 
     def test_kb_page_rename_is_propagated_and_stale_preview_cannot_revert_it(self):
         response=self.client.post(reverse('kb:kb_rename',args=[self.kb.slug]),{'name':'Renamed in KB settings'},HTTP_X_REQUESTED_WITH='XMLHttpRequest')
@@ -116,10 +116,10 @@ class UnifiedFeedNameTests(TestCase):
         # self.parent still contains the old proposal in memory.
         result=check_spec(self.parent,self.parent.spec)
         self.assertEqual(result['name'],'Renamed in KB settings')
-        self.assertEqual(_json(self.draft)['spec']['title'],'Renamed in KB settings')
-        self.assertEqual(reports.normalize(self.report,self.feed)['title'],'Renamed in KB settings')
+        self.assertEqual(_json(self.draft)['spec']['title'],self.report['title'])
+        self.assertEqual(reports.normalize(self.report,self.feed)['title'],self.report['title'])
         self.plan.spec=self.report;self.plan.save(update_fields=['spec'])
-        self.plan.refresh_from_db();self.assertEqual(self.plan.spec['title'],'Renamed in KB settings')
+        self.plan.refresh_from_db();self.assertEqual(self.plan.spec['title'],self.report['title'])
 
     def test_approved_collection_revision_cannot_change_the_canonical_name(self):
         self.parent.spec=check_spec(self.parent,self.spec);self.parent.save()
@@ -129,7 +129,7 @@ class UnifiedFeedNameTests(TestCase):
         self.assertEqual(result.pk,self.feed.pk);self.assertEqual(result.name,'Ride operations')
         self.assertEqual(result.adapter_spec['name'],'Ride operations')
 
-    def test_future_email_and_teams_reports_use_current_kb_name_with_real_excel(self):
+    def test_future_email_and_teams_reports_keep_their_purpose_title_with_real_excel(self):
         # Ingest a real row; mock only the outbound network boundary.
         self.feed.mode='push';self.feed.adapter_spec={};self.feed.save()
         run,_=claim(self.feed.pk,trigger='push',payload={'schema':'fos-rag-feed/v1','items':[{'id':'ride','title':'Attraction','content':'Hours'}]})
@@ -141,9 +141,9 @@ class UnifiedFeedNameTests(TestCase):
                 delivery=reports.send(plan,spec=self.report,request_key='named-'+kind)
             self.assertEqual(delivery.status,'accepted',delivery.error)
             payload=post.call_args.args[1]
-            if kind=='email':self.assertEqual(payload['s'],'Ride operations')
-            else:self.assertEqual(payload['attachments'][0]['content']['body'][0]['text'],'Ride operations')
-            self.assertEqual(load_workbook(io.BytesIO(delivery.content)).properties.title,'Ride operations')
+            if kind=='email':self.assertEqual(payload['s'],self.report['title'])
+            else:self.assertEqual(payload['attachments'][0]['content']['body'][0]['text'],self.report['title'])
+            self.assertEqual(load_workbook(io.BytesIO(delivery.content)).properties.title,self.report['title'])
 
     def test_data_migration_aligns_legacy_names_idempotently_without_touching_schedules(self):
         KnowledgeFeed.objects.filter(pk=self.feed.pk).update(name='Old feed',adapter_spec=self.spec)
@@ -196,4 +196,4 @@ class UnifiedFeedNameTests(TestCase):
         response=self.action(kb_name='',name='Legacy editor name')
         self.assertEqual(response.status_code,200,response.content)
         self.kb.refresh_from_db();self.assertEqual(self.kb.name,'Legacy editor name')
-        self.assertEqual(response.json()['feed']['report']['title'],self.kb.name)
+        self.assertEqual(response.json()['feed']['report']['title'],self.report['title'])

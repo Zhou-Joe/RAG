@@ -15,8 +15,9 @@ from django.conf import settings
 
 from .feed_protocol import validate_url
 from .models import FeedCredential
+from .credential_routing import MAX_CREDENTIAL_PROFILES, PROFILE_NAME, origin_url, scoped_headers
 
-LABELS = {'bearer':'Bearer Token','api_key':'API Key','basic':'Basic 用户名与密码','login':'网页登录账号与密码','headers':'自定义请求头'}
+LABELS = {'bearer':'Bearer Token','api_key':'API Key','basic':'Basic 用户名与密码','login':'网页登录账号与密码','headers':'自定义请求头','multiple':'多组访问凭据'}
 
 
 def api_origin(url: str) -> str:
@@ -47,9 +48,9 @@ def _cipher(*, create: bool = False) -> Fernet:
 # 调用方（尤其是本地模型）经常省略 type：只有一种含义明确时才推断，否则报错，
 # 绝不静默按「不认证」处理——那会导凭据从未保存而后续每次请求都 401。
 INFER = {'token': 'bearer', 'value': 'api_key', 'header_name': 'api_key',
-         'username': 'basic', 'password': 'basic', 'headers': 'headers'}
+         'username': 'basic', 'password': 'basic', 'headers': 'headers', 'profiles':'multiple'}
 AUTH_HELP = ('请明确给出 type：none / bearer(token) / api_key(header_name,value) / '
-             'basic(username,password) / login(username,password) / headers([{name,value}])。')
+             'basic(username,password) / login(username,password) / headers([{name,value}]) / multiple(profiles)。')
 
 
 def normalize_auth(auth: dict) -> dict:
@@ -78,6 +79,11 @@ def parse_auth(auth: dict) -> tuple[str,dict,list[str]]:
         return result
     extra = []
     if kind=='none': return kind,{},[]
+    if kind=='multiple':
+        profiles=_parse_profiles(auth)
+        # A bundle has no unscoped header set. Call authentication_headers with
+        # the destination URL to obtain only that service's credentials.
+        return kind,{},list(dict.fromkeys(value for profile in profiles for value in profile['secrets']))
     if kind=='bearer':
         token = value('token','Token').strip()
         token = re.sub(r'^Bearer\s+','',token,flags=re.I)
@@ -110,8 +116,13 @@ def bindings(credential: FeedCredential) -> dict:
     return {name:f'FOS_FEED_CREDENTIAL_{credential.pk.hex.upper()}_{index}' for index,name in enumerate(credential.header_names)}
 
 
-def store(user, url: str, auth: dict) -> FeedCredential | None:
+def store(user, url: str, auth: dict, *, previous=None) -> FeedCredential | None:
     """将页面中的认证值加密保存；永不写入 prompt、spec 或日志。"""
+    if not isinstance(auth,dict):raise ValueError('认证配置格式无效。')
+    auth=normalize_auth(auth)
+    if auth.get('type')=='multiple':
+        if previous and previous.owner_id!=user.pk:raise ValueError('只能保留本人保存的凭据；请填写完整的新凭据。')
+        return _store_profiles(user,url,_parse_profiles(auth,previous=previous))
     kind,headers,secrets = parse_auth(auth)
     if kind=='none': return None
     origin = api_origin(url)
@@ -141,18 +152,157 @@ def request_headers(resource, url: str) -> dict:
     from .feed_http import environment_headers
     credential=getattr(resource,'credential',None)
     if not credential: return environment_headers(resource.header_env)
-    if api_origin(url)!=credential.api_origin: raise ValueError('API 主机发生变化，请在页面重新填写该主机的凭据。')
     if resource.header_env!=bindings(credential): raise ValueError('认证引用已变化，请重新保存凭据。')
+    if credential.kind=='multiple':
+        profiles=credential_profiles(resource)
+        if api_origin(url) not in {credential.api_origin,*[api_origin(profile['url']) for profile in profiles]}:
+            raise ValueError('此服务没有配置访问凭据，请先保存该服务的凭据。')
+        return scoped_headers(profiles,url)
+    if api_origin(url)!=credential.api_origin: raise ValueError('API 主机发生变化，请在页面重新填写该主机的凭据。')
     return unpack(credential)['headers']
 
 
 def summary(resource) -> dict:
     credential=getattr(resource,'credential',None)
     if credential:
-        return {'configured':True,'type':credential.kind,'label':LABELS.get(credential.kind,'API 认证'),
-                'headers':credential.header_names,'managed':True,'login_fields':['username','password'] if credential.kind=='login' else []}
+        result={'configured':True,'type':credential.kind,'label':LABELS.get(credential.kind,'API 认证'),
+                'headers':credential.header_names,'managed':True,'login_fields':['username','password'] if credential.kind=='login' else [],
+                'url':_origin_from_saved(credential.api_origin)}
+        if credential.kind=='multiple':
+            result['profiles']=[{'name':profile['name'],'url':profile['url'],'configured':True,
+                'type':profile['kind'],'label':LABELS.get(profile['kind'],'API 认证'),
+                'headers':list(profile['headers']),'login_fields':['username','password'] if profile.get('login') else []}
+                for profile in credential_profiles(resource)]
+            result['profile_count']=len(result['profiles'])
+        return result
     return {'configured':bool(resource.header_env),'type':'legacy' if resource.header_env else 'none',
             'label':'已有环境变量认证' if resource.header_env else '无需认证','headers':list(resource.header_env),'managed':False}
+
+
+def _origin_from_saved(value):
+    scheme,host,port=json.loads(value)
+    host='['+host+']' if ':' in host else host
+    return scheme+'://'+host+(':'+str(port) if port!=(443 if scheme=='https' else 80) else '')
+
+
+def _profiles_from_credential(credential):
+    data=unpack(credential)
+    if credential.kind=='multiple':return data['profiles']
+    return [{'name':'primary','url':_origin_from_saved(credential.api_origin),'kind':credential.kind,
+        'headers':data['headers'],'secrets':data['secrets'],'login':data.get('login',{})}]
+
+
+def credential_profiles(resource):
+    credential=getattr(resource,'credential',None)
+    if not credential:return []
+    if resource.header_env!=bindings(credential):raise ValueError('认证引用已变化，请重新保存凭据。')
+    return _profiles_from_credential(credential)
+
+
+def credential_urls(resource):
+    return [profile['url'] for profile in credential_profiles(resource)]
+
+
+def _parse_profiles(auth, *, previous=None):
+    rows=auth.get('profiles')
+    if not isinstance(rows,list) or not 1<=len(rows)<=MAX_CREDENTIAL_PROFILES:
+        raise ValueError('请配置1至8组访问凭据。')
+    saved={profile['name']:profile for profile in _profiles_from_credential(previous)} if previous else {}
+    profiles=[];seen=set()
+    for row in rows:
+        if not isinstance(row,dict) or not row.keys()<={'name','url','authentication'}:
+            raise ValueError('每组凭据使用 name、url、authentication。')
+        name=row.get('name')
+        if not isinstance(name,str) or not PROFILE_NAME.fullmatch(name) or name in seen:
+            raise ValueError('凭据名称须唯一，以字母开头，可用字母、数字、下划线或连字符，最多40字符。')
+        seen.add(name)
+        url=row.get('url');api_origin(url);url=origin_url(url)
+        authentication=row.get('authentication')
+        if not isinstance(authentication,dict):raise ValueError('请填写每组凭据的认证方式。')
+        authentication=normalize_auth(authentication)
+        if authentication.get('type')=='saved':
+            profile=saved.get(name)
+            if not profile or api_origin(profile['url'])!=api_origin(url):
+                raise ValueError('无法复用这组凭据；名称或接收服务已改变，请重新填写。')
+            profiles.append(dict(profile));continue
+        if authentication.get('type') in ('multiple','none'):
+            raise ValueError('每组凭据请选择一种实际认证方式，不嵌套凭据组。')
+        kind,headers,secrets=parse_auth(authentication)
+        profiles.append({'name':name,'url':url,'kind':kind,'headers':headers,'secrets':secrets,
+            'login':{'username':authentication['username'],'password':authentication['password']} if kind=='login' else {}})
+    for profile in profiles:scoped_headers(profiles,profile['url'])
+    return profiles
+
+
+def _store_profiles(user,url,profiles):
+    if not profiles:return None
+    if len(profiles)>MAX_CREDENTIAL_PROFILES:raise ValueError('每个任务最多保存8组访问凭据。')
+    origin=api_origin(url)
+    for profile in profiles:scoped_headers(profiles,profile['url'])
+    names={}
+    for profile in profiles:
+        for name in profile['headers']:names.setdefault(name.lower(),name)
+    if len(names)>20:raise ValueError('凭据组总共最多使用20个不同的认证请求头。')
+    secrets=list(dict.fromkeys(value for profile in profiles for value in profile['secrets']))
+    payload={'owner':str(user.pk),'origin':origin,'headers':scoped_headers(profiles,url),
+        'secrets':secrets,'login':{},'profiles':profiles}
+    encrypted=_cipher(create=True).encrypt(json.dumps(payload,ensure_ascii=False).encode()).decode()
+    return FeedCredential.objects.create(owner=user,kind='multiple',api_origin=origin,
+        header_names=list(names.values()),encrypted_value=encrypted)
+
+
+def authentication_headers(auth,url,*,previous=None):
+    """Test unsaved form input against only its configured target service."""
+    if not isinstance(auth,dict):raise ValueError('认证配置格式无效。')
+    auth=normalize_auth(auth)
+    return scoped_headers(_parse_profiles(auth,previous=previous),url) if auth.get('type')=='multiple' else parse_auth(auth)[1]
+
+
+def supplied_values(auth):
+    """Raw input values, without synthesized Bearer/Basic encodings."""
+    auth=normalize_auth(auth)
+    if auth.get('type')=='multiple':
+        return [value for row in auth.get('profiles',[]) for value in supplied_values(row.get('authentication',{}))]
+    if auth.get('type')=='headers':return [row.get('value','') for row in auth.get('headers',[])]
+    return [auth[key] for key in ('token','username','password','value') if auth.get(key)]
+
+
+def upsert_access(resource,user,url,auth,*,name=''):
+    """An additional service no longer replaces credentials already saved for another."""
+    auth=normalize_auth(auth)
+    previous=getattr(resource,'credential',None)
+    if auth.get('type')=='multiple':return store(user,url,auth,previous=previous)
+    parse_auth(auth)
+    if not previous and auth.get('type')=='none':return None
+    if not previous:return store(user,url,auth) if not name else store(user,url,{'type':'multiple','profiles':[{'name':name,'url':url,'authentication':auth}]})
+    if previous.owner_id!=user.pk:raise ValueError('只能保留本人保存的凭据；请重新填写完整凭据组。')
+    profiles=_profiles_from_credential(previous)
+    target=api_origin(url)
+    if name:
+        if not PROFILE_NAME.fullmatch(name):raise ValueError('凭据名称格式无效。')
+        old=next((profile for profile in profiles if profile['name']==name),None)
+        if old and api_origin(old['url'])!=target:raise ValueError('不能将已保存的凭据名称移到另一个服务。')
+    else:
+        same=[profile for profile in profiles if api_origin(profile['url'])==target]
+        if len(same)>1:raise ValueError('此服务有多组凭据，请用 name 指定要修改的组。')
+        name=same[0]['name'] if same else next('service-'+str(i) for i in range(1,10) if 'service-'+str(i) not in {p['name'] for p in profiles})
+    profiles=[profile for profile in profiles if profile['name']!=name]
+    if auth.get('type')!='none':
+        profiles.extend(_parse_profiles({'profiles':[{'name':name,'url':url,'authentication':auth}]}))
+    primary=getattr(resource,'api_url','') or getattr(resource,'url','') or url
+    return _store_profiles(user,primary,profiles)
+
+
+def export_profiles(resource):
+    credential=getattr(resource,'credential',None)
+    if not credential or credential.kind!='multiple':return []
+    result=[]
+    for index,profile in enumerate(credential_profiles(resource)):
+        prefix='FOS_FEED_CREDENTIAL_'+credential.pk.hex.upper()+'_'+str(index)
+        result.append({'name':profile['name'],'url':profile['url'],
+            'header_env':{name:prefix+'_HEADER_'+str(i) for i,name in enumerate(profile['headers'])},
+            'login_env':{field:prefix+'_'+field.upper() for field in profile.get('login',{})}})
+    return result
 
 
 def discard_if_unused(credential_id) -> None:

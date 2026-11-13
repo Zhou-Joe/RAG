@@ -59,8 +59,16 @@ Recipients must be able to access the configured public site address. Download l
 
 Deployments must apply migrations `0049_feed_report_workflows` and `0050_independent_report_schedules` and preserve the existing credential encryption key alongside the database. Excel artifacts and delivery audit records are stored in the database. Expiry controls download access; it does not delete audit records or artifact bytes.
 
-## One task name
+## Source names and delivery titles
 
-The knowledge base name is the only editable task name. Edit it on the KB settings page or in the data source's **Edit settings** dialog. The data source, saved connector configuration, report plan, future email subjects, Teams card headings and Excel document titles use that name automatically. EnGenie does not require a separate report title.
+The data source and saved connector configuration follow the KB name. Email subjects, Teams card headings and Excel document titles use an independent `report.title`. EnGenie infers a concise title describing the alert or report purpose, or preserves the user's supplied title. Changing the KB name does not replace a saved delivery title. Older definitions with no title fall back to the KB name.
 
 Migration `0054_unified_feed_names` aligns existing tasks to their current KB name. Renaming preserves KB slugs, source URLs, saved credentials, report destinations, enabled states and the independent collection/report schedules. Previously delivered workbooks and audit records remain unchanged. Legacy API `name` input is accepted as an alias when editing a source; new callers should send only `kb_name`.
+
+## Compact Teams cards
+
+`teams_card: {"fields": ["Equipment", "Temperature", "State"]}` selects one to three final output columns independently of the full Excel report. Without this option the first three output columns are used. For item alerts, built-in processing evaluates the complete trigger condition and comma-joins every matching row in the same order across the selected fields. Missing values stay marked; commas inside an item are quoted. A card preview shows the actual joined values before approval. If the content exceeds the card budget, the card explicitly states the displayed/total item count and links to the complete report.
+
+For statistics, use report `computed`, `filters`, `group_by` and `aggregates` first, then choose up to three aggregate output fields. Each scheduled or conditional run recomputes the data with deterministic application code. Ordinary lists, threshold alerts and statistics do not require an LLM call. EnGenie Digest is optional, used only when requested or when the required explanation cannot be expressed by deterministic processing. Requested Digest text can accompany the three fields; its complete statistics remain available in the report.
+
+Every EnGenie email ends with the fixed signature “Powered by EnGenie · Intelligent AI Agent built by FOS” and “Engineering the Magic!”. It uses the reference's thin divider, gray supporting text, green Ink Free wordmark and green tagline. The wordmark is a small transparent PNG typeset at three times its displayed size, so recipients do not need the font installed. The surrounding text stays live HTML with inline Segoe UI styling for Outlook. The image uses the deployment's static URL and public report host; without a public host, the signature uses an Ink Free text fallback. Standard, Digest, HTML-link and HTML-attachment email bodies all receive it; no workflow attachment changes are needed.

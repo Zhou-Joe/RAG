@@ -37,6 +37,25 @@ test('disabled digest renders nothing and enabling it shows concise pending guid
  assert.ok(nodes.some(node=>node.textContent==='The digest will be generated before delivery. Preview and adjust it through EnGenie.'));
 });
 
+test('Teams preview shows the delivery title and comma-joined values as inert text without requiring Digest',()=>{
+ const h=setup(),title='<img src=x> Long waits';
+ const card=h.scope.ConnectorReportDigest.renderCard(title,{row_count:5,shown_rows:5,omitted_rows:0,
+  facts:[{title:'Ride',value:'A, B, C, D, E'},{title:'Wait',value:'0, 10, 20, 30, 40'},{title:'State',value:'Open, Open, Open, Open, Open'}]});
+ const nodes=all(card);assert.ok(nodes.some(node=>node.textContent===title&&node.attrs.translate==='no'));
+ assert.ok(nodes.some(node=>node.textContent==='A, B, C, D, E'&&node.attrs.translate==='no'));
+ assert.equal(nodes.some(node=>node.tagName==='img'),false);
+ assert.equal(h.scope.ConnectorReportDigest.renderCard(title,null),null);
+});
+
+test('Teams preview discloses overflow and does not call an empty-dataset alert an unsent notification',()=>{
+ const h=setup();
+ const overflow=h.scope.ConnectorReportDigest.renderCard('Alerts',{row_count:15,shown_rows:5,omitted_rows:10,facts:[]});
+ assert.ok(overflow.textContent.includes('5 / 15'));
+ assert.ok(overflow.textContent.includes('完整清单'));
+ const zero=h.scope.ConnectorReportDigest.renderCard('No records alert',{row_count:0,shown_rows:0,omitted_rows:0,will_send:true,facts:[]});
+ assert.equal(zero.textContent.includes('本次不会发送'),false);
+});
+
 test('presentation defaults to body without source links and warns only for unconfirmed HTML email delivery',()=>{
  const h=setup();h.language('en');
  const defaults=all(h.render({enabled:true},null,{kind:'email'}));

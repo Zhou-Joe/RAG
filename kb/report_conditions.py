@@ -100,8 +100,8 @@ def _compare(actual, condition: dict) -> bool:
             'lt': lambda: actual < expected, 'lte': lambda: actual <= expected}[op]()
 
 
-def evaluate_trigger(trigger: dict, rows: list[dict]) -> dict:
-    """Evaluate validated conditions after date filters, calculations and aggregation."""
+def _trigger_matches(trigger: dict, rows: list[dict]):
+    """Use one predicate for both notification decisions and item presentation."""
     def evaluate(node: dict, row: dict | None) -> bool:
         if 'all' in node:
             return all(evaluate(child, row) for child in node['all'])
@@ -114,6 +114,17 @@ def evaluate_trigger(trigger: dict, rows: list[dict]) -> dict:
 
     matches = [evaluate(trigger['condition'], row) for row in rows]
     matched = (all(matches) if trigger['match'] == 'all' else any(matches)) if matches else evaluate(trigger['condition'], None)
+    return matches, matched
+
+
+def trigger_matching_rows(trigger: dict, rows: list[dict]) -> list[dict]:
+    matches, matched = _trigger_matches(trigger, rows)
+    return [row for row, included in zip(rows, matches) if included] if matched else []
+
+
+def evaluate_trigger(trigger: dict, rows: list[dict]) -> dict:
+    """Evaluate validated conditions after date filters, calculations and aggregation."""
+    matches, matched = _trigger_matches(trigger, rows)
     return {'matched': matched, 'row_count': len(rows), 'matched_rows': sum(matches),
             'reason': 'condition_met' if matched else 'condition_not_met'}
 

@@ -27,3 +27,6 @@
 .feed-workflow-attachment-setting{margin:4px 0 12px}.feed-workflow-attachment-setting small{line-height:1.6}
 .cx-digest-presentation{display:flex;flex-wrap:wrap;gap:5px 14px;color:var(--dim);font-size:12px}.cx-digest-capability-warning{padding:8px 10px;border:1px solid var(--rule);border-radius:6px;color:var(--danger);background:var(--surface)}
 .cx-digest-source-links{margin:10px 0}.cx-digest-source-links ul{margin:6px 0;padding-left:20px;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.cx-digest-html-preview{margin-top:9px;font-size:12px}
+.feed-auth-profile{min-width:0;margin:12px 0;padding:12px;border:1px solid var(--rule,#dce4ed);border-radius:10px}
+.feed-auth-profile legend{padding:0 5px;color:var(--dim,#63758a);font-size:12px}
+.feed-auth-profile>.feed-auth{padding:0;margin:10px 0;border:0}

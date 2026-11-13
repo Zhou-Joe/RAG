@@ -164,7 +164,7 @@ def action(request):
                         headers=feed.header_env
                         if not feed.credential_id and not access.is_global_admin(request.user):raise ValueError('环境变量认证须由全局管理员配置。')
                     else:
-                        feed.credential=store(request.user,url,auth)
+                        feed.credential=store(request.user,url,auth,previous=feed.credential)
                         headers=bindings(feed.credential) if feed.credential else {}
                 elif feed.credential_id:
                     if 'header_env' in data and headers!=feed.header_env:raise ValueError('请通过认证表单修改已保存的凭据。')

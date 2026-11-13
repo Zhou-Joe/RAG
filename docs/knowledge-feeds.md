@@ -84,6 +84,10 @@ HTML is not rejected merely because it is not JSON. The builder also supports pl
 Provide source access information in the dialogue when needed: a Bearer Token, an API Key and header name,
 Basic or webpage login username/password, or custom header name/value pairs. The agent binds it to the source through
 `set_source_access`. The data-source management page also supports credential rotation and a direct connection test.
+
+A collector can keep up to eight named credentials, combining API keys, bearer/basic authentication, custom headers and website logins. Adding a second service with `set_source_access(url, authentication, name)` preserves the primary URL and other saved credentials. Each credential is scoped to its configured scheme, host and port. Same-service headers can be combined unless values conflict; same-service login accounts use `credential: "profile.username"` / `"profile.password"` references. Multiple headers on one service can also use the existing custom-header method.
+
+In **Edit settings → Access credentials → Multiple credentials**, each row has a name, service URL and authentication method. Saved rows can be reused while rotating or removing another row; no saved secrets are displayed. A structured request can use `authentication: {"type":"multiple","profiles":[{"name":"api","url":"https://api.example.com","authentication":{"type":"bearer","token":"…"}}]}`. There may be at most 20 distinct header names across the bundle. Exported scripts include `connector_credentials.json` with per-profile environment references and `.env.example` placeholders, never saved values; populate those variables in the execution environment. Managed schedules use the encrypted credentials automatically.
 The app automatically encrypts and stores credentials; users do not edit environment variables or backend files.
 For an intranet source (10.x, 192.168.x, 172.16-31.x, 127.0.0.1), a global administrator ticks
 **允许访问内网或本机 API** in the collapsible **内网配置** panel above the composer before sending the requirement.

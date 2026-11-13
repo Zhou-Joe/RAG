@@ -251,7 +251,7 @@ def summary(feed,selection=None,*,digest=None):
         'saved_workflow_types':sorted(bindings),'untyped_workflow_saved':bool(data.get('pending_url')),'missing':missing,'kind':data.get('kind'),
         'recipient':data.get('recipient','') if data.get('kind')=='email' else '','public_base':address['public_base'],'public_base_source':address['source'],
         'site_address_available':address['available'],'site_address_note':address['reason'],
-        'title':current_name(feed) if plan else '',
+        'title':(plan.spec.get('title') or current_name(feed)) if plan else '',
         'schedule':plan.spec.get('schedule',{'mode':plan.schedule_mode,'cron':plan.cron,'timezone':plan.timezone}) if plan else {},
         'trigger':plan.spec.get('trigger') if plan else None,
         'digest':plan.spec.get('digest',{'enabled':False}) if plan else {'enabled':False},
@@ -400,7 +400,8 @@ def output_headers(spec):
 def normalize(spec,feed,*,legacy=False):
     if not isinstance(spec,dict):raise ValueError('报告配置必须是对象。')
     from .feed_names import current_name
-    title=current_name(feed)
+    from .report_messages import report_title,normalize_teams_card
+    title=report_title(spec.get('title'),current_name(feed))
     columns=spec.get('columns');fields=set(available(feed)['fields'])
     if not isinstance(columns,list) or not 1<=len(columns)<=30:raise ValueError('请选择1至30个报告字段。')
     clean=[];labels=set()
@@ -441,6 +442,8 @@ def normalize(spec,feed,*,legacy=False):
     if len({a['label'] for a in aggregates})!=len(aggregates) or group and not aggregates:raise ValueError('分组需设置汇总计算，汇总列名不能重复。')
     schedule=report_schedule(spec.get('schedule',{'mode':'after_collection'} if legacy else None),feed)
     result={'kind':'report','title':title,'columns':clean,'range':scope,'filters':filters,'group_by':group,'aggregates':aggregates,'schedule':schedule}
+    if 'teams_card' in spec:
+        result['teams_card']=normalize_teams_card(spec['teams_card'],output_headers(result))
     if 'digest' in spec:
         from .report_digest import normalize_digest
         result['digest']=normalize_digest(spec['digest'],output_headers(result))
@@ -647,9 +650,14 @@ def preview(job,spec):
         digest_preview['report_fingerprint']=report_fingerprint(headers,rows)
         if spec['digest'].get('email_format') in ('html_attachment','html_link'):
             digest_preview['html']={'filename':'EnGenie-report.html','download_url':reverse('kb:report_preview_download',args=[job.pk])+'?format=html'}
+    from .report_messages import teams_card_summary
+    from .feed_names import current_name
+    card_preview=teams_card_summary(spec,headers,rows) if delivery.get('kind')=='teams' else None
+    if card_preview is not None:card_preview['will_send']=evaluation['matched'] if evaluation is not None else bool(rows)
+    delivery['title']=spec['title']
     next_at=CronSchedule(spec['schedule']['cron'],spec['schedule']['timezone']).next_after(at).isoformat() if spec['schedule']['mode']=='cron' else None
     return spec,{'valid':True,'report':True,'items':len(rows),'headers':headers,'preview':rows[:10],
-        'delivery':delivery,'transformation_audit':audit,'source_feed':spec['title'],'preview_as_of':at.isoformat(),'preview_timezone':spec['schedule']['timezone'],
+        'delivery':delivery,'teams_card_preview':card_preview,'transformation_audit':audit,'source_feed':current_name(feed),'preview_as_of':at.isoformat(),'preview_timezone':spec['schedule']['timezone'],
         'trigger':trigger,'trigger_evaluation':evaluation,'next_check_at':next_at if trigger else None,
         'digest':spec.get('digest',{'enabled':False}),'digest_preview':digest_preview,
         'next_send_at':None if trigger else next_at,'warning':'目标日期范围目前暂无数据；可确认规则，发送时将重新读取已保存的数据。' if not rows else '预览使用当前已有数据；发送时会重新计算选定日期范围。','schedule':spec['schedule'],'range':spec['range'],'processing':'aggregate' if spec['aggregates'] else 'raw','note':'报告使用已保存的数据，按自己的发送计划运行；不触发或修改采集任务。'}
@@ -695,12 +703,14 @@ def payload(config,spec,headers,rows,url,audit=None,digest=None,*,html_url='',ht
         from .report_digest import fact_lines
         digest_lines=fact_lines(digest.get('facts',{}),spec.get('digest',{}).get('language','en'))
     if config['kind']=='email':
+        from .report_email import email_signature
+        signature=email_signature(site_address(config)['public_base'])
         if digest and spec.get('digest',{}).get('email_format')=='html_attachment':
             require_html_attachment_mapping(config,spec['digest'])
             from .report_presentation import render_html_report,email_html_attachment
             html=html_content or render_html_report(spec,headers,rows,digest,report_url=None,source_links=digest.get('source_links'),audit=audit)
             short_body='<h2>'+escape(title)+'</h2><p>EnGenie Digest report is attached as HTML. / EnGenie 摘要报告已作为 HTML 附件提供。</p><p>Open the attachment in a browser for tables and charts. / 请使用浏览器打开附件查看表格和图表。</p>'
-            return {'t':config['recipient'],'s':title,'b':short_body,
+            return {'t':config['recipient'],'s':title,'b':short_body+signature,
                     'attachments':[email_html_attachment('EnGenie-report.html',html)]}
         body='<h2>'+escape(title)+'</h2><p>EnGenie report · '+str(count)+' records</p>'+('<p>'+alert+'</p>' if alert else '')+'<table border="1" cellpadding="6"><tr>'+''.join('<th>'+escape(h)+'</th>' for h in headers)+'</tr>'
         for row in rows[:10]:body+='<tr>'+''.join('<td>'+escape(str(row.get(h,''))[:1000])+'</td>' for h in headers)+'</tr>'
@@ -714,14 +724,15 @@ def payload(config,spec,headers,rows,url,audit=None,digest=None,*,html_url='',ht
                 body+=source_links_html(digest.get('source_links') or extract_source_links(headers,rows),language=spec['digest'].get('language','en'))
             if html_url:body+='<p><a href="'+escape(html_url,quote=True)+'">Open interactive HTML report / 打开交互式 HTML 报告</a></p>'
         body+='<p><a href="'+escape(url,quote=True)+'">Download complete Excel report / 下载 Excel 报告</a></p><p>Link expires in 7 days. / 链接7天有效。</p>'
-        result={'t':config['recipient'],'s':title,'b':body}
+        result={'t':config['recipient'],'s':title,'b':body+signature}
         return result
     card={'type':'AdaptiveCard','$schema':'http://adaptivecards.io/schemas/adaptive-card.json','version':'1.4',
-        'body':[{'type':'TextBlock','text':title,'weight':'Bolder','size':'Large','wrap':True},
-                {'type':'TextBlock','text':f'{count} records · EnGenie','wrap':True}],
+        'body':[{'type':'TextBlock','text':title,'weight':'Bolder','size':'Large','wrap':True}],
         'actions':[{'type':'Action.OpenUrl','title':'Download Excel / 下载报告','url':url}]}
     if html_url:card['actions'].insert(0,{'type':'Action.OpenUrl','title':'Open HTML report / 打开 HTML 报告','url':html_url})
-    if quality:card['body'].append({'type':'TextBlock','text':quality[:2000],'wrap':True})
+    if any(state.get('missing') for state in (audit or {}).values()):
+        card['body'].append({'type':'TextBlock','wrap':True,'text':
+            'Some values are unavailable. The complete processing audit is in the Excel report. / 部分数值缺失，完整处理记录请查看 Excel 报告。'})
     if alert:card['body'].append({'type':'TextBlock','text':alert,'wrap':True})
     if digest and spec.get('digest',{}).get('include_source_links'):
         from .report_presentation import extract_source_links,teams_source_actions
@@ -730,19 +741,15 @@ def payload(config,spec,headers,rows,url,audit=None,digest=None,*,html_url='',ht
         card['actions'].extend(source_actions)
         if selection.get('total_links',0)>len(source_actions):
             card['body'].append({'type':'TextBlock','text':f"Source links shown: {len(source_actions)} / {selection['total_links']}. Additional URLs remain in the complete report. / 其余来源链接保留在完整报告中。",'wrap':True})
+    from .report_messages import teams_card_summary
+    compact=teams_card_summary(spec,headers,rows)
+    if compact['facts']:card['body'].append({'type':'FactSet','facts':compact['facts']})
+    if compact['omitted_rows']:
+        card['body'].append({'type':'TextBlock','wrap':True,'text':
+            f"Items shown: {compact['shown_rows']} / {compact['row_count']}. Card space is limited; the complete list is in the Excel report. / 卡片空间有限，完整清单请查看 Excel 报告。"})
     if digest:
         card['body'].append({'type':'TextBlock','text':'EnGenie Digest','weight':'Bolder','wrap':True})
         card['body'].append({'type':'TextBlock','text':digest.get('text',''),'wrap':True})
-        displayed=[];used=0
-        for line in digest_lines:
-            size=len(line.encode('utf-8'))+1
-            if used+size>4000:break
-            displayed.append(line);used+=size
-        if displayed:card['body'].append({'type':'TextBlock','text':'\n'.join(displayed),'wrap':True})
-        if len(displayed)<len(digest_lines):
-            card['body'].append({'type':'TextBlock','text':'Complete digest and aggregate figures are included in the Excel report. / 完整摘要与汇总数据请查看 Excel 报告。','wrap':True})
-    else:
-        for row in rows[:3]:card['body'].append({'type':'FactSet','facts':[{'title':str(h)[:100],'value':str(row.get(h,''))[:300]} for h in headers[:8]]})
     return {'type':'message','attachments':[{'contentType':'application/vnd.microsoft.card.adaptive','contentUrl':None,'content':card}]}
 
 def post_workflow(config,body):

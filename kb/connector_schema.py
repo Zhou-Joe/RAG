@@ -42,7 +42,7 @@ def digest_chart_schema():
 
 
 def digest_schema():
-    return {'type': 'object', 'description': 'Optional EnGenie Digest for email/Teams; summarize deterministic statistics over the final report output.',
+    return {'type': 'object', 'description': 'Optional LLM Digest only when explicitly requested or deterministic processing cannot express the requested explanation. Use report aggregates and comma-joined Teams fields for lists/statistics without a Digest.',
         'properties': {
             'enabled': {'type': 'boolean'},
             'instructions': {'type': 'string', 'maxLength': 2000, 'description': 'User-requested focus, comparisons and presentation; never instructions to fetch external data.'},
@@ -117,7 +117,13 @@ def model_tools(tools):
         if 'computed' in props:props['computed']=calculation_schema()
         if 'digest' in props:props['digest']=digest_schema()
         if 'report' in props and props['report'].get('type') == 'object':
-            props['report'].setdefault('properties', {})['digest']=digest_schema()
+            report_props=props['report'].setdefault('properties', {})
+            report_props['title']={'type':'string','minLength':1,'maxLength':120,
+                'description':'Concise, purpose-specific email subject / Teams heading, independent of the KB name. Infer it from the delivery request unless the user supplies a title.'}
+            report_props['teams_card']={'type':'object','additionalProperties':False,'required':['fields'],
+                'properties':{'fields':{'type':'array','minItems':1,'maxItems':3,'uniqueItems':True,
+                    'items':{'type':'string'},'description':'Select up to three final output columns. The system comma-joins every matching item in row order. Use report aggregates first for statistical requests.'}}}
+            report_props['digest']=digest_schema()
         result.append(schema)
     return result
 

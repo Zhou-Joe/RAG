@@ -139,7 +139,7 @@ class ReportDigestDeliveryTests(TestCase):
         self.assertEqual(generate.call_count, 1)
         self.assertEqual(post.call_count, 1)
 
-    def test_teams_card_contains_narrative_and_deterministic_figures(self):
+    def test_requested_digest_keeps_card_fields_compact_and_full_statistics_in_report(self):
         reports.configure(self.user, self.feed, {'kind': 'teams', 'url': URL})
         self.plan.refresh_from_db()
         self.enable(conditional=True)
@@ -149,8 +149,10 @@ class ReportDigestDeliveryTests(TestCase):
         self.assertEqual(delivery.status, 'accepted', delivery.error)
         card = post.call_args.args[1]['attachments'][0]['content']
         self.assertIn('EnGenie Digest', json.dumps(card))
-        self.assertIn('Total Wait', json.dumps(card))
-        self.assertFalse(any(block['type'] == 'FactSet' for block in card['body']))
+        facts=[fact for block in card['body'] for fact in block.get('facts',[])]
+        self.assertEqual(facts,[{'title':'Name','value':'2'},{'title':'Wait','value':'7'}])
+        self.assertEqual(delivery.digest['facts']['metrics'][0]['label'],'Total Wait')
+        self.assertEqual(delivery.digest['facts']['metrics'][0]['value'],'12')
 
     def test_digest_only_edit_preserves_paused_schedule_conditions_and_credentials(self):
         self.enable(conditional=True)
