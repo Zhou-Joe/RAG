@@ -115,6 +115,16 @@
     for (const state of [...mounted])
       if (state.container === container || container?.contains?.(state.region)) discard(state);
   }
+  function rowFor(bubble) {
+    if (!bubble?.ownerDocument) return null;
+    let row = Array.from(bubble.children).find(node => node.className?.split(/\s+/).includes('chat-visual-row'));
+    if (!row) {
+      row = bubble.ownerDocument.createElement('div'); row.className = 'chat-visual-row';
+      const sources = Array.from(bubble.children).find(node => node.className?.split(/\s+/).includes('cite-row'));
+      if (sources) bubble.insertBefore(row, sources); else bubble.appendChild(row);
+    }
+    return row;
+  }
   function mount(container, charts, options = {}) {
     const items = Array.isArray(charts) ? charts : charts ? [charts] : [];
     destroy(container);
@@ -432,7 +442,7 @@ for _eg_index in _eg_plt.get_fignums():
 _eg_result = _eg_metrics + [chart for charts in _eg_captured.values() for chart in charts]
 _eg_json.dumps(_eg_result if len(_eg_result) <= 8 else [], ensure_ascii=True, allow_nan=False)
 `;
-  const api = {normalize, mount, destroy, pythonCaptureSetup, pythonCaptureRead};
+  const api = {normalize, mount, destroy, rowFor, pythonCaptureSetup, pythonCaptureRead};
   root.EnGenieChatVisualizations = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(globalThis);

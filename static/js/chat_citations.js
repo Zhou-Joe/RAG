@@ -7,10 +7,14 @@
     sources: '来源', tracker: '追踪表', document: '文档', graph: '知识图谱',
     open: '查看来源', evidence: '查看证据', image: '来源图片', queries: '次查询',
     source: '来源', pages: '页码', reference: '查看来源',
+    images: '知识库图片', expand: '展开', collapse: '收起', expandImage: '展开图片',
+    collapseImage: '收起图片', original: '查看原图', unavailable: '图片暂不可用',
   } : {
     sources: 'Sources', tracker: 'Tracker', document: 'Document', graph: 'Knowledge Graph',
     open: 'Open Source', evidence: 'View Evidence', image: 'Source Image', queries: 'queries',
     source: 'Source', pages: 'Pages', reference: 'View Source',
+    images: 'Knowledge Base Images', expand: 'Expand', collapse: 'Collapse', expandImage: 'Expand Image',
+    collapseImage: 'Collapse Image', original: 'Open Original', unavailable: 'Image Unavailable',
   };
   const string = value => typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value);
   const validNumber = value => Number.isSafeInteger(value) && value > 0 && value <= 9999;
@@ -76,7 +80,69 @@
     }
     return result;
   }
-  function sourceChip(document, group, id, language) {
+  function focusSource(state, chip) {
+    for (const source of state.references.values()) source.classList.remove('is-citation-focused');
+    chip.classList.add('is-citation-focused');
+    chip.scrollIntoView?.({block: 'nearest', behavior: 'smooth'}); chip.focus?.({preventScroll: true});
+  }
+  function imagePage(item, url) {
+    const base = url.split('?')[0];
+    const snapshots = Array.isArray(item.image_snapshots) ? item.image_snapshots : [];
+    const snapshot = snapshots.find(value => value && typeof value.image === 'string' && base === (
+      value.image.startsWith('page') && value.chunk_id
+        ? '/kb/evidence/' + value.chunk_id + '/page.png'
+        : '/kb/doc/' + value.doc_id + '/img/' + value.image));
+    if (snapshot) return string(snapshot.page);
+    const chunks = (Array.isArray(item.chunks) ? item.chunks : []).filter(value => value && value.page);
+    const exact = chunks.find(value => base === '/kb/evidence/' + value.chunk_id + '/page.png');
+    // A document can contain images on several pages. Never assign an unrelated
+    // text chunk's page or another image's location to this preview.
+    if (exact) return string(exact.page);
+    if (Array.isArray(item.images) && item.images.length === 1 && chunks.length === 1 && chunks[0].is_image)
+      return string(chunks[0].page);
+    return '';
+  }
+  function imageCard(document, state, group, item, url, chip, id) {
+    const labels = words(state.language), page = imagePage(item, url);
+    const card = element(document, 'figure', 'chat-table-card chat-image-card chat-kb-image-card');
+    const header = element(document, 'div', 'chat-table-head');
+    const title = element(document, 'span', 'chat-table-title', chip.title); title.title = chip.title;
+    const toggle = element(document, 'button', 'chat-table-toggle'); toggle.type = 'button';
+    const viewport = element(document, 'div', 'chat-table-viewport'); viewport.id = id;
+    const preview = element(document, 'button', 'chat-kb-image-preview'); preview.type = 'button';
+    const image = document.createElement('img');
+    image.src = url; image.loading = 'lazy'; image.decoding = 'async';
+    image.alt = labels.image + ': ' + chip.title + (page ? ' (' + page + ')' : '');
+    const unavailable = element(document, 'span', 'chat-kb-image-unavailable', labels.unavailable);
+    unavailable.hidden = true; unavailable.setAttribute('role', 'status');
+    image.addEventListener('error', () => { image.hidden = true; unavailable.hidden = false; });
+    image.addEventListener('load', () => { image.hidden = false; unavailable.hidden = true; });
+    function update() {
+      const expanded = state.expanded.get(url) === true;
+      card.classList.toggle('is-expanded', expanded);
+      for (const button of [toggle, preview]) {
+        button.setAttribute('aria-expanded', String(expanded)); button.setAttribute('aria-controls', id);
+        button.setAttribute('aria-label', (expanded ? labels.collapseImage : labels.expandImage) + ': ' + chip.title);
+      }
+      toggle.textContent = expanded ? labels.collapse : labels.expand;
+    }
+    function resize(event) {
+      event.stopPropagation(); state.expanded.set(url, state.expanded.get(url) !== true); update();
+    }
+    toggle.addEventListener('click', resize); header.addEventListener('click', resize); preview.addEventListener('click', resize);
+    const caption = element(document, 'figcaption', 'chat-kb-image-caption');
+    const source = element(document, 'button', 'chat-kb-image-source', '[' + group.number + '] ' + chip.title);
+    source.type = 'button'; source.title = labels.reference + ': ' + chip.title;
+    source.addEventListener('click', () => focusSource(state, chip));
+    caption.appendChild(source);
+    if (page) caption.appendChild(element(document, 'span', 'chat-kb-image-page', page));
+    const original = element(document, 'a', 'chat-kb-image-original', labels.original);
+    original.href = url; original.target = '_blank'; original.rel = 'noopener'; caption.appendChild(original);
+    header.appendChild(title); header.appendChild(toggle); preview.appendChild(image); preview.appendChild(unavailable);
+    viewport.appendChild(preview); card.appendChild(header); card.appendChild(viewport); card.appendChild(caption);
+    update(); return card;
+  }
+  function sourceChip(document, group, id, language, citations) {
     const labels = words(language), first = group.items[0], chunks = uniqueValues(group.items, 'chunks').filter(item => item && item.chunk_id);
     const kind = first.kind === 'tracker' ? 'tracker' : first.kind === 'graph' ? 'graph' : 'document';
     let name, chip;
@@ -92,7 +158,7 @@
       name = string(first.source || labels.document);
       if (chunks.length) {
         chip = element(document, 'button', 'cite-chip chat-source-chip has-ev'); chip.type = 'button';
-        chip.addEventListener('click', () => { if (typeof root.fosEvidencePanel === 'function') root.fosEvidencePanel(chunks[0].chunk_id, {chunks}); });
+        chip.addEventListener('click', () => { if (typeof root.fosEvidencePanel === 'function') root.fosEvidencePanel(chunks[0].chunk_id, {chunks, citations}); });
       } else {
         chip = element(document, 'a', 'cite-chip chat-source-chip');
         const highlights = uniqueValues(group.items, 'highlights').filter(value => typeof value === 'string' && value.length >= 3).slice(0, 12);
@@ -138,8 +204,7 @@
           link.title = chip.title;
           link.addEventListener('click', event => {
             event.preventDefault();
-            for (const source of state.references.values()) source.classList.remove('is-citation-focused');
-            chip.classList.add('is-citation-focused'); chip.scrollIntoView?.({block: 'nearest', behavior: 'smooth'}); chip.focus?.({preventScroll: true});
+            focusSource(state, chip);
           });
           fragment.appendChild(link); cursor = regex.lastIndex; replaced = true;
         }
@@ -153,19 +218,32 @@
     const language = options.language || root.FOSI18n?.language || 'en';
     let state = states.get(aiMsg);
     if (!state || state.citations !== citations || state.language !== language || state.row?.parentNode !== bubble) {
+      const expanded = state?.expanded || new Map();
       if (state) cleanup(state);
       for (const stale of bubble.querySelectorAll('.cite-row, .cite-imgs')) stale.remove();
       const document = bubble.ownerDocument, groups = grouped(citations);
-      state = {aiMsg, citations, language, options, references: new Map(), row: null, images: null};
+      state = {aiMsg, citations, language, options, expanded, references: new Map(), row: null, images: null};
       states.set(aiMsg, state);
       if (!groups.length) { clearInline(aiMsg.querySelector('.answer')); return 0; }
       let messageId = messageIds.get(aiMsg); if (!messageId) { messageId = 'engenie-message-' + (++serial); messageIds.set(aiMsg, messageId); }
       const row = element(document, 'div', 'cite-row chat-source-list notranslate'); row.setAttribute('translate', 'no');
       row.appendChild(element(document, 'span', 'cite-label', words(language).sources));
-      const images = element(document, 'div', 'cite-imgs chat-source-images'), imageUrls = new Set();
+      const images = element(document, 'div', 'chat-answer-images notranslate'), imageUrls = new Set();
+      images.setAttribute('translate', 'no'); images.setAttribute('role', 'group');
+      images.setAttribute('aria-label', words(language).images);
+      const evidence = [], evidenceIds = new Set();
+      for (const group of groups) {
+        if (!group.items[0].doc_id || ['tracker', 'graph'].includes(group.items[0].kind)) continue;
+        for (const chunk of uniqueValues(group.items, 'chunks')) {
+          if (!chunk?.chunk_id || evidenceIds.has(chunk.chunk_id)) continue;
+          evidenceIds.add(chunk.chunk_id);
+          evidence.push({chunk_id: chunk.chunk_id, page: chunk.page,
+            source: string(group.items[0].source), citation_number: group.number});
+        }
+      }
       const counts = new Map(); for (const group of groups) counts.set(group.number, (counts.get(group.number) || 0) + 1);
       for (const group of groups) {
-        const chip = sourceChip(document, group, messageId + '-source-' + group.number + '-' + row.children.length, language);
+        const chip = sourceChip(document, group, messageId + '-source-' + group.number + '-' + row.children.length, language, evidence);
         row.appendChild(chip);
         // Legacy/fallback list numbers remain visible, but only unambiguous server
         // assignments can turn answer text into a source assertion.
@@ -174,13 +252,11 @@
           state.references.set(group.number, chip);
         for (const item of group.items) for (const value of Array.isArray(item.images) ? item.images : []) {
           const url = protectedImage(value); if (!url || imageUrls.has(url)) continue; imageUrls.add(url);
-          const link = element(document, 'a', 'cite-img-link'); link.href = url; link.target = '_blank'; link.rel = 'noopener';
-          link.title = '[' + group.number + '] ' + chip.title;
-          const image = document.createElement('img'); image.src = url; image.loading = 'lazy'; image.alt = words(language).image;
-          link.appendChild(image); images.appendChild(link);
+          images.appendChild(imageCard(document, state, group, item, url, chip, messageId + '-image-' + imageUrls.size));
         }
       }
-      bubble.appendChild(row); if (images.children.length) bubble.appendChild(images);
+      if (images.children.length) (root.EnGenieChatVisualizations?.rowFor?.(bubble) || bubble).appendChild(images);
+      bubble.appendChild(row);
       state.row = row; state.images = images; active.add(state);
     }
     enhance(aiMsg.querySelector('.answer'), state);

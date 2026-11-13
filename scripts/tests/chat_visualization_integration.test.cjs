@@ -209,6 +209,31 @@ test('actual sandbox sends fallback image figures through compact-card controls 
   assert.equal(JSON.parse(h.posts[0].body).ok, true);
 });
 
+test('Python metrics and charts join the same answer row as existing photos without moving exports', async () => {
+  const h = sandboxFixture(), bubble = h.scope.document.createElement('div'); bubble.className = 'bubble';
+  h.container.appendChild(bubble);
+  h.scope.window.EnGenieChatVisualizations.rowFor = require('../../static/js/chat_visualizations.js').rowFor;
+  const row = h.scope.window.EnGenieChatVisualizations.rowFor(bubble);
+  const photos = h.scope.document.createElement('div'); photos.className = 'chat-answer-images'; row.appendChild(photos);
+  await h.scope.runCodeInSandbox(h.code, h.filename, h.container, 'mixed-answer');
+  assert.equal(bubble.querySelectorAll('.chat-visual-row').length, 1);
+  assert.equal(h.mounts[0][0].parentNode, row); assert.equal(photos.parentNode, row);
+  assert.equal(h.container.querySelectorAll('.cr-actions').length, 1);
+  assert.equal(h.container.querySelector('.code-result').querySelectorAll('a').length, 2);
+});
+
+test('unsupported Python images join the shared answer row while keeping their compact-card and download controls', async () => {
+  const h = sandboxFixture({readError: true, stdout: ''}), calls = [], bubble = h.scope.document.createElement('div');
+  bubble.className = 'bubble'; h.container.appendChild(bubble);
+  h.scope.window.EnGenieChatVisualizations.rowFor = require('../../static/js/chat_visualizations.js').rowFor;
+  h.scope.window.EnGenieChatTableCards = {mountImages(node) { calls.push(node); }};
+  await h.scope.runCodeInSandbox(h.code, h.filename, h.container, 'mixed-fallback');
+  const row = bubble.querySelector('.chat-visual-row');
+  assert.equal(row.querySelector('img').alt, 'chart.png'); assert.equal(calls[0], row);
+  assert.equal(row.querySelector('.chat-chart-images').className, 'chat-chart-images chat-visual-slot');
+  assert.equal(h.container.querySelector('.cr-actions').querySelectorAll('a').length, 2);
+});
+
 for (const mode of ['readError','malformed']) test('sandbox '+mode+' keeps static chart fallback and successful execution report', async () => {
   const h=sandboxFixture({[mode]:true,stdout:''}); await h.scope.runCodeInSandbox(h.code,h.filename,h.container,'answer-2');
   assert.ok(h.python.includes(h.code)); assert.equal(h.mounts[0][1].length,0);

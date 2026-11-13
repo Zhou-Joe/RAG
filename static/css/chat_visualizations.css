@@ -1,4 +1,7 @@
 .chat-chart-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px;margin:14px 0;width:100%;min-width:0}
+.chat-visual-row{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;margin:14px 0;width:100%;min-width:0}
+.chat-visual-row:empty,.chat-visual-row:not(:has(.chat-chart-card,.chat-image-card)){display:none}
+.chat-visual-row>.chat-visual-slot,.chat-visual-row>.chat-answer-images,.chat-visual-row>.chat-visual-slot>.chat-chart-grid{display:contents}
 .chat-chart-card{box-sizing:border-box;flex:0 1 320px;width:320px;max-width:100%;margin:0;padding:12px;border:1px solid var(--rule-soft,#e0e8f0);border-radius:14px;background:var(--panel,#fff);box-shadow:0 3px 14px #14324b05;min-width:0;overflow:hidden}
 .chat-chart-card.is-expanded{flex-basis:100%;width:100%;padding:16px}
 .chat-chart-header{display:flex;align-items:flex-start;gap:10px;justify-content:space-between;margin:0 0 10px;cursor:pointer}
@@ -33,4 +36,6 @@
 .erc-grid{stroke:#e7edf3;stroke-width:1}
 .erc-point-active{stroke:#142840;stroke-width:2}
 @media(max-width:560px){.chat-chart-card{padding:10px;flex-basis:min(280px,100%);width:min(280px,100%)}.chat-chart-card.is-expanded{flex-basis:100%;width:100%}.chat-chart-card.is-expanded .erc-metric-value{font-size:42px}}
+.chat-visual-row .chat-chart-card,.chat-visual-row .chat-answer-images .chat-kb-image-card,.chat-visual-row>.chat-chart-images>.chat-image-card{flex:0 1 240px;width:240px;max-width:100%;margin:0}
+.chat-visual-row .chat-chart-card.is-expanded,.chat-visual-row .chat-answer-images .chat-kb-image-card.is-expanded,.chat-visual-row>.chat-chart-images>.chat-image-card.is-expanded{flex-basis:100%;width:100%;max-width:none}
 @media print{.erc-tooltip,.chat-chart-size{display:none!important}.erc-legend{max-height:none;overflow:visible}.chat-chart-card{break-inside:avoid;box-shadow:none}}

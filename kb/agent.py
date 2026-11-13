@@ -833,6 +833,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             kb_slug: 要找图的知识库标识。必须明确提供本次选择的库；传文件夹 slug
                      会跨其下所有文档库找图。
             top: 最多输出的确认匹配图片数（0 = 默认 3）。
+        Selected image results are displayed directly inside the answer as compact,
+        expandable image cards with their source number and document/page details.
+        Do not generate duplicate Markdown image links or invent image URLs. Explain
+        the selected results briefly and use their assigned [N] source references.
+        A caption-only selection is not a visually verified match.
         """
         from .models import KnowledgeBase
         target = kb_slug

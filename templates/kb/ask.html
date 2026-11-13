@@ -4,9 +4,9 @@
 {% block content %}
 <link rel="stylesheet" href="{% static 'css/assistant_activity.css' %}?v=1">
 <link rel="stylesheet" href="{% static 'css/chat_attachments.css' %}?v=1">
-<link rel="stylesheet" href="{% static 'css/chat_visualizations.css' %}?v=2-metric-compact">
+<link rel="stylesheet" href="{% static 'css/chat_visualizations.css' %}?v=3-shared-row">
 <link rel="stylesheet" href="{% static 'css/chat_table_cards.css' %}?v=1">
-<link rel="stylesheet" href="{% static 'css/chat_citations.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/chat_citations.css' %}?v=3-inline-images">
 <style>
 @keyframes answerPulse { 0%,100% {opacity:1} 50% {opacity:.38} }
 .conv-item.is-generating .conv-title, .answer.thinking {animation:answerPulse 1.6s ease-in-out infinite}
@@ -80,12 +80,12 @@
 {% block scripts %}
 <script src="{% static 'js/vendor/marked.min.js' %}"></script>
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
-<script src="{% static 'js/evidence_panel.js' %}"></script>
+<script src="{% static 'js/evidence_panel.js' %}?v=2-citation-navigation"></script>
 <script src="{% static 'js/chat_input.js' %}"></script>
 <script src="{% static 'js/report_chart_runtime.js' %}?v=2-metric"></script>
-<script src="{% static 'js/chat_visualizations.js' %}?v=2-metric-compact"></script>
+<script src="{% static 'js/chat_visualizations.js' %}?v=3-shared-row"></script>
 <script src="{% static 'js/chat_table_cards.js' %}?v=1"></script>
-<script src="{% static 'js/chat_citations.js' %}?v=1"></script>
+<script src="{% static 'js/chat_citations.js' %}?v=3-inline-images"></script>
 <script src="{% static 'js/chat_attachments.js' %}?v=1"></script>
 <script src="{% static 'js/chat_stream.js' %}?v=20261113-attachments"></script>
 <script src="{% static 'js/tool_disclosure.js' %}?v=3-engenie-digest"></script>
@@ -561,13 +561,15 @@ except ImportError:
         }
       } catch(e) {}
       const chartArea = document.createElement('div');
+      chartArea.className = 'chat-visual-slot';
       const chartCount = container.isConnected !== false
         ? window.EnGenieChatVisualizations?.mount(chartArea, interactiveCharts, {language: window.FOSI18n?.language}) || 0 : 0;
       if (!html) html = '<div style="color:var(--mute);font-size:12px">（脚本无 print 输出）</div>';
       body.innerHTML = html;
       if (chartCount) {
         if (!out?.trim()) body.replaceChildren();
-        body.appendChild(chartArea);
+        const bubble = container.querySelector('.bubble');
+        (window.EnGenieChatVisualizations?.rowFor?.(bubble) || body).appendChild(chartArea);
       }
       if (plotImgs.length) {
         if (!out?.trim() && !chartCount) body.replaceChildren();
@@ -584,7 +586,12 @@ except ImportError:
           image.src = p.url; image.alt = p.fn;
           figure.appendChild(image); imageCopies.appendChild(figure);
         });
-        body.appendChild(imageCopies);
+        const bubble = container.querySelector('.bubble');
+        const imageParent = !chartCount && window.EnGenieChatVisualizations?.rowFor?.(bubble);
+        if (imageParent) {
+          imageCopies.className += ' chat-visual-slot'; imageParent.appendChild(imageCopies);
+          window.EnGenieChatTableCards?.mountImages?.(imageCopies.parentNode, {language: window.FOSI18n?.language});
+        } else body.appendChild(imageCopies);
       }
       window.EnGenieChatTableCards?.mountImages?.(body, {language: window.FOSI18n?.language});
       // 下载按钮：主文件 + 各 PNG
@@ -890,8 +897,8 @@ except ImportError:
     let area = bubble.querySelector('.chat-citation-charts');
     if (!area && !charts.length) return;
     if (!area) {
-      area = document.createElement('div'); area.className = 'chat-citation-charts';
-      bubble.appendChild(area);
+      area = document.createElement('div'); area.className = 'chat-citation-charts chat-visual-slot';
+      (window.EnGenieChatVisualizations.rowFor?.(bubble) || bubble).appendChild(area);
     }
     EnGenieChatVisualizations.mount(area, charts, {language: window.FOSI18n?.language});
   }

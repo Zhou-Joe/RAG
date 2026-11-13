@@ -9,7 +9,11 @@ class FakeNode {
     this.nodeValue = type === 3 ? value : null; this.childNodes = []; this.parentNode = null;
     this.attributes = {}; this.className = ''; this.events = {}; this.id = '';
     this.classList = {add: value => { this.className = [...new Set(this.className.split(' ').filter(Boolean).concat(value))].join(' '); },
-      remove: value => { this.className = this.className.split(' ').filter(item => item !== value).join(' '); }};
+      remove: value => { this.className = this.className.split(' ').filter(item => item !== value).join(' '); },
+      toggle: (value, force) => {
+        const next = force === undefined ? !this.className.split(' ').includes(value) : !!force;
+        if (next) this.classList.add(value); else this.classList.remove(value); return next;
+      }};
   }
   get children() { return this.childNodes.filter(child => child.nodeType === 1); }
   get textContent() { return this.nodeType === 3 ? this.nodeValue : this.childNodes.map(child => child.textContent).join(''); }
@@ -19,6 +23,11 @@ class FakeNode {
     child.remove(); child.parentNode = this; this.childNodes.push(child); return child;
   }
   append(...children) { for (const child of children) this.appendChild(child); }
+  insertBefore(child, before) {
+    child.remove(); child.parentNode = this;
+    const position = this.childNodes.indexOf(before); if (position < 0) throw new Error('Missing insertion target');
+    this.childNodes.splice(position, 0, child); return child;
+  }
   replaceChildren(...children) { for (const child of this.childNodes) child.parentNode = null; this.childNodes = []; this.append(...children); }
   replaceWith(...replacements) {
     if (!this.parentNode) return;
@@ -42,24 +51,31 @@ class FakeNode {
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   contains(node) { return node === this || this.childNodes.some(child => child.contains(node)); }
   addEventListener(type, handler) { (this.events[type] ||= []).push(handler); }
-  emit(type, extra = {}) { const event = {target: this, preventDefault() { this.prevented = true; }, ...extra}; for (const handler of this.events[type] || []) handler(event); return event; }
+  emit(type, extra = {}) { const event = {target: this, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; }, ...extra}; for (const handler of this.events[type] || []) handler(event); return event; }
   focus() { this.focused = true; }
   scrollIntoView(options) { this.scrolled = options; }
 }
-function environment() {
+function environment(options = {}) {
   const document = new FakeNode('document', null); document.ownerDocument = document;
   document.createElement = tag => new FakeNode(tag, document);
   document.createTextNode = text => new FakeNode('', document, 3, String(text));
   document.createDocumentFragment = () => new FakeNode('', document, 11);
   document.body = document.createElement('body'); document.appendChild(document.body);
   const evidence = [], scope = {document, module: {exports: {}}, fosEvidencePanel: (...args) => evidence.push(args)};
+  if (options.visuals) {
+    scope.window = scope;
+    scope.EnGenieReportCharts = {render: (canvas, chart) => { canvas.textContent = chart.type + ': ' + chart.title; }};
+    vm.runInNewContext(fs.readFileSync(require.resolve('../../static/js/chat_visualizations.js'), 'utf8'), scope);
+    const template = fs.readFileSync(require.resolve('../../templates/kb/ask.html'), 'utf8');
+    vm.runInNewContext(template.slice(template.indexOf('  function renderChatCharts('), template.indexOf('  function renderCitations(')), scope);
+  }
   vm.runInNewContext(fs.readFileSync(require.resolve('../../static/js/chat_citations.js'), 'utf8'), scope);
   function message(content = '') {
     const ai = document.createElement('div'), bubble = document.createElement('div'), answer = document.createElement('div');
     bubble.className = 'bubble'; answer.className = 'answer'; answer.textContent = content;
     bubble.appendChild(answer); ai.appendChild(bubble); document.body.appendChild(ai); return {ai, bubble, answer};
   }
-  return {document, api: scope.module.exports, message, evidence};
+  return {document, api: scope.module.exports, message, evidence, scope};
 }
 const tracker = (number = 1, extra = {}) => ({kind: 'tracker', kb_slug: 'ride-waits', kb_name: 'Ride Wait Times', result_digest: 'query-a', citation_number: number, ...extra});
 const doc = (number = 2, extra = {}) => ({doc_id: 'doc-1', source: 'Maintenance.pdf', citation_number: number, ...extra});
@@ -125,6 +141,16 @@ test('document evidence buttons preserve merged chunks and safe literal source a
   chip.emit('click'); assert.equal(h.evidence[0][0], 'c-1'); assert.equal(h.evidence[0][1].chunks.length, 2);
 });
 
+test('evidence navigation receives all cited document chunks and source numbers from this answer only', () => {
+  const h = environment(), m = h.message('Claims [2] and [4].');
+  h.api.render(m.ai, [doc(2, {chunks: [{chunk_id: 'a', page: 'Page 1'}, {chunk_id: 'a', page: 'Page 1'}]}),
+    doc(4, {doc_id: 'doc-2', source: 'Second.pdf', chunks: [{chunk_id: 'b', page: 'Page 8'}]}), tracker()]);
+  m.bubble.querySelector('.chat-source-chip').emit('click');
+  const navigation = h.evidence[0][1].citations;
+  assert.deepEqual(Array.from(navigation, item => [item.chunk_id, item.source, item.citation_number]),
+    [['a', 'Maintenance.pdf', 2], ['b', 'Second.pdf', 4]]);
+});
+
 test('document fallback, graph links and source images keep protected destinations and deduplicate previews', () => {
   const h = environment(), m = h.message();
   h.api.render(m.ai, [doc(2, {highlights: ['quoted & literal'], selected_chunk_ids: ['chunk-1'],
@@ -175,4 +201,117 @@ test('legacy answer numbers remain literal unless the model received an inline c
   h.api.render(m.ai, [tracker(1, {citation_inline: true}), tracker(1, {result_digest: 'legacy-query', citation_inline: false})]);
   assert.equal(m.answer.querySelectorAll('.chat-inline-citation').length, 0);
   assert.equal(m.bubble.querySelectorAll('.chat-source-chip').length, 1);
+});
+
+test('selected KB images are compact answer cards before the source list with exact per-image pages', () => {
+  const h = environment(), m = h.message('Here are two diagrams [2].');
+  const citations = [doc(2, {
+    images: ['/kb/doc/doc-1/img/a.png', '/kb/doc/doc-1/img/b.png', '/kb/doc/doc-1/img/a.png'],
+    chunks: [{chunk_id: 'text-chunk', page: 'Page 99'}],
+    image_snapshots: [
+      {doc_id: 'doc-1', image: 'a.png', page: 'Page 3', visual_confirmed: false},
+      {doc_id: 'doc-1', image: 'b.png', page: 'Page 9', visual_confirmed: true},
+    ],
+  })];
+  h.api.render(m.ai, citations);
+  const area = m.bubble.querySelector('.chat-answer-images'), row = m.bubble.querySelector('.chat-source-list');
+  assert.ok(m.bubble.children.indexOf(area) > m.bubble.children.indexOf(m.answer));
+  assert.ok(m.bubble.children.indexOf(area) < m.bubble.children.indexOf(row));
+  assert.equal(area.getAttribute('aria-label'), 'Knowledge Base Images');
+  assert.equal(m.bubble.querySelectorAll('.cite-imgs').length, 0);
+  assert.equal(row.querySelectorAll('img').length, 0);
+  const cards = area.querySelectorAll('.chat-kb-image-card'); assert.equal(cards.length, 2);
+  for (const card of cards) {
+    assert.ok(!card.className.includes('is-expanded'));
+    assert.equal(card.querySelector('.chat-table-toggle').getAttribute('aria-expanded'), 'false');
+    assert.equal(card.querySelector('.chat-kb-image-source').textContent, '[2] Maintenance.pdf');
+    assert.equal(card.querySelector('img').loading, 'lazy');
+    const original = card.querySelector('.chat-kb-image-original');
+    assert.equal(original.href, card.querySelector('img').src); assert.equal(original.target, '_blank');
+    assert.equal(original.rel, 'noopener');
+  }
+  assert.equal(cards[0].querySelector('.chat-kb-image-page').textContent, 'Page 3');
+  assert.equal(cards[1].querySelector('.chat-kb-image-page').textContent, 'Page 9');
+  assert.ok(!area.textContent.includes('Page 99')); assert.ok(!area.textContent.includes('verified'));
+  cards[1].querySelector('.chat-kb-image-source').emit('click');
+  assert.equal(row.querySelector('.chat-source-chip').focused, true);
+  assert.equal(m.answer.textContent, 'Here are two diagrams [2].');
+});
+
+test('KB image controls preserve independent sizes through streaming, reselection and language changes', () => {
+  const h = environment(), m = h.message('A diagram [2].');
+  const a = '/kb/doc/doc-1/img/a.png', b = '/kb/doc/doc-1/img/b.png';
+  const citations = [doc(2, {images: [a, b]})]; h.api.render(m.ai, citations);
+  let cards = m.bubble.querySelectorAll('.chat-kb-image-card');
+  cards[0].querySelector('.chat-kb-image-preview').emit('click');
+  assert.equal(cards[0].querySelector('.chat-table-toggle').textContent, 'Collapse');
+  assert.ok(cards[0].className.includes('is-expanded')); assert.ok(!cards[1].className.includes('is-expanded'));
+  assert.equal(cards[0].querySelector('.chat-kb-image-preview').getAttribute('aria-expanded'), 'true');
+  m.answer.textContent = 'A streamed diagram [2].'; h.api.render(m.ai, citations);
+  assert.equal(m.bubble.querySelectorAll('.chat-kb-image-card')[0], cards[0]);
+  h.api.render(m.ai, [doc(2, {images: [b, a]})]);
+  cards = m.bubble.querySelectorAll('.chat-kb-image-card');
+  assert.ok(!cards[0].className.includes('is-expanded')); assert.ok(cards[1].className.includes('is-expanded'));
+  h.document.emit('fos:languagechange', {detail: {language: 'zh-hans'}});
+  cards = m.bubble.querySelectorAll('.chat-kb-image-card');
+  assert.equal(cards[1].querySelector('.chat-table-toggle').textContent, '\u6536\u8d77');
+  assert.equal(cards[1].querySelector('.chat-table-title').textContent, 'Maintenance.pdf');
+  cards[1].querySelector('.chat-table-head').emit('click');
+  assert.equal(cards[1].querySelector('.chat-table-toggle').getAttribute('aria-expanded'), 'false');
+  cards[1].querySelector('.chat-table-toggle').emit('click');
+  assert.equal(cards[1].querySelector('.chat-table-toggle').getAttribute('aria-expanded'), 'true');
+  assert.equal(cards[1].querySelector('.chat-table-toggle').getAttribute('aria-controls'), cards[1].querySelector('.chat-table-viewport').id);
+  h.api.render(m.ai, []); assert.equal(m.bubble.querySelector('.chat-answer-images'), null);
+  h.api.render(m.ai, citations); h.api.destroy(m.ai); assert.equal(m.bubble.querySelector('.chat-answer-images'), null);
+});
+
+test('page images use their exact chunk location, never guess missing pages, and tolerate unavailable images', () => {
+  const h = environment(), m = h.message();
+  h.api.render(m.ai, [doc(2, {
+    images: ['/kb/evidence/image-chunk/page.png?page=2', '/kb/doc/doc-1/img/other.png'],
+    chunks: [{chunk_id: 'text-chunk', page: 'Page 99'}, {chunk_id: 'image-chunk', page: 'Page 7', is_image: true}],
+  })]);
+  const cards = m.bubble.querySelectorAll('.chat-kb-image-card');
+  assert.equal(cards[0].querySelector('.chat-kb-image-page').textContent, 'Page 7');
+  assert.equal(cards[1].querySelector('.chat-kb-image-page'), null);
+  const image = cards[0].querySelector('img'), unavailable = cards[0].querySelector('.chat-kb-image-unavailable');
+  assert.equal(unavailable.hidden, true); image.emit('error');
+  assert.equal(image.hidden, true); assert.equal(unavailable.hidden, false);
+  image.emit('load'); assert.equal(image.hidden, false); assert.equal(unavailable.hidden, true);
+  assert.equal(unavailable.textContent, 'Image Unavailable');
+});
+
+test('KB image source labels remain literal and card layout supports compact and expanded widths', () => {
+  const h = environment(), m = h.message(), source = '<img src=x onerror=alert(1)>.pdf';
+  h.api.render(m.ai, [doc(2, {source, images: ['/kb/doc/doc-1/img/a.png', 'data:image/svg+xml,<svg onload=alert(1)>']})]);
+  const card = m.bubble.querySelector('.chat-kb-image-card');
+  assert.equal(card.querySelector('.chat-table-title').textContent, source);
+  assert.equal(card.querySelector('.chat-kb-image-source').textContent, '[2] ' + source);
+  assert.equal(card.querySelectorAll('img').length, 1); assert.equal(card.querySelectorAll('script').length, 0);
+  const css = fs.readFileSync(require.resolve('../../static/css/chat_citations.css'), 'utf8');
+  assert.match(css, /\.chat-answer-images \.chat-kb-image-card\{[^}]*width:320px;max-width:100%/);
+  assert.match(css, /\.chat-answer-images \.chat-kb-image-card\.is-expanded\{[^}]*flex-basis:100%;width:100%/);
+});
+
+test('actual tracker metric and chart cards share one wrapping row with KB photos and retain independent sizes', () => {
+  const h = environment({visuals: true}), m = h.message('Metrics and photos [1] [2].');
+  const citations = [tracker(1, {tracker_snapshot: {chart: {type: 'metric', title: 'Total', value: 42}}}),
+    tracker(1, {result_digest: 'trend', tracker_snapshot: {chart: {type: 'line', title: 'Trend',
+      labels: ['A', 'B'], series: [{label: 'Count', values: [0, 42]}]}}}),
+    doc(2, {images: ['/kb/doc/doc-1/img/a.png']})];
+  h.api.render(m.ai, citations); h.scope.renderChatCharts(m.ai, citations);
+  const row = m.bubble.querySelector('.chat-visual-row'), photos = row.querySelector('.chat-answer-images');
+  assert.equal(m.bubble.querySelectorAll('.chat-visual-row').length, 1);
+  assert.equal(photos.parentNode, row); assert.equal(row.querySelector('.chat-citation-charts').parentNode, row);
+  assert.equal(row.querySelectorAll('.chat-chart-card').length, 2); assert.equal(row.querySelectorAll('.chat-kb-image-card').length, 1);
+  row.querySelector('.chat-chart-size').emit('click'); photos.querySelector('.chat-table-toggle').emit('click');
+  assert.equal(row.querySelector('.chat-chart-size').getAttribute('aria-expanded'), 'true');
+  assert.equal(photos.querySelector('.chat-table-toggle').getAttribute('aria-expanded'), 'true');
+  h.document.emit('fos:languagechange', {detail: {language: 'zh-hans'}});
+  assert.equal(row.querySelector('.chat-chart-size').getAttribute('aria-expanded'), 'true');
+  assert.equal(row.querySelector('.chat-table-toggle').getAttribute('aria-expanded'), 'true');
+  h.api.render(m.ai, [tracker()]); assert.equal(row.querySelectorAll('.chat-kb-image-card').length, 0);
+  assert.equal(row.querySelectorAll('.chat-chart-card').length, 2);
+  h.scope.renderChatCharts(m.ai, []); assert.equal(row.querySelectorAll('.chat-chart-card').length, 0);
+  h.api.destroy(m.ai); h.scope.EnGenieChatVisualizations.destroy(m.ai);
 });
