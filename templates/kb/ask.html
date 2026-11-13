@@ -87,9 +87,9 @@
 <script src="{% static 'js/interactive_table.js' %}?v=1"></script>
 <script src="{% static 'js/extended_visualizations.js' %}?v=1"></script>
 <script src="{% static 'js/report_chart_runtime.js' %}?v=5-extended"></script>
-<script src="{% static 'js/chat_visualizations.js' %}?v=4-extended"></script>
+<script src="{% static 'js/chat_visualizations.js' %}?v=5-value-first"></script>
 <script src="{% static 'js/chat_table_cards.js' %}?v=1"></script>
-<script src="{% static 'js/chat_citations.js' %}?v=3-inline-images"></script>
+<script src="{% static 'js/chat_citations.js' %}?v=4-value-only"></script>
 <script src="{% static 'js/chat_attachments.js' %}?v=1"></script>
 <script src="{% static 'js/chat_stream.js' %}?v=20261113-attachments"></script>
 <script src="{% static 'js/tool_disclosure.js' %}?v=4-extended-visuals"></script>
@@ -896,8 +896,11 @@ except ImportError:
   function renderChatCharts(aiMsg, citations) {
     const bubble = aiMsg.querySelector('.bubble');
     if (!bubble || !window.EnGenieChatVisualizations) return;
-    const charts = (citations || []).filter(c => c.kind === 'tracker' && c.tracker_snapshot?.chart)
-      .map(c => c.tracker_snapshot.chart).slice(0, 8);
+    const charts = (citations || []).flatMap(c => {
+      if (c.kind === 'tracker' && c.tracker_snapshot?.chart) return [c.tracker_snapshot.chart];
+      if (c.doc_id && Array.isArray(c.value_cards)) return c.value_cards.map(card => card.chart).filter(Boolean);
+      return [];
+    }).slice(0, 8);
     let area = bubble.querySelector('.chat-citation-charts');
     if (!area && !charts.length) return;
     if (!area) {

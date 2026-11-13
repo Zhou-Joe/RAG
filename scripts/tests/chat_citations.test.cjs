@@ -80,6 +80,19 @@ function environment(options = {}) {
 const tracker = (number = 1, extra = {}) => ({kind: 'tracker', kb_slug: 'ride-waits', kb_name: 'Ride Wait Times', result_digest: 'query-a', citation_number: number, ...extra});
 const doc = (number = 2, extra = {}) => ({doc_id: 'doc-1', source: 'Maintenance.pdf', citation_number: number, ...extra});
 
+test('an exact value answer displays its top card and sources without a duplicate citation-only prose line', () => {
+  const h=environment({visuals:true}),m=h.message('[1]');
+  const citations=[tracker(1,{tracker_snapshot:{chart:{type:'metric',title:'Wait time',value:15,unit:'min'}}})];
+  h.scope.renderChatCharts(m.ai,citations);h.api.render(m.ai,citations);
+  assert.equal(m.bubble.children[0].className,'chat-visual-row');
+  assert.equal(m.answer.hidden,true);
+  assert.ok(m.bubble.querySelector('.chat-source-chip'));
+  m.answer.textContent='The user requested an explanation [1].';h.api.render(m.ai,citations);
+  assert.equal(m.answer.hidden,false);
+  m.answer.textContent='[99]';h.api.render(m.ai,citations);assert.equal(m.answer.hidden,false);
+  h.scope.renderChatCharts(m.ai,[]);h.api.render(m.ai,[]);assert.equal(m.answer.hidden,false);
+});
+
 test('same-KB tracker citations are grouped once, named and retain distinct query counts', () => {
   const h = environment(), m = h.message('Wait time [1].');
   const citations = [tracker(), tracker(1, {result_digest: 'query-b'}), tracker(), doc()];

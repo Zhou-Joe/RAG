@@ -224,7 +224,7 @@
       const document = bubble.ownerDocument, groups = grouped(citations);
       state = {aiMsg, citations, language, options, expanded, references: new Map(), row: null, images: null};
       states.set(aiMsg, state);
-      if (!groups.length) { clearInline(aiMsg.querySelector('.answer')); return 0; }
+      if (!groups.length) { const answer=aiMsg.querySelector('.answer'); clearInline(answer); if(answer)answer.hidden=false; return 0; }
       let messageId = messageIds.get(aiMsg); if (!messageId) { messageId = 'engenie-message-' + (++serial); messageIds.set(aiMsg, messageId); }
       const row = element(document, 'div', 'cite-row chat-source-list notranslate'); row.setAttribute('translate', 'no');
       row.appendChild(element(document, 'span', 'cite-label', words(language).sources));
@@ -259,7 +259,14 @@
       bubble.appendChild(row);
       state.row = row; state.images = images; active.add(state);
     }
-    enhance(aiMsg.querySelector('.answer'), state);
+    const answer=aiMsg.querySelector('.answer');
+    enhance(answer, state);
+    if(answer){
+      const content=answer.textContent.trim();
+      const numbers=[...content.matchAll(/\[([1-9][0-9]*)\]/g)].map(match=>Number(match[1]));
+      answer.hidden=!!bubble.querySelector('.chat-chart-metric') && /^(?:\s*\[[1-9][0-9]*\])+\s*$/.test(content)
+        && numbers.every(number=>state.references.has(number));
+    }
     return state.row?.children.length ? state.row.children.length - 1 : 0;
   }
   function destroy(container) {

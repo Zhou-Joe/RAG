@@ -99,6 +99,14 @@ test('citation chart region bounds chart count and honors the active interface l
   h.scope.renderChatCharts(h.ai,[citation('ignored')]); assert.equal(h.mounts.length,1);
 });
 
+test('a source-validated exact document quantity is rendered as a value card', () => {
+  const h=chartFixture();
+  const spec={type:'metric',title:'Rated load',value:2500,unit:'kg'};
+  h.scope.renderChatCharts(h.ai,[{doc_id:'manual',value_cards:[{chart:spec}]}]);
+  assert.equal(h.mounts.length,1);assert.equal(h.mounts[0][1][0],spec);
+  h.scope.renderChatCharts(h.ai,[]);assert.equal(h.mounts[1][1].length,0);
+});
+
 test('actual citation entry point updates charts even when source chips already exist or citations become empty', () => {
   const h=chartFixture();
   vm.runInContext(between('  function renderCitations(', '  window.renderCitations ='),h.scope);

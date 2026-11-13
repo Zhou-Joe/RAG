@@ -2,7 +2,7 @@
   'use strict';
   const LABELS = {query_plan:'Understanding your question',hybrid_search:'Searching sources',answer_generation:'Generating answer',answer_verification:'Checking answer'};
   const TOOLS = {list_knowledge_bases:'List knowledge bases',kb_relationships:'Read knowledge base relationships',kb_graph_search:'Search verified facts',
-    kb_search:'Search knowledge base',kb_read_chunks:'Read source passages',kb_select_evidence:'Select citation evidence',kb_image_search:'Search images',
+    kb_search:'Search knowledge base',kb_read_chunks:'Read source passages',kb_select_evidence:'Select citation evidence',kb_show_value:'Display answer card',kb_image_search:'Search images',
     kb_fetch_doc:'Read document content',kb_neighbor_chunk:'Read neighboring passages',tracker_preview:'Preview tracksheet',tracker_lookup:'Query tracker records',
     tracker_analyze:'Analyze tracker records',tracker_visualize:'Create interactive data view',write_analysis:'Generate analysis',check_analysis:'Check analysis result',request_verified_export:'Prepare table export'};
   const CHECK = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m4 10 4 4 8-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';

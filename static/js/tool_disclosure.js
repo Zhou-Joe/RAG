@@ -3,7 +3,7 @@
   'use strict';
   const toolNames = {
     list_knowledge_bases:'List knowledge bases',kb_relationships:'Inspect knowledge base connections',kb_graph_search:'Search verified facts',
-    kb_search:'Search knowledge bases',kb_read_chunks:'Read source passages',kb_select_evidence:'Select supporting evidence',kb_image_search:'Find images',
+    kb_search:'Search knowledge bases',kb_read_chunks:'Read source passages',kb_select_evidence:'Select supporting evidence',kb_show_value:'Display answer card',kb_image_search:'Find images',
     kb_fetch_doc:'Read document content',kb_neighbor_chunk:'Read adjacent passages',tracker_preview:'Preview tracker',tracker_lookup:'Search tracker records',
     tracker_analyze:'Analyze records and prepare report',tracker_visualize:'Create interactive data view',write_analysis:'Prepare analysis',check_analysis:'Check analysis progress',request_verified_export:'Prepare verified export',
     browser_open:'Open webpage',browser_snapshot:'Inspect page structure',browser_action:'Interact with webpage',browser_network:'Inspect network data',

@@ -129,6 +129,25 @@ _VERIFY_PROMPT += (
 )
 
 
+def _answer_with_value_cards(answer, evidence):
+    """Verify the visible card facts even when the prose answer is only citations."""
+    if not re.fullmatch(r'(?:\s*\[[1-9][0-9]*\])+\s*', answer or ''):
+        return answer
+    cards = []
+    for item in evidence:
+        charts = ([item['chart']] if isinstance(item.get('chart'), dict) else [])
+        charts.extend(card['chart'] for card in item.get('value_cards', [])
+                      if isinstance(card, dict) and isinstance(card.get('chart'), dict))
+        for chart in charts:
+            if chart.get('type') == 'metric':
+                cards.append({'source_number': item.get('citation_number'),
+                    **{key: chart.get(key) for key in ('title', 'value', 'unit')}})
+    if not cards:
+        return answer
+    return answer + '\nThe answer is the displayed value cards below; verify these facts against the user question and sources. ' \
+        'No additional prose is required for a simple exact-answer question.\n' + json.dumps(cards, ensure_ascii=False)
+
+
 def _format_evidence(evidence: list[dict]) -> str:
     lines = []
     for i, ev in enumerate(evidence[:_VERIFY_MAX_ITEMS], 1):
@@ -186,6 +205,7 @@ async def verify_answer(llm_cfg: dict, question: str, answer: str,
     usage = {"input_tokens": 0, "output_tokens": 0}
     if not evidence or not (answer or "").strip():
         return None, usage
+    answer = _answer_with_value_cards(answer, evidence)
     attachments = [ev for ev in evidence if ev.get('kind') == 'chat_attachment']
     ordinary_chars = sum(len(ev.get("text") or "") for ev in evidence if ev.get('kind') != 'chat_attachment')
     attachment_chars = sum(len(ev.get("text") or "") for ev in attachments)
