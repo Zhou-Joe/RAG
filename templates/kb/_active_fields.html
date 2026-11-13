@@ -1,4 +1,4 @@
-{% if kb.category == 'business' and active_field_options %}
+{% if active_field_options %}{% if kb.category == 'business' or kb.table_query %}
 <fieldset class="field kb-active-fields">
   <legend>展示字段</legend>
   <p class="dialog-hint">仅影响页面展示与分析选项；采集与原始数据保持完整，可随时恢复字段。</p>
@@ -9,4 +9,4 @@
     </div>
   </details>
 </fieldset>
-{% endif %}
+{% endif %}{% endif %}

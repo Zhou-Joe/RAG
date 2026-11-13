@@ -51,7 +51,7 @@ def _feed_json(feed,user):
            if ingest_mode=='documents' else feed.tracker_rows.filter(status='done').count())
     return {'id':str(feed.pk),'name':feed.kb.name,'kb':feed.kb.slug,'kb_name':feed.kb.name,'mode':feed.mode,'write_mode':feed.write_mode,
             'ingest_mode':ingest_mode,'kb_url':reverse('kb:manage_detail',args=[feed.kb.slug]),
-            'can_edit':access.can_edit_feed(user,feed),'workflow_settings':{'saved_workflow_types':report['saved_workflow_types']},'report':report,'url':feed.url,'header_env':feed.header_env,'allow_private':feed.allow_private,
+            'can_edit':access.can_edit_feed(user,feed),'workflow_settings':{'saved_workflow_types':report['saved_workflow_types'],'html_attachments_supported':report['html_attachments_supported']},'report':report,'url':feed.url,'header_env':feed.header_env,'allow_private':feed.allow_private,
             'cron':feed.cron,'timezone':feed.timezone,'enabled':feed.enabled,'token_configured':bool(feed.token_digest),
             'next_run_at':feed.next_run_at.isoformat() if feed.next_run_at else None,
             'items':items,

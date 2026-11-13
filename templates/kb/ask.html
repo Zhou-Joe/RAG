@@ -3,6 +3,8 @@
 {% block title %}EnGenie · SHDR RAG{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="{% static 'css/assistant_activity.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/chat_attachments.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/chat_visualizations.css' %}?v=1">
 <style>
 @keyframes answerPulse { 0%,100% {opacity:1} 50% {opacity:.38} }
 .conv-item.is-generating .conv-title, .answer.thinking {animation:answerPulse 1.6s ease-in-out infinite}
@@ -58,10 +60,14 @@
         <div class="msg ai"><div class="msg-who"><span class="who-ava">{% include 'kb/_assistant_avatar.html' %}</span><span class="who-name">EnGenie</span></div><div class="bubble"><div class="answer" data-i18n-ui>向 EnGenie 提问，查找工程知识与原文依据。</div></div></div>
       </div>
 
-      <div class="composer">
+      <div class="composer chat-composer-with-attachments">
+        <div class="chat-attachment-tray" id="chatAttachmentPending" aria-label="待发送附件" aria-live="polite" hidden></div>
+        <button class="chat-attach-button" id="chatAttachBtn" type="button" aria-label="添加照片或文件" title="可添加照片或文件，仅用于本次对话；最多 5 个，每个 10 MB，总计 25 MB。"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 12 5.8-5.8a3 3 0 0 1 4.2 4.2l-8.1 8.1a5 5 0 0 1-7.1-7.1L12 3.3a1 1 0 0 1 1.4 1.4L5.3 12.8a3 3 0 0 0 4.2 4.2l8.1-8.1a1 1 0 0 0-1.4-1.4L10.4 13a1 1 0 0 0 1.4 1.4l4.1-4.1"/></svg></button>
+        <input type="file" id="chatAttachmentPicker" accept=".jpg,.jpeg,.png,.webp,.pdf,.docx,.txt,.md,.csv,.tsv,.xlsx,.xlsm" multiple hidden>
         <textarea id="input" rows="1"></textarea>
         <button class="btn primary" id="sendBtn">发送</button>
         <button class="btn outline" id="stopBtn" type="button" style="display:none" hidden>停止回答</button>
+        <p class="chat-attachment-error" id="chatAttachmentError" role="alert" hidden></p>
       </div>
       <div class="composer-hint">Enter 发送 · Shift+Enter 换行</div>
     </div>
@@ -74,8 +80,11 @@
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
 <script src="{% static 'js/evidence_panel.js' %}"></script>
 <script src="{% static 'js/chat_input.js' %}"></script>
-<script src="{% static 'js/chat_stream.js' %}?v=20260921"></script>
-<script src="{% static 'js/tool_disclosure.js' %}?v=2-english-activity"></script>
+<script src="{% static 'js/report_chart_runtime.js' %}?v=1-chat"></script>
+<script src="{% static 'js/chat_visualizations.js' %}?v=1"></script>
+<script src="{% static 'js/chat_attachments.js' %}?v=1"></script>
+<script src="{% static 'js/chat_stream.js' %}?v=20261113-attachments"></script>
+<script src="{% static 'js/tool_disclosure.js' %}?v=3-engenie-digest"></script>
 <script src="{% static 'js/assistant_activity.js' %}?v=4-english-activity"></script>
 <script src="{% static 'js/chat_recovery.js' %}?v=20260921"></script>
 <script src="{% static 'js/conversation_badges.js' %}?v=1"></script>
@@ -314,6 +323,11 @@ except ImportError:
   }
   {% endif %}
   let busy = false;
+  const attachmentUI = FosChatAttachments.create({input,
+    picker: document.getElementById('chatAttachmentPicker'), button: document.getElementById('chatAttachBtn'),
+    pending: document.getElementById('chatAttachmentPending'), error: document.getElementById('chatAttachmentError'),
+    dropZone: document.querySelector('.chat-col')});
+  window.addEventListener('pagehide', () => attachmentUI.clear());
 
   // Enter 发送：桌面快捷键。两个例外——中文输入法选词的 Enter（isComposing）
   // 不能触发发送；触屏设备 Enter 一律换行（虚拟键盘上误触率高，发送走按钮）。
@@ -506,7 +520,17 @@ except ImportError:
       setMsg('执行代码…');
       // 捕获 stdout
       py.runPython("import sys, io; sys.stdout = io.StringIO()");
+      let captureReady = false;
+      try {
+        if (window.EnGenieChatVisualizations) {
+          py.runPython(EnGenieChatVisualizations.pythonCaptureSetup); captureReady = true;
+        }
+      } catch (error) { console.warn('Interactive chart capture unavailable; continuing with image output.', error); }
       py.runPython(code);
+      let interactiveCharts = [];
+      try {
+        if (captureReady) interactiveCharts = JSON.parse(py.runPython(EnGenieChatVisualizations.pythonCaptureRead));
+      } catch (error) { console.warn('Chart preview unavailable; image copies remain available.', error); }
       let out = '';
       try { out = py.runPython("sys.stdout.getvalue()"); } catch(e) {}
       reportBack.stdout = String(out || '');
@@ -532,15 +556,32 @@ except ImportError:
           }
         }
       } catch(e) {}
-      if (plotImgs.length){
-        html += plotImgs.map(p =>
-          '<figure style="margin:8px 0;text-align:center">' +
-          '<img src="' + p.url + '" alt="' + p.fn + '" style="max-width:100%;border:1px solid var(--rule-soft);border-radius:4px">' +
-          '</figure>'
-        ).join('');
-      }
+      const chartArea = document.createElement('div');
+      const chartCount = container.isConnected !== false
+        ? window.EnGenieChatVisualizations?.mount(chartArea, interactiveCharts, {language: window.FOSI18n?.language}) || 0 : 0;
       if (!html) html = '<div style="color:var(--mute);font-size:12px">（脚本无 print 输出）</div>';
       body.innerHTML = html;
+      if (chartCount) {
+        if (!out?.trim()) body.replaceChildren();
+        body.appendChild(chartArea);
+      }
+      if (plotImgs.length) {
+        if (!out?.trim() && !chartCount) body.replaceChildren();
+        const imageCopies = document.createElement(chartCount ? 'details' : 'div');
+        imageCopies.className = 'chat-chart-images';
+        if (chartCount) {
+          const summary = document.createElement('summary');
+          summary.textContent = window.FOSI18n?.language === 'zh-hans' ? '图片副本' : 'Image Copies';
+          imageCopies.appendChild(summary);
+        }
+        plotImgs.forEach(p => {
+          const figure = document.createElement('figure');
+          const image = document.createElement('img');
+          image.src = p.url; image.alt = p.fn;
+          figure.appendChild(image); imageCopies.appendChild(figure);
+        });
+        body.appendChild(imageCopies);
+      }
       // 下载按钮：主文件 + 各 PNG
       const actions = document.createElement('div'); actions.className = 'cr-actions';
       let hasAction = false;
@@ -669,6 +710,8 @@ except ImportError:
   function genThreadId(){ return 't_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
   function newConversation(){
     cancelCurrentTurn();
+    window.EnGenieChatVisualizations?.destroy(messages);
+    attachmentUI.clear();
     historyRevision++;
     FosAnswerRecovery.remember(recoveryKey, '');
     currentThreadId = genThreadId();   // 预生成；服务端 get_or_create 时落地
@@ -742,6 +785,7 @@ except ImportError:
 
   function restoreConversation(thread) {
     cancelCurrentTurn();
+    if (thread !== currentThreadId) attachmentUI.clear();
     const revision = ++historyRevision;
     currentThreadId = thread;
     busy = true; sendBtn.disabled = true;
@@ -759,6 +803,7 @@ except ImportError:
         const view = JSON.stringify([data.messages, data.active_answer?.stage, !!data.active_answer]);
         if (view === lastHistoryView) return;
         lastHistoryView = view;
+        window.EnGenieChatVisualizations?.destroy(messages);
         messages.innerHTML = '';
         (data.messages || []).forEach(m => {
           const div = document.createElement('div');
@@ -767,6 +812,7 @@ except ImportError:
             ? '<div class="bubble">' + (m.content||'').replace(/</g,'&lt;') + '</div>'
             : AI_WHO + '<div class="bubble"><div class="answer">' + (window.marked ? DOMPurify.sanitize(window.marked.parse(m.content||'')) : (m.content||'').replace(/</g,'&lt;')) + '</div></div>';
           div.innerHTML = inner;
+          if (m.role === 'user') attachmentUI.renderMessage(div.querySelector('.bubble'), m.attachments || []);
           messages.appendChild(div);
           if (m.role === 'ai' && ['queued','running'].includes(m.completion_status)) {
             const area = document.createElement('div');
@@ -826,7 +872,21 @@ except ImportError:
   function shortPageLabel(label){
     return String(label || '').replace(/[第\s页]/g, '');
   }
+  function renderChatCharts(aiMsg, citations) {
+    const bubble = aiMsg.querySelector('.bubble');
+    if (!bubble || !window.EnGenieChatVisualizations) return;
+    const charts = (citations || []).filter(c => c.kind === 'tracker' && c.tracker_snapshot?.chart)
+      .map(c => c.tracker_snapshot.chart).slice(0, 8);
+    let area = bubble.querySelector('.chat-citation-charts');
+    if (!area && !charts.length) return;
+    if (!area) {
+      area = document.createElement('div'); area.className = 'chat-citation-charts';
+      bubble.appendChild(area);
+    }
+    EnGenieChatVisualizations.mount(area, charts, {language: window.FOSI18n?.language});
+  }
   function renderCitations(aiMsg, citations){
+    renderChatCharts(aiMsg, citations);
     if (!citations || !citations.length) return;
     const bubble = aiMsg.querySelector('.bubble');
     if (!bubble || bubble.querySelector('.cite-row')) return;  // 已渲染避免重复
@@ -915,8 +975,23 @@ except ImportError:
 
   /* ---------- 提交问答 ---------- */
   async function submit() {
-    const text = input.value.trim();
-    if (!text || busy) return;
+    const typedText = input.value.trim();
+    if ((!typedText && !attachmentUI.hasFiles()) || busy || attachmentUI.isUploading()) return;
+    const uploadBatch = attachmentUI.beginUpload();
+    if (!uploadBatch) return;
+    const hasAttachments = uploadBatch.entries.length > 0;
+    let attachmentsAccepted = !hasAttachments;
+    let attachmentDraftRestored = false;
+    function restoreAttachmentDraft() {
+      if (attachmentDraftRestored) return;
+      const nextDraft = input.value;
+      if (!nextDraft.trim()) input.value = typedText;
+      else if (typedText && nextDraft !== typedText) input.value = typedText + '\n\n' + nextDraft;
+      input.dispatchEvent(new Event('input'));
+      attachmentDraftRestored = true;
+    }
+    const text = typedText || FosChatAttachments.FALLBACK_MESSAGE;
+    attachmentUI.showError('');
     if (!currentThreadId) currentThreadId = genThreadId();
     if (recovery) recovery.stop();
     FosAnswerRecovery.remember(recoveryKey, currentThreadId);
@@ -929,7 +1004,9 @@ except ImportError:
 
     // user msg
     const um = document.createElement('div'); um.className = 'msg user';
-    um.innerHTML = '<div class="bubble">' + text.replace(/</g,'&lt;') + '</div>';
+    const userBubble = document.createElement('div'); userBubble.className = 'bubble'; userBubble.textContent = text;
+    um.appendChild(userBubble);
+    if (hasAttachments) attachmentUI.renderMessage(userBubble, uploadBatch.entries, {pending: true});
     messages.appendChild(um);
 
     // ai container: 助手标签 + 工具状态区 + 回答区（思考阶段显示闪烁光标）
@@ -944,7 +1021,7 @@ except ImportError:
     messages.scrollTop = messages.scrollHeight;
 
     const url = '/kb/stream/';
-    const body = new URLSearchParams({
+    const body = hasAttachments ? FosChatAttachments.buildBody(text, submittedThread, uploadBatch) : new URLSearchParams({
       message: text,
       thread_id: submittedThread,
     });
@@ -963,6 +1040,9 @@ except ImportError:
 
     const stream = FosChatStream.create({onAbort(error) {
       if (activeTurn !== stream) return;
+      if (hasAttachments && !attachmentsAccepted && !/已切换/.test(error.message)) {
+        restoreAttachmentDraft();
+      }
       answerEl.classList.remove('thinking');
       activity.finish(/已停止|已切换/.test(error.message) ? 'stopped' : 'error', error.message);
       busy = false; sendBtn.disabled = false;
@@ -970,7 +1050,14 @@ except ImportError:
     }, onEvent(etype, payload) {
       if (activeTurn !== stream || currentThreadId !== submittedThread) return;
       activity.update(etype, payload);
-      if (etype === 'heartbeat') {
+      if (etype === 'attachments') {
+        if (hasAttachments && !attachmentsAccepted && Array.isArray(payload.attachments) && payload.attachments.length === uploadBatch.entries.length &&
+            payload.attachments.every(item => FosChatAttachments.protectedURL(item.url))) {
+          attachmentUI.renderMessage(userBubble, payload.attachments);
+          attachmentsAccepted = attachmentUI.acceptUpload(uploadBatch);
+          if (payload.message_id) um.dataset.messageId = String(payload.message_id);
+        }
+      } else if (etype === 'heartbeat') {
         if (!document.querySelector('.conv-item[data-thread="'+submittedThread+'"]')) addConvItem(submittedThread, text.slice(0,30), '');
       } else if (etype === 'token') {
         // 首个 token 到达后显示正文，工具状态继续由活动视图更新。
@@ -988,6 +1075,7 @@ except ImportError:
         turnCitations = Array.from(new Map((payload.replace ? [] : turnCitations).concat(payload.citations || []).map(c => [
           c.kind === 'graph' ? 'graph:' + c.relation_id + ':' + c.fact_digest : c.kind === 'tracker' ? 'tracker:' + c.result_digest : 'document:' + c.doc_id, c
         ])).values());
+        renderChatCharts(am, turnCitations);
       } else if (etype === 'step') {
         // 管线阶段（问题理解/检索/生成/核对）
         // Stage presentation is handled by the shared activity view.
@@ -1039,9 +1127,16 @@ except ImportError:
         headers: { 'X-CSRFToken': getCSRFToken() },
         body,
       });
+      if (hasAttachments && !attachmentsAccepted) throw new Error('附件尚未确认接收，已保留供重试。');
       if (activeTurn === stream) renderMd();
     } catch(e) {
       if (activeTurn !== stream || currentThreadId !== submittedThread) return;
+      if (hasAttachments && !attachmentsAccepted) {
+        restoreAttachmentDraft();
+        um.remove(); am.remove();
+        attachmentUI.showError(e.message || '附件尚未确认接收，已保留供重试。');
+        return;
+      }
       needsRecovery = true;
       activity.finish('error', e.message || '本轮未完成');
       renderMd();
@@ -1051,13 +1146,14 @@ except ImportError:
       err.textContent = '正在恢复回答状态：' + (e.message || e);
       am.querySelector('.bubble').appendChild(err);
     } finally {
+      attachmentUI.finishUpload(uploadBatch);
       if (!stream.signal.aborted) activity.finish(needsRecovery ? 'error' : 'done');
       if (activeTurn === stream) {
         activeTurn = null;
         busy = false; sendBtn.disabled = false; stopBtn.hidden = true; stopBtn.style.display = 'none';
         answerEl.classList.remove('thinking');
         if (turnCitations.length) renderCitations(am, turnCitations);
-        if (!document.querySelector('.conv-item[data-thread="'+submittedThread+'"]')) {
+        if ((!hasAttachments || attachmentsAccepted) && !document.querySelector('.conv-item[data-thread="'+submittedThread+'"]')) {
           addConvItem(submittedThread, text.slice(0,30), '');
         }
         if (needsRecovery) restoreConversation(submittedThread);

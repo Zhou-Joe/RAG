@@ -5,28 +5,43 @@ def recent_history(messages, *, enhanced=False, visible, max_chars=None, max_pai
     """Bootstrap older chats that do not yet have a complete model transcript."""
     pairs = []
     question = None
+    question_message = None
     for item in messages:
         if item.role == 'user':
             question = item.content
+            question_message = {'role': 'user', 'content': question}
+            if hasattr(item, 'attachments'):
+                ids = [str(attachment.pk) for attachment in item.attachments.all()]
+                if ids:
+                    question_message['additional_kwargs'] = {'chat_attachment_ids': ids}
             continue
         if item.role != 'ai' or question is None:
             continue
         if getattr(item, "completion_status", "complete") != "complete":
+            if question_message.get('additional_kwargs'):
+                # Retry a failed turn with its user-provided source, without
+                # replaying the failed assistant draft or any tool actions.
+                pairs.append((question, None, question_message))
             question = None
+            question_message = None
             continue
         if item.citations and not visible(item.citations):
             question = None
+            question_message = None
             pairs = []
             continue
-        pairs.append((question, item.content))
+        pairs.append((question, item.content, question_message))
         question = None
+        question_message = None
+    if question_message and question_message.get('additional_kwargs'):
+        pairs.append((question, None, question_message))
     chosen = []
     size = 0
-    for question, answer in reversed(pairs[-max_pairs:] if max_pairs else pairs):
-        length = len(question) + len(answer)
+    for question, answer, question_message in reversed(pairs[-max_pairs:] if max_pairs else pairs):
+        length = len(question) + len(answer or '')
         if max_chars is not None and size + length > max_chars:
             break  # Do not truncate facts halfway through a sentence/table row.
-        chosen.insert(0, [{'role':'user','content':question}, {'role':'assistant','content':answer}])
+        chosen.insert(0, [question_message] + ([{'role':'assistant','content':answer}] if answer is not None else []))
         size += length
     return [message for pair in chosen for message in pair]
 
@@ -55,7 +70,11 @@ def load_context(conversation, user):
                 if not image_snapshot_current(snapshot,user):return {}
             add_document(snapshot)
         for snapshot in context.get('evidence', []):
-            if snapshot.get('kind') == 'graph':
+            if snapshot.get('kind') == 'chat_attachment':
+                from .chat_attachments import snapshot_current
+                if str(snapshot.get('conversation_id')) != str(conversation.pk) or not snapshot_current(snapshot, user.pk):
+                    return {}
+            elif snapshot.get('kind') == 'graph':
                 sources.append({'kind': 'graph', 'relation_id': snapshot['relation_id'],
                                 'fact_digest': snapshot['fact_digest'], 'graph_snapshot': snapshot})
             elif snapshot.get('kind') == 'tracker':

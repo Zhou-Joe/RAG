@@ -63,7 +63,10 @@
 .fkd-chart-row strong{text-align:right;font-size:12px;font-variant-numeric:tabular-nums;color:var(--ink)}
 .fkd-trend-grid{stroke:var(--rule);stroke-width:1}
 .fkd-trend-line{fill:none;stroke:var(--brand);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
-.fkd-trend-dot{fill:var(--surface);stroke:var(--brand);stroke-width:2}
+.fkd-trend-dot{fill:var(--surface);stroke:var(--brand);stroke-width:.6;pointer-events:none}
+.fkd-trend-dot.is-chart-point-active{stroke-width:1.4}
+.fkd-trend-hit{fill:transparent;stroke:none;pointer-events:all;cursor:crosshair}
+.fkd-trend-hit:focus{outline:none}
 .fkd-trend-axis{fill:var(--mute);font:11px var(--fb)}
 .fkd-trend-number{font-variant-numeric:tabular-nums}
 .fkd-panel [hidden],.fkd-status [hidden],.fkd-last-success[hidden]{display:none!important}

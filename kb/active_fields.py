@@ -11,7 +11,7 @@ def available_fields(tracker) -> list[str]:
 def visible_fields(kb, tracker) -> list[str]:
     """默认展示全量；显式选择不随下一次采集自动扩展。"""
     labels = available_fields(tracker)
-    selected = kb.active_fields if kb.category == 'business' else None
+    selected = kb.active_fields if kb.category == 'business' or kb.table_query else None
     return labels if selected is None else [label for label in labels if label in selected]
 
 

@@ -75,6 +75,21 @@ test('HTML login response is not accepted as an empty successful answer', async 
   await assert.rejects(FosChatStream.create({fetchImpl: async () => new Response('login', {headers: {'content-type': 'text/html'}})}).run('/'), /登录状态/);
 });
 
+test('HTTP upload validation preserves the server message and non-JSON errors retain their status', async () => {
+  await assert.rejects(FosChatStream.create({fetchImpl: async () => new Response(JSON.stringify({message: '每个附件不能超过 10 MB。'}),
+    {status: 400, headers: {'content-type': 'application/json'}})}).run('/'), /10 MB/);
+  await assert.rejects(FosChatStream.create({fetchImpl: async () => new Response('<html>Gateway error</html>', {status: 502})}).run('/'), /HTTP 502/);
+});
+
+test('attachment acceptance reaches the caller before answer tokens and completion', async () => {
+  const saved = {message_id: 42, attachments: [{id: 'file-id', name: 'photo.png', kind: 'image', size: 3,
+    url: '/kb/chat/attachments/11111111-1111-4111-8111-111111111111/'}]};
+  const f = response(['event: attachments\ndata: ' + JSON.stringify(saved) + '\n\nevent: token\ndata: {"text":"Reviewed"}\n\nevent: done\ndata: {}\n\n'], true);
+  const events = [];
+  await FosChatStream.create({fetchImpl: async () => f.response, onEvent: (...args) => events.push(args)}).run('/');
+  assert.deepEqual(events, [['attachments', saved], ['token', {text: 'Reviewed'}]]);
+});
+
 test('pagehide abort resets UI synchronously, before promise callbacks resume', async () => {
   let busy = true, spinner = true, resets = 0;
   const f = response([], true);

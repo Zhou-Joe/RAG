@@ -143,8 +143,13 @@ def configure(user,feed,data):
         try:validate_email(recipient)
         except ValidationError:raise ValueError('请填写有效的收件人邮箱。') from None
         if any(c in recipient for c in '\r\n'):raise ValueError('收件人地址不能换行。')
+    if 'html_attachments_supported' in data and type(data['html_attachments_supported']) is not bool:
+        raise ValueError('HTML 附件支持设置必须为布尔值。')
+    attachment_support=(data['html_attachments_supported'] if 'html_attachments_supported' in data else
+                        old.get('html_attachments_supported',False) if bindings.get('email')==workflow_bindings(old).get('email') else False)
     config={'kind':kind,'url':url,'url_kind':kind if url else '', 'workflows':bindings,
-        'public_base':address['public_base'],'public_base_source':address['source'],'recipient':recipient}
+        'public_base':address['public_base'],'public_base_source':address['source'],'recipient':recipient,
+        'html_attachments_supported':bool(attachment_support)}
     plan.destination=_cipher(create=True).encrypt(json.dumps(config).encode()).decode()
     plan.enabled=False;plan.created_by=user;plan.save()
     return plan
@@ -159,13 +164,20 @@ def save_workflow_settings(user,feed,data):
         value=data.get(kind+'_workflow_url','')
         if not isinstance(value,str):raise ValueError('工作流 URL 格式无效。')
         if value.strip():replacements[kind]=workflow_url(value.strip())
-    if not replacements:return False
+    flag_supplied='html_attachments_supported' in data
+    if flag_supplied and type(data['html_attachments_supported']) is not bool:
+        raise ValueError('HTML 附件支持设置必须为布尔值。')
+    if not replacements and not flag_supplied:return False
+    if not replacements and not data.get('html_attachments_supported') and not FeedReportPlan.objects.filter(feed=feed).exists():return False
     from .feed_credentials import _cipher
     plan,_=FeedReportPlan.objects.select_for_update().get_or_create(feed=feed,defaults={'created_by':user})
     config=destination(plan);bindings=workflow_bindings(config)
     changed={kind for kind,value in replacements.items() if bindings.get(kind)!=value}
-    if not changed and not config.get('pending_url'):return False
+    support=(data['html_attachments_supported'] if flag_supplied else
+             False if 'email' in changed else bool(config.get('html_attachments_supported')))
+    if not changed and not config.get('pending_url') and support==bool(config.get('html_attachments_supported')):return False
     bindings.update(replacements);config['workflows']=bindings
+    config['html_attachments_supported']=support
     config.pop('pending_url',None)
     kind=config.get('kind')
     if kind in changed:config.update(url=bindings[kind],url_kind=kind)
@@ -200,13 +212,24 @@ def select_destination(config,selection=None):
     return result
 
 
+def html_attachment_hint():
+    return '请先在现有 Power Automate 邮件工作流中将 attachments 数组的 Name 和 ContentBytes 映射到邮件附件，然后在发送设置勾选支持 HTML 附件。'
+
+
+def require_html_attachment_mapping(config,digest):
+    if digest.get('enabled') and digest.get('email_format')=='html_attachment':
+        if config.get('kind')!='email':raise ValueError('HTML 附件仅支持邮件发送；Teams 请使用正文和链接。')
+        if not config.get('html_attachments_supported'):raise ValueError(html_attachment_hint())
+
+
 def workflow_setup_hint(delivery,kind=None):
+    if 'html_attachment_mapping' in delivery.get('missing',[]):return html_attachment_hint()
     kind=kind or delivery.get('kind')
     label='Teams' if kind=='teams' else '邮件' if kind=='email' else '对应发送方式的'
     return '请先由任务创建者在「自主数据引擎 → 编辑配置」填写'+label+'工作流 URL 并保存，再返回此对话继续。无需在聊天中粘贴链接。'
 
 
-def summary(feed,selection=None):
+def summary(feed,selection=None,*,digest=None):
     from .feed_names import current_name
     plan=FeedReportPlan.objects.filter(feed=feed).first()
     data=select_destination(destination(plan) if plan else {},selection);address=site_address(data)
@@ -215,16 +238,23 @@ def summary(feed,selection=None):
     missing=[]
     if not selected and (data.get('kind') or not bindings) and not (not data.get('kind') and data.get('pending_url')):missing.append('workflow_url')
     if not data.get('kind'):missing.append('kind')
-    if not address['available']:missing.append('public_base')
+    requested_digest=(plan.spec.get('digest',{}) if plan else {}) if digest is None else digest
+    html_mode=bool(requested_digest.get('enabled') and requested_digest.get('email_format')=='html_attachment' and data.get('kind')=='email')
+    if not address['available'] and not html_mode:missing.append('public_base')
     if data.get('kind')=='email' and not data.get('recipient'):missing.append('recipient')
+    digest=(plan.spec.get('digest',{}) if plan else {}) if digest is None else digest
+    if digest.get('enabled') and digest.get('email_format')=='html_attachment' and data.get('kind')=='email' and not data.get('html_attachments_supported'):
+        missing.append('html_attachment_mapping')
     return {'configured':not missing,'enabled':bool(plan and plan.enabled),'workflow_saved':bool(selected),'workflow_type':data.get('kind') if selected else '',
-        'settings_url':reverse('kb:feeds')+'?kb='+feed.kb.slug+'&edit='+str(feed.pk),'workflow_setup_hint':workflow_setup_hint(data),
+        'settings_url':reverse('kb:feeds')+'?kb='+feed.kb.slug+'&edit='+str(feed.pk),'workflow_setup_hint':workflow_setup_hint({**data,'missing':missing}),
+        'html_attachments_supported':bool(data.get('html_attachments_supported')),
         'saved_workflow_types':sorted(bindings),'untyped_workflow_saved':bool(data.get('pending_url')),'missing':missing,'kind':data.get('kind'),
         'recipient':data.get('recipient','') if data.get('kind')=='email' else '','public_base':address['public_base'],'public_base_source':address['source'],
         'site_address_available':address['available'],'site_address_note':address['reason'],
         'title':current_name(feed) if plan else '',
         'schedule':plan.spec.get('schedule',{'mode':plan.schedule_mode,'cron':plan.cron,'timezone':plan.timezone}) if plan else {},
         'trigger':plan.spec.get('trigger') if plan else None,
+        'digest':plan.spec.get('digest',{'enabled':False}) if plan else {'enabled':False},
         'trigger_state':plan.trigger_state if plan else {},
         'next_run_at':plan.next_run_at.isoformat() if plan and plan.next_run_at else None, 'last_status':last.status if last else '',
         'last_error':last.error if last else ''}
@@ -260,6 +290,11 @@ def report_schedule(value,feed):
     try:ZoneInfo(zone)
     except (ValueError,TypeError,KeyError):raise ValueError('报告时区无效。') from None
     return {'mode':mode,'timezone':zone}
+
+
+def output_headers(spec):
+    return (list(spec.get('group_by', [])) + [item['label'] for item in spec.get('aggregates', [])]
+            if spec.get('aggregates') else [column['label'] for column in spec.get('columns', [])])
 
 
 def normalize(spec,feed,*,legacy=False):
@@ -307,6 +342,9 @@ def normalize(spec,feed,*,legacy=False):
     if len({a['label'] for a in aggregates})!=len(aggregates) or group and not aggregates:raise ValueError('分组需设置汇总计算，汇总列名不能重复。')
     schedule=report_schedule(spec.get('schedule',{'mode':'after_collection'} if legacy else None),feed)
     result={'kind':'report','title':title,'columns':clean,'range':scope,'filters':filters,'group_by':group,'aggregates':aggregates,'schedule':schedule}
+    if 'digest' in spec:
+        from .report_digest import normalize_digest
+        result['digest']=normalize_digest(spec['digest'],output_headers(result))
     if 'trigger' in spec:
         from .report_conditions import normalize_trigger
         if schedule['mode']=='after_collection':raise ValueError('条件触发报告需使用独立的检查频率或按需检查。')
@@ -315,6 +353,12 @@ def normalize(spec,feed,*,legacy=False):
     if spec.get('delivery'):
         delivery=select_destination({},spec['delivery']);result['delivery']={'kind':delivery['kind']}
         if delivery['kind']=='email' and 'recipient' in delivery:result['delivery']['recipient']=delivery['recipient']
+    if result.get('digest',{}).get('email_format')=='html_attachment':
+        kind=result.get('delivery',{}).get('kind')
+        if kind is None:
+            plan=FeedReportPlan.objects.filter(feed=feed).first()
+            kind=destination(plan).get('kind') if plan else None
+        if kind=='teams':raise ValueError('HTML 附件仅支持邮件发送；Teams 请使用正文和链接。')
     return result
 
 
@@ -402,7 +446,7 @@ def table(feed,spec,*,run=None,as_of=None,allow_empty=False,diagnostics=None):
     return headers,result
 
 
-def workbook(title,headers,rows,audit=None):
+def workbook(title,headers,rows,audit=None,digest=None):
     from openpyxl import Workbook
     from openpyxl.styles import Font,PatternFill,Alignment
     from openpyxl.utils import get_column_letter
@@ -421,6 +465,41 @@ def workbook(title,headers,rows,audit=None):
             for cell in row:
                 if isinstance(cell.value,str):cell.data_type='s'
         for column in ('A','D','E'):quality.column_dimensions[column].width=35
+    if digest:
+        from .report_digest import fact_lines
+        digest_sheet=book.create_sheet('EnGenie Digest')
+        digest_sheet.append(['EnGenie Digest',digest.get('generated_at','')])
+        digest_sheet.append([digest.get('text','')])
+        for line in fact_lines(digest.get('facts',{}),digest.get('language','en')):
+            digest_sheet.append([line])
+        for row in digest_sheet:
+            for cell in row:
+                if isinstance(cell.value,str):cell.data_type='s'
+                cell.alignment=Alignment(vertical='top',wrap_text=True)
+        digest_sheet.column_dimensions['A'].width=100
+        digest_sheet.freeze_panes='A2'
+        facts=digest.get('facts',{})
+        aggregates=book.create_sheet('Digest Aggregates')
+        aggregates.append(['Scope','Group','Metric','Field','Value','Missing','Non-numeric'])
+        def add_digest_facts(scope,item,keys=None):
+            group=json.dumps(keys,ensure_ascii=False,default=str) if keys else ''
+            aggregates.append([scope,group,'row_count','',item.get('row_count'),None,None])
+            for metric in item.get('metrics',[]):
+                quality=metric.get('quality',{})
+                aggregates.append([scope,group,metric['label'],metric.get('field',''),metric.get('value'),quality.get('missing'),quality.get('non_numeric')])
+            for field,stats in item.get('numeric_fields',{}).items():
+                for name in ('count','sum','avg','min','max'):
+                    aggregates.append([scope,group,name,field,stats.get(name),stats.get('missing'),stats.get('non_numeric')])
+        add_digest_facts('final_report_output',facts)
+        for group in facts.get('groups',[]):add_digest_facts('group',group,group.get('keys'))
+        aggregates.append(['context','','omitted_groups','',facts.get('omitted_groups',0),None,None])
+        aggregates.append(['context','','omitted_row_count','',facts.get('omitted_row_count',0),None,None])
+        for row in aggregates:
+            for cell in row:
+                if isinstance(cell.value,str):cell.data_type='s'
+                cell.alignment=Alignment(vertical='top',wrap_text=True)
+        aggregates.freeze_panes='A2'
+        for column in ('A','B','C','D','E'):aggregates.column_dimensions[column].width=35
     for row in sheet:
         for cell in row:
             if isinstance(cell.value,str):cell.data_type='s' # Treat untrusted source text as text, never a formula.
@@ -435,9 +514,14 @@ def preview_time(spec):
     return timezone.now()
 
 
+def report_fingerprint(headers,rows):
+    value=json.dumps({'headers':headers,'rows':rows},ensure_ascii=False,sort_keys=True,separators=(',',':'),default=str,allow_nan=False)
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()
+
+
 def preview(job,spec):
     feed=source_feed(job);spec=normalize(spec,feed);at=preview_time(spec);audit={};headers,rows=table(feed,spec,as_of=at,allow_empty=True,diagnostics=audit)
-    delivery=summary(feed)
+    delivery=summary(feed,spec.get('delivery'),digest=spec.get('digest',{'enabled':False}))
     if delivery.get('kind'):
         spec['delivery']={'kind':delivery['kind']}
         if delivery['kind']=='email':spec['delivery']['recipient']=delivery['recipient']
@@ -446,10 +530,25 @@ def preview(job,spec):
         from .report_conditions import evaluate_trigger
         evaluation=evaluate_trigger(trigger,rows)
     else:evaluation=None
+    digest_preview={}
+    if spec.get('digest',{}).get('enabled'):
+        from .report_digest import generate_digest,build_facts
+        if not rows or evaluation is not None and not evaluation['matched']:
+            digest_preview={'enabled':True,'status':'skipped','reason':'no_data' if not rows else 'condition_not_met',
+                            'facts':build_facts(headers,rows,spec['digest'])}
+        else:
+            digest_preview=generate_digest(spec,headers,rows,as_of=at,audit=audit)
+        if spec['digest'].get('include_source_links'):
+            from .report_presentation import extract_source_links
+            digest_preview['source_links']=extract_source_links(headers,rows)
+        digest_preview['report_fingerprint']=report_fingerprint(headers,rows)
+        if spec['digest'].get('email_format') in ('html_attachment','html_link'):
+            digest_preview['html']={'filename':'EnGenie-report.html','download_url':reverse('kb:report_preview_download',args=[job.pk])+'?format=html'}
     next_at=CronSchedule(spec['schedule']['cron'],spec['schedule']['timezone']).next_after(at).isoformat() if spec['schedule']['mode']=='cron' else None
     return spec,{'valid':True,'report':True,'items':len(rows),'headers':headers,'preview':rows[:10],
         'delivery':delivery,'transformation_audit':audit,'source_feed':spec['title'],'preview_as_of':at.isoformat(),'preview_timezone':spec['schedule']['timezone'],
         'trigger':trigger,'trigger_evaluation':evaluation,'next_check_at':next_at if trigger else None,
+        'digest':spec.get('digest',{'enabled':False}),'digest_preview':digest_preview,
         'next_send_at':None if trigger else next_at,'warning':'目标日期范围目前暂无数据；可确认规则，发送时将重新读取已保存的数据。' if not rows else '预览使用当前已有数据；发送时会重新计算选定日期范围。','schedule':spec['schedule'],'range':spec['range'],'processing':'aggregate' if spec['aggregates'] else 'raw','note':'报告使用已保存的数据，按自己的发送计划运行；不触发或修改采集任务。'}
 
 def approve(job,user):
@@ -462,8 +561,9 @@ def approve(job,user):
         feed=source_feed(current);access.require_feed_builder(user,feed);plan=FeedReportPlan.objects.select_for_update().get(feed=feed)
         selection=delivery_selection(current)
         config=select_destination(destination(plan),selection);selected_workflow(config);address=site_address(config)
-        if not address['available']:raise ValueError(address['reason'])
-        missing=summary(feed,selection)['missing']
+        if not address['available'] and current.spec.get('digest',{}).get('email_format')!='html_attachment':raise ValueError(address['reason'])
+        missing=summary(feed,selection,digest=current.spec.get('digest',{'enabled':False}))['missing']
+        if 'html_attachment_mapping' in missing:raise ValueError(html_attachment_hint())
         if missing:raise ValueError('请先补充发送设置：'+'、'.join({'workflow_url':'工作流链接','kind':'邮件或Teams','public_base':'本站公开地址','recipient':'收件邮箱'}[key] for key in missing))
         plan.spec=normalize(current.spec,feed)
         plan.trigger_state={}
@@ -483,24 +583,63 @@ def download_link(delivery,base):
     if prefix and path.startswith(prefix+'/'):return parsed.scheme+'://'+parsed.netloc+path
     return base.rstrip('/')+path
 
-def payload(config,spec,headers,rows,url,audit=None):
+def payload(config,spec,headers,rows,url,audit=None,digest=None,*,html_url='',html_content=None):
     title=spec['title'];count=len(rows)
     alert='Condition matched / 触发条件已满足' if spec.get('trigger') else ''
     quality='；'.join(name+'：'+str(state['converted'])+'条有效，'+str(state['missing'])+'条缺失/未解析，原始数据保留' for name,state in (audit or {}).items())
+    digest_lines=[]
+    if digest:
+        from .report_digest import fact_lines
+        digest_lines=fact_lines(digest.get('facts',{}),spec.get('digest',{}).get('language','en'))
     if config['kind']=='email':
+        if digest and spec.get('digest',{}).get('email_format')=='html_attachment':
+            require_html_attachment_mapping(config,spec['digest'])
+            from .report_presentation import render_html_report,email_html_attachment
+            html=html_content or render_html_report(spec,headers,rows,digest,report_url=None,source_links=digest.get('source_links'),audit=audit)
+            short_body='<h2>'+escape(title)+'</h2><p>EnGenie Digest report is attached as HTML. / EnGenie 摘要报告已作为 HTML 附件提供。</p><p>Open the attachment in a browser for tables and charts. / 请使用浏览器打开附件查看表格和图表。</p>'
+            return {'t':config['recipient'],'s':title,'b':short_body,
+                    'attachments':[email_html_attachment('EnGenie-report.html',html)]}
         body='<h2>'+escape(title)+'</h2><p>EnGenie report · '+str(count)+' records</p>'+('<p>'+alert+'</p>' if alert else '')+'<table border="1" cellpadding="6"><tr>'+''.join('<th>'+escape(h)+'</th>' for h in headers)+'</tr>'
         for row in rows[:10]:body+='<tr>'+''.join('<td>'+escape(str(row.get(h,''))[:1000])+'</td>' for h in headers)+'</tr>'
         body+='</table>'
         if quality:body+='<p>'+escape(quality)+'</p>'
+        if digest:
+            body+='<h3>EnGenie Digest</h3><p>'+escape(digest.get('text','')).replace('\n','<br>')+'</p>'
+            body+='<p>'+'<br>'.join(escape(line) for line in digest_lines)+'</p>'
+            if spec.get('digest',{}).get('include_source_links'):
+                from .report_presentation import extract_source_links,source_links_html
+                body+=source_links_html(digest.get('source_links') or extract_source_links(headers,rows),language=spec['digest'].get('language','en'))
+            if html_url:body+='<p><a href="'+escape(html_url,quote=True)+'">Open interactive HTML report / 打开交互式 HTML 报告</a></p>'
         body+='<p><a href="'+escape(url,quote=True)+'">Download complete Excel report / 下载 Excel 报告</a></p><p>Link expires in 7 days. / 链接7天有效。</p>'
-        return {'t':config['recipient'],'s':title,'b':body}
+        result={'t':config['recipient'],'s':title,'b':body}
+        return result
     card={'type':'AdaptiveCard','$schema':'http://adaptivecards.io/schemas/adaptive-card.json','version':'1.4',
         'body':[{'type':'TextBlock','text':title,'weight':'Bolder','size':'Large','wrap':True},
                 {'type':'TextBlock','text':f'{count} records · EnGenie','wrap':True}],
         'actions':[{'type':'Action.OpenUrl','title':'Download Excel / 下载报告','url':url}]}
+    if html_url:card['actions'].insert(0,{'type':'Action.OpenUrl','title':'Open HTML report / 打开 HTML 报告','url':html_url})
     if quality:card['body'].append({'type':'TextBlock','text':quality[:2000],'wrap':True})
     if alert:card['body'].append({'type':'TextBlock','text':alert,'wrap':True})
-    for row in rows[:3]:card['body'].append({'type':'FactSet','facts':[{'title':str(h)[:100],'value':str(row.get(h,''))[:300]} for h in headers[:8]]})
+    if digest and spec.get('digest',{}).get('include_source_links'):
+        from .report_presentation import extract_source_links,teams_source_actions
+        selection=digest.get('source_links') or extract_source_links(headers,rows)
+        source_actions=teams_source_actions(selection,limit=3 if html_url else 4)
+        card['actions'].extend(source_actions)
+        if selection.get('total_links',0)>len(source_actions):
+            card['body'].append({'type':'TextBlock','text':f"Source links shown: {len(source_actions)} / {selection['total_links']}. Additional URLs remain in the complete report. / 其余来源链接保留在完整报告中。",'wrap':True})
+    if digest:
+        card['body'].append({'type':'TextBlock','text':'EnGenie Digest','weight':'Bolder','wrap':True})
+        card['body'].append({'type':'TextBlock','text':digest.get('text',''),'wrap':True})
+        displayed=[];used=0
+        for line in digest_lines:
+            size=len(line.encode('utf-8'))+1
+            if used+size>4000:break
+            displayed.append(line);used+=size
+        if displayed:card['body'].append({'type':'TextBlock','text':'\n'.join(displayed),'wrap':True})
+        if len(displayed)<len(digest_lines):
+            card['body'].append({'type':'TextBlock','text':'Complete digest and aggregate figures are included in the Excel report. / 完整摘要与汇总数据请查看 Excel 报告。','wrap':True})
+    else:
+        for row in rows[:3]:card['body'].append({'type':'FactSet','facts':[{'title':str(h)[:100],'value':str(row.get(h,''))[:300]} for h in headers[:8]]})
     return {'type':'message','attachments':[{'contentType':'application/vnd.microsoft.card.adaptive','contentUrl':None,'content':card}]}
 
 def post_workflow(config,body):
@@ -540,11 +679,34 @@ def send(plan,*,run=None,spec=None,request_key=None,delivery=None,as_of=None,sel
                 delivery.status='skipped';delivery.error=reason
                 delivery.save(update_fields=['status','error']);return delivery
         config=select_destination(destination(plan),selection or spec.get('delivery'));config['url']=selected_workflow(config);address=site_address(config)
-        if not address['available']:raise ValueError(address['reason'])
+        html_mode=bool(spec.get('digest',{}).get('enabled') and spec['digest'].get('email_format')=='html_attachment' and config.get('kind')=='email')
+        if not address['available'] and not html_mode:raise ValueError(address['reason'])
+        require_html_attachment_mapping(config,spec.get('digest',{}))
         base=address['public_base']
-        delivery.content=workbook(spec['title'],headers,rows,audit);delivery.filename='EnGenie-report.xlsx'
-        delivery.expires_at=timezone.now()+timedelta(days=7);delivery.save(update_fields=['content','filename','expires_at'])
-        link=download_link(delivery,base);body=payload(config,spec,headers,rows,link,audit)
+        digest={}
+        if spec.get('digest',{}).get('enabled'):
+            from .report_digest import generate_digest
+            digest=generate_digest(spec,headers,rows,as_of=as_of,audit=audit)
+            if not isinstance(digest,dict) or not isinstance(digest.get('text'),str) or not digest['text'].strip():
+                raise ValueError('EnGenie 摘要生成失败，本次未发送。')
+            digest={**digest,'language':spec['digest']['language'],'settings':spec['digest']}
+            digest['report_fingerprint']=report_fingerprint(headers,rows)
+            if spec['digest'].get('include_source_links'):
+                from .report_presentation import extract_source_links
+                digest['source_links']=extract_source_links(headers,rows)
+        delivery.digest=digest
+        report_html=None
+        if digest and spec['digest'].get('email_format') in ('html_attachment','html_link'):
+            from .report_presentation import render_html_report
+            report_html=render_html_report(spec,headers,rows,digest,source_links=digest.get('source_links'),audit=audit)
+        delivery.html_content=report_html.encode('utf-8') if report_html else b''
+        delivery.content=(workbook(spec['title'],headers,rows,audit,digest=digest) if digest
+                          else workbook(spec['title'],headers,rows,audit));delivery.filename='EnGenie-report.xlsx'
+        delivery.expires_at=timezone.now()+timedelta(days=7);delivery.save(update_fields=['content','html_content','digest','filename','expires_at'])
+        link='' if html_mode else download_link(delivery,base)
+        body=(payload(config,spec,headers,rows,link,audit,digest=digest,html_content=report_html,
+                      html_url=link+'?format=html' if link and report_html else '') if digest
+              else payload(config,spec,headers,rows,link,audit))
         if scheduled and not FeedReportPlan.objects.filter(pk=plan.pk,enabled=True,updated_at=plan.updated_at).exists():raise ValueError('报告配置已变更或停用，本次发送已取消。')
         if scheduled and trigger:
             from .report_conditions import start_trigger_send

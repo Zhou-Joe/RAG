@@ -2,6 +2,7 @@
 import io
 import json
 import tempfile
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -15,7 +16,7 @@ from django.urls import reverse
 from openpyxl import load_workbook
 
 from kb.agent import _build_agent
-from kb.analysis_exports import agent_analysis, query_analysis
+from kb.analysis_exports import agent_analysis, interactive_chart, query_analysis
 from kb.models import Document, KbTracker, KnowledgeBase, KnowledgeFeed, TrackerRow
 from kb.publication import validate_sources, visible_citations
 from kb.tracker_query import TrackerQuery
@@ -129,6 +130,148 @@ class AnalysisExportTests(TestCase):
         self.kb.visibility = 'individual'
         self.kb.save(update_fields=['created_by', 'visibility'])
         self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_chat_summary_chart_uses_full_groups_outside_the_model_preview(self):
+        for index in range(30):
+            self.row(f'Group {index:02}', index)
+        self.row('<script>alert(1)</script>', '2')
+        service = TrackerQuery(lambda kb: True)
+        result = json.loads(agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, self.params, 'plot'))
+        snapshot = service.evidence[0]
+        chart = snapshot['chart']
+        self.assertEqual(chart['type'], 'bar')
+        self.assertEqual(chart['meta'], {'system_metric': 'value', 'system_summary': True})
+        self.assertEqual(len(chart['labels']), 31)
+        self.assertLess(len(result['analysis']['groups']), len(chart['labels']))
+        values = dict(zip(chart['labels'], chart['series'][0]['values']))
+        self.assertEqual(values['Group 00'], 0)
+        self.assertEqual(values['Group 29'], 29)
+        self.assertEqual(values['<script>alert(1)</script>'], 2)
+        self.assertNotIn('chart', result)
+        self.assertNotIn('chart', json.loads(snapshot['text']))
+        self.assertTrue(validate_sources(service.evidence, self.owner.pk))
+
+    def test_chat_trend_chart_keeps_all_periods_gaps_zeros_and_selected_metric(self):
+        self.row('A', '0', 1)
+        self.row('A', '12', 11)
+        self.row('A', '18', 21)
+        self.row('B', 'bad', 11)
+        params = {'kind': 'trend', 'object_field': 'Object', 'object_value': ['A', 'B'],
+                  'period': 'minute', 'span': 10, 'op': 'avg', 'measure': 'Number',
+                  'from': '2026-11-10T10:00', 'to': '2026-11-10T15:00'}
+        service = TrackerQuery(lambda kb: True)
+        agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, params, 'both')
+        snapshot = service.evidence[0]
+        chart = snapshot['chart']
+        self.assertEqual(chart['type'], 'line')
+        self.assertEqual(chart['meta'], {'system_metric': 'value', 'system_summary': False})
+        self.assertEqual(len(chart['labels']), 30)
+        self.assertEqual(chart['series'][0]['values'][:4], [0, 12, 18, None])
+        self.assertEqual(chart['series'][1]['values'][:4], [None, None, None, None])
+        self.assertEqual(chart['series'][1]['quality'][1], {'valid': 0, 'records': 1})
+        _, data = query_analysis(self.owner, self.kb.slug, params)
+        changes = interactive_chart(data, {**params, 'chart_metric': 'change_pct'}, self.kb.name)
+        self.assertEqual(changes['series'][0]['values'][:4], [None, None, 50, None])
+        self.assertEqual(changes['options']['y_label'], 'Change (%)')
+        self.assertEqual(changes['meta'], {'system_metric': 'change_pct', 'system_summary': False})
+        self.assertTrue(validate_sources(service.evidence, self.owner.pk))
+
+    def test_chat_chart_payload_is_verified_and_permission_checked_in_history(self):
+        self.row('A', '3')
+        service = TrackerQuery(lambda kb: True)
+        agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, self.params, 'plot')
+        snapshot = service.evidence[0]
+        citation = {'kind': 'tracker', 'kb_slug': self.kb.slug, 'result_digest': snapshot['result_digest'],
+                    'tracker_snapshot': snapshot}
+        restored = json.loads(json.dumps(citation))
+        self.assertEqual(restored['tracker_snapshot']['chart'], snapshot['chart'])
+        self.assertTrue(visible_citations([restored], self.owner))
+        for mutate in (
+            lambda chart: chart['series'][0]['values'].__setitem__(0, 9000),
+            lambda chart: chart['labels'].__setitem__(0, 'Invented group'),
+            lambda chart: chart.update(type='pie'),
+            lambda chart: chart.update(options={'callback': 'alert(1)'}),
+        ):
+            changed = deepcopy(restored)
+            mutate(changed['tracker_snapshot']['chart'])
+            self.assertFalse(visible_citations([changed], self.owner))
+        self.kb.visibility = 'individual'
+        self.kb.save(update_fields=['visibility'])
+        self.assertFalse(visible_citations([restored], self.other))
+
+    def test_chat_chart_is_only_added_when_plot_is_requested_and_count_omits_numeric_quality(self):
+        self.row('A', '3', 1)
+        for output in ('preview', 'excel'):
+            service = TrackerQuery(lambda kb: True)
+            agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, self.params, output)
+            self.assertNotIn('chart', service.evidence[0])
+        params = {'kind': 'trend', 'object_field': 'Object', 'object_value': ['A'],
+                  'period': 'minute', 'span': 10, 'op': 'count',
+                  'from': '2026-11-10T10:00', 'to': '2026-11-10T10:20'}
+        service = TrackerQuery(lambda kb: True)
+        agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, params, 'plot')
+        self.assertEqual(service.evidence[0]['chart']['series'][0]['values'], [1, None])
+        self.assertNotIn('quality', service.evidence[0]['chart']['series'][0])
+
+    def test_chat_chart_requested_types_use_actual_data_and_valid_combo_series(self):
+        self.row('A', '3', 1)
+        self.row('B', '7', 1)
+        _, data = query_analysis(self.owner, self.kb.slug, self.params)
+        for kind in ('line', 'bar', 'area', 'pie', 'doughnut'):
+            with self.subTest(kind=kind):
+                chart = interactive_chart(data, {**self.params, 'chart_type': kind}, self.kb.name)
+                self.assertEqual(chart['type'], kind)
+                self.assertEqual(chart['labels'], ['A', 'B'])
+                self.assertEqual(chart['series'][0]['values'], [3, 7])
+        trend_params = {'kind': 'trend', 'object_field': 'Object', 'object_value': ['A', 'B'],
+                        'period': 'minute', 'span': 10, 'op': 'sum', 'measure': 'Number',
+                        'from': '2026-11-10T10:00', 'to': '2026-11-10T10:20', 'chart_type': 'combo'}
+        service = TrackerQuery(lambda kb: True)
+        agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, trend_params, 'plot')
+        chart = service.evidence[0]['chart']
+        self.assertEqual(chart['type'], 'combo')
+        self.assertEqual([part['type'] for part in chart['series']], ['bar', 'line'])
+        self.assertEqual([part['values'] for part in chart['series']], [[3, None], [7, None]])
+        self.assertTrue(validate_sources(service.evidence, self.owner.pk))
+
+    def test_chat_scatter_uses_numeric_categories_rather_than_invented_indices(self):
+        self.row('0', '3')
+        self.row('12.5', '7')
+        service = TrackerQuery(lambda kb: True)
+        params = {**self.params, 'chart_type': 'scatter'}
+        agent_analysis(self.owner, lambda kb: True, service, self.kb.slug, params, 'plot')
+        chart = service.evidence[0]['chart']
+        self.assertEqual(chart['type'], 'scatter')
+        self.assertEqual(chart['x_values'], [0, 12.5])
+        self.assertEqual(chart['series'][0]['values'], [3, 7])
+        self.assertTrue(validate_sources(service.evidence, self.owner.pk))
+
+    def test_chat_invalid_chart_semantics_are_rejected_before_files_are_written(self):
+        self.row('A', '-3')
+        self.row('B', '7')
+        for options in (
+            {'chart_type': 'pie'}, {'chart_type': 'doughnut'}, {'chart_type': 'combo'},
+            {'chart_type': 'scatter'}, {'chart_type': 'script'},
+            {'chart_metric': 'change'},
+            {'chart_type': 'pie', 'op': 'avg'}, {'chart_type': 'pie', 'chart_metric': 'change'},
+        ):
+            with self.subTest(options=options):
+                service = TrackerQuery(lambda kb: True)
+                with self.assertRaises(ValueError):
+                    agent_analysis(self.owner, lambda kb: True, service, self.kb.slug,
+                                   {**self.params, **options}, 'both')
+                self.assertEqual(service.evidence, [])
+                self.assertFalse((Path(self.directory.name) / 'analysis_exports').exists())
+
+    def test_chat_chart_size_limits_reject_data_instead_of_silently_dropping_points(self):
+        group = {'by': {'Object': 'A'}, 'metrics': {'value': 1}}
+        with self.assertRaises(ValueError):
+            interactive_chart({'kind': 'tracker_summary', 'groups': [group] * 51}, self.params, self.kb.name)
+        point = {'bucket': '2026-11-10', 'label': '2026-11-10', 'value': 1}
+        for series in ([{'object_value': 'A', 'points': [point] * 501}],
+                       [{'object_value': 'A', 'points': [point]}] * 9):
+            with self.assertRaises(ValueError):
+                interactive_chart({'kind': 'trend', 'series': series}, {'op': 'count'}, self.kb.name)
 
     def test_agent_period_evidence_freezes_now_and_rejects_changed_data(self):
         row = self.row('A', '3')

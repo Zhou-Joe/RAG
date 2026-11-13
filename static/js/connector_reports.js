@@ -1,3 +1,94 @@
+(function(root){
+ 'use strict';
+ const t=value=>root.FOSI18n?.t(value)||value;
+ const labels={count:'有效数值',missing:'缺失值',non_numeric:'非数值',sum:'合计',avg:'平均值',min:'最小值',max:'最大值'};
+ const node=(tag,text,cls,raw=false)=>{const value=root.document.createElement(tag);if(text!==undefined)value.textContent=String(text);if(cls)value.className=cls;if(raw)value.setAttribute('translate','no');return value;};
+ const display=value=>value===null||value===undefined?'—':typeof value==='object'?Array.isArray(value)?value.map(display).join(', '):Object.entries(value).map(([key,item])=>key+': '+display(item)).join('; '):String(value);
+ function safeSourceURL(value){
+  if(typeof value!=='string'||/[\u0000-\u001f\u007f]/.test(value))return '';
+  try{const url=new root.URL(value.trim());return ['http:','https:'].includes(url.protocol)&&!url.username&&!url.password?url.href:'';}catch(_error){return '';}
+ }
+ function safeHTMLPreviewURL(value){
+  return typeof value==='string'&&/^\/kb\/feeds\/reports\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/preview\.xlsx\?format=html$/i.test(value)?value:'';
+ }
+ function sourceLinksView(metadata){
+  if(!metadata||typeof metadata!=='object')return null;
+  const section=node('details',undefined,'cx-digest-source-links'),list=node('ul');section.append(node('summary',t('原文链接')));
+  let invalid=0;
+  for(const source of Array.isArray(metadata.links)?metadata.links:[]){
+   const url=safeSourceURL(source?.url);if(!url){invalid++;continue;}
+   const link=node('a',typeof source.label==='string'&&source.label?source.label:url,undefined,true);link.href=url;link.target='_blank';link.rel='noopener noreferrer';
+   const item=node('li');item.append(link);list.append(item);
+  }
+  if(list.children.length)section.append(list);else section.append(node('p',t('没有可展示的原文链接。'),'cx-meta'));
+  const counters=[t('原文链接总数')+': '+display(metadata.total_links??list.children.length)];
+  if(metadata.omitted_links)counters.push(t('未展示链接')+': '+display(metadata.omitted_links));
+  const rejected=(Number(metadata.rejected_links)||0)+invalid;if(rejected)counters.push(t('已排除链接')+': '+rejected);
+  section.append(node('p',counters.join(' · '),'cx-meta'));return section;
+ }
+ function factTable(columns,rows){
+  const result=node('table',undefined,'cx-digest-fact-table'),head=node('thead'),heading=node('tr'),body=node('tbody');
+  for(const column of columns)heading.append(node('th',t(column)));head.append(heading);result.append(head,body);
+  for(const values of rows){const tr=node('tr');for(const value of values)tr.append(node('td',display(value),undefined,true));body.append(tr);}return result;
+ }
+ function numericView(fields){
+  if(!fields||!Object.keys(fields).length)return null;
+  const details=node('details',undefined,'cx-digest-numeric'),keys=Object.keys(labels);
+  details.append(node('summary',t('数值字段统计')),factTable(['字段',...keys.map(key=>labels[key])],Object.entries(fields).map(([field,stats])=>[field,...keys.map(key=>stats[key])])));return details;
+ }
+ function metricsView(metrics){
+  if(!metrics?.length)return null;
+  const content=node('div',undefined,'cx-digest-metrics');content.append(factTable(['指标','数值'],metrics.map(metric=>[metric.label||metric.field||metric.op,metric.value])));
+  for(const metric of metrics){const quality=metric.quality||{},warnings=[];
+   for(const key of ['missing','non_numeric'])if(quality[key])warnings.push(t(labels[key])+': '+quality[key]);
+   if(warnings.length){const note=node('p',undefined,'cx-digest-quality');note.append(node('span',(metric.label||metric.field||metric.op)+': ',undefined,true),node('span',warnings.join(' · ')));content.append(note);}
+  }return content;
+ }
+ function factsView(facts){
+  const content=node('div',undefined,'cx-digest-fact-content');
+  const overview=node('p',undefined,'cx-digest-overview');overview.append(node('span',t('报告结果行数')+': '),node('strong',display(facts.row_count),undefined,true));
+  if(facts.group_by?.length)overview.append(node('span',' · '+t('分组数')+': '),node('strong',display(facts.total_groups),undefined,true));content.append(overview);
+  const metrics=metricsView(facts.metrics),numeric=numericView(facts.numeric_fields);if(metrics)content.append(metrics);if(numeric)content.append(numeric);
+  if(facts.group_by?.length){
+   const groups=node('details',undefined,'cx-digest-groups');groups.append(node('summary',t('分组汇总')));
+   groups.append(node('p',t('分组预览最多展示 20 组；总计覆盖全部报告结果。'),'cx-meta'));
+   for(const group of facts.groups||[]){
+    const details=node('details',undefined,'cx-digest-fact-group'),heading=node('summary');
+    heading.append(node('span',Object.entries(group.keys||{}).map(([key,value])=>key+': '+display(value)).join(' · '),undefined,true),node('span',' · '+t('记录数')+': '+display(group.row_count)));
+    details.append(heading);const groupMetrics=metricsView(group.metrics),groupNumeric=numericView(group.numeric_fields);if(groupMetrics)details.append(groupMetrics);if(groupNumeric)details.append(groupNumeric);groups.append(details);
+   }
+   if(facts.omitted_groups){const omitted=node('p',undefined,'cx-digest-omission');omitted.append(node('span',t('未展开分组')+': '+facts.omitted_groups+' · '+t('未展开记录')+': '+facts.omitted_row_count));groups.append(omitted);}
+   content.append(groups);
+  }
+  return content;
+ }
+ function render(config,preview,context={}){
+  if(!config?.enabled)return null;
+  const section=node('section',undefined,'cx-report-digest');section.append(node('h4','EnGenie Digest'));
+  section.append(node('p',t('发送时包含简要总结和汇总数字。'),'cx-meta'));
+  section.append(node('p',t(config.include_source_links?'附上原文链接':'不附原文链接')+' · '+t('报告展示方式')+': '+t(config.email_format==='html_link'?'HTML 报告链接':config.email_format==='html_attachment'&&context.kind!=='teams'?'HTML 邮件附件':'摘要正文'),'cx-digest-presentation'));
+  if(config.email_format==='html_attachment'&&context.kind==='email'&&context.delivery?.html_attachments_supported!==true){
+   const warning=node('p',t('当前邮件工作流尚未确认支持 HTML 附件；发送前请升级工作流并确认附件支持。'),'cx-digest-capability-warning');warning.setAttribute('role','status');section.append(warning);
+  }
+  if((config.email_format==='html_link'&&['email','teams'].includes(context.kind)||config.email_format==='html_attachment'&&context.kind==='email')&&preview?.html){
+   const url=safeHTMLPreviewURL(preview.html.download_url);
+   if(url){const download=node('p',undefined,'cx-digest-html-preview'),link=node('a',t('下载 HTML 预览'));link.href=url;link.setAttribute('download',preview.html.filename||'EnGenie-report.html');download.append(link,node('small',' '+(preview.html.filename||'EnGenie-report.html'),undefined,true));section.append(download);}
+  }
+  if(preview?.status==='skipped'){
+   section.append(node('p',t(preview.reason==='condition_not_met'?'当前数据未满足触发条件；本次不生成或发送摘要。':preview.reason==='no_data'?'当前没有可用于摘要的数据，本次未发送。':'本次未生成摘要。'),'cx-digest-status'));
+  }else if(preview?.text){section.append(node('h5',t('摘要预览')),node('p',preview.text,'cx-digest-text',true));}
+  else if(preview?.error){section.append(node('p',t('摘要预览未完成。'),'cx-digest-status'),node('p',preview.error,'cx-digest-text',true));}
+  else section.append(node('p',t('摘要将在报告发送前生成。可通过 EnGenie 对话预览和调整。'),'cx-digest-status'));
+  if(config.instructions){const instructions=node('details',undefined,'cx-digest-instructions');instructions.append(node('summary',t('摘要要求')),node('p',config.instructions,undefined,true));section.append(instructions);}
+  if(config.include_source_links){const links=sourceLinksView(preview?.source_links);if(links)section.append(links);}
+  if(preview?.facts&&typeof preview.facts==='object'&&Object.keys(preview.facts).length){
+   const facts=node('section',undefined,'cx-digest-facts');facts.append(node('h5',t('汇总数字')),factsView(preview.facts));section.append(facts);
+  }
+  return section;
+ }
+ root.ConnectorReportDigest={render,safeSourceURL,safeHTMLPreviewURL};
+})(typeof window!=='undefined'?window:globalThis);
+
 (()=>{
  'use strict';const page=document.getElementById('connectorPage');if(!page)return;
  const messages=document.getElementById('connectorMessages'),composer=document.getElementById('composerForm');

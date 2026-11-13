@@ -273,7 +273,8 @@ def _kb_tree_text(dept_filter: dict) -> str:
 
     def _desc(obj) -> str:
         d = (getattr(obj, "description", "") or "").strip()
-        return f"｜说明: {d[:80]}" if d else ""
+        mode = "｜表格查询模式：逐行结构化数据，请用 tracker_preview / tracker_lookup 查询与统计" if getattr(obj, 'table_query', False) else ""
+        return (f"｜说明: {d[:80]}" if d else "") + mode
 
     def _doc_lines(kb, indent: str) -> list[str]:
         """文档级说明：每份文档一行（上限 4 份，超出提示）。"""
@@ -779,6 +780,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         target_kb = KnowledgeBase.objects.filter(slug=target).first()
         if target_kb is None or not _dept_allowed(target_kb):
             return f"知识库「{target}」不存在，请用 list_knowledge_bases 查看可选项。"
+        from .spreadsheet_rows import is_table_query_kb
+        if is_table_query_kb(target_kb):
+            table_kb = target_kb.parent if target_kb.parent_id else target_kb
+            return json.dumps({"query_mode": "table", "kb_slug": table_kb.slug,
+                               "notice": "此库按原始表格逐行保存，请先用 tracker_preview 查看字段，再用 tracker_lookup 筛选、按业务日期查询或汇总；语义检索不提供全量表格结果。"}, ensure_ascii=False)
         try:
             if target_kb.is_folder:
                 scopes = [kb.slug for kb in KnowledgeBase.objects.filter(slug__in=target_kb.child_doc_slugs()) if _dept_allowed(kb)]
@@ -1059,6 +1065,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
                         period: Literal['minute', 'hour', 'day', 'week', 'month', 'year'] = 'day',
                         span: int = 1, output: Literal['preview', 'excel', 'plot', 'both'] = 'preview',
                         chart_metric: Literal['value', 'change', 'change_pct'] = 'value',
+                        chart_type: Literal['auto', 'line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut'] = 'auto',
                         feed_id: str = '', query: str = '', filters: list[TrackerFilter] | None = None) -> str:
         """直接分析完整台账历史并生成真实 Excel/图表；普通和增强模式均可用，无需编写代码。
 
@@ -1076,6 +1083,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             图表summary最多50组，trend最多8对象。chart_metric仅控制趋势图口径，不改变Excel的完整列。
         数值字符串参与计算，非数值排除并报告有效条数；缺失周期不补零，上期为0不算变化率。
         feed_id可选，仅用于结构化采集表。文件直接来自数据库，返回真实下载URL，不把预览抄成全量Excel。
+        For a requested chart, use output='plot' or 'both'. The full, permission-checked
+        result is displayed as an interactive chart directly in the chat, with value
+        tooltips and legend controls. chart_type selects the requested supported view;
+        'auto' uses bars for summaries and lines for trends. Pie/doughnut require one
+        nonnegative series; combo requires multiple series. Files remain downloadable.
         """
         from .analysis_exports import agent_analysis
         if not kb_slug:
@@ -1083,7 +1095,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         params = {'kind': mode, 'op': operation, 'group': group, 'measure': measure,
                   'from': date_from, 'to': date_to, 'object_field': object_field,
                   'object_value': object_values or [], 'period': period, 'span': str(span),
-                  'chart_metric': chart_metric, 'feed': feed_id, 'analysis_search': query,
+                  'chart_metric': chart_metric, 'chart_type': chart_type, 'feed': feed_id, 'analysis_search': query,
                   'analysis_filters': json.dumps(filters or [], ensure_ascii=False)}
         try:
             text = agent_analysis(actor, _dept_allowed, tracker_query, kb_slug, params, output)
@@ -1140,6 +1152,10 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         参数:
             code: 完整可运行的 Python 代码字符串。
             filename: 若代码生成文件，使用的文件名（默认 analysis.xlsx）。
+        Standard matplotlib line, bar, pie, doughnut, scatter and mixed bar/line
+        figures are also captured as interactive chat charts from the actual plotted
+        data. Keep PNG output for downloads and unsupported figure types. Do not emit
+        JavaScript, HTML scripts or fabricated chart data.
         """
         import os as _os
 
@@ -1317,7 +1333,7 @@ async def run_agent_stream(
         # ---- 管线增强 · 问题规划（query_plan）----
         # 改写/拆解问题注入 agent 输入；闲聊或规划失败 → 跳过，不影响主流程
         agent_input = message
-        if enhance and not overview and not history_messages:
+        if enhance and not overview and not history_messages and not (config or {}).get('attachment_ids'):
             yield SSE_STEP, {"stage": "query_plan", "status": "start"}
             from .qa_steps import plan_query
             plan_text, p_usage = await plan_query(cfg, message, history=(config or {}).get("published_history", []))
@@ -1346,7 +1362,22 @@ async def run_agent_stream(
             # Keep overview material in its original turn, rather than changing
             # the system prefix or prefetching it again on every follow-up.
             agent_input += '\n\n' + retrieval_state['input_context']
-        input_messages = history_messages + [HumanMessage(content=agent_input)]
+        attachment_ids = (config or {}).get('attachment_ids') or []
+        current_message = HumanMessage(content=agent_input, additional_kwargs=(
+            {'chat_attachment_ids': attachment_ids} if attachment_ids else {}))
+        from .chat_attachments import hydrate_messages, evidence_for_attachments, compact_messages
+        input_messages = await sync_to_async(hydrate_messages)(
+            history_messages + [current_message], user_id=(config or {}).get('user_id'),
+            conversation_id=(config or {}).get('conversation_id'), vision=bool(cfg.get('vision')))
+        all_attachment_ids = list(dict.fromkeys(
+            str(identity) for item in input_messages if isinstance(item, HumanMessage)
+            for identity in item.additional_kwargs.get('chat_attachment_ids', [])))
+        if all_attachment_ids:
+            snapshots = await sync_to_async(evidence_for_attachments)(
+                all_attachment_ids, user_id=(config or {}).get('user_id'),
+                conversation_id=(config or {}).get('conversation_id'))
+            known = {item.get('attachment_id') for item in evidence if item.get('kind') == 'chat_attachment'}
+            evidence.extend(item for item in snapshots if item['attachment_id'] not in known)
         completed_messages = None
         # recursion_limit 是顶层 key（不在 configurable 内）。
         # 每次工具调用 ≈ 2 个节点（agent + tool）。取完整表格时可能用到
@@ -1397,7 +1428,7 @@ async def run_agent_stream(
                         pending_reasoning.append(content)
                         selection_pending = retrieval_state.get('used') and not retrieval_state.get('finalized')
                         if not enhance and not selection_pending and len(pending_reasoning)==1:
-                            image_evidence=[item for item in evidence if item.get('kind')=='image']
+                            image_evidence=[item for item in evidence if item.get('kind') in ('image', 'chat_attachment')]
                             if image_evidence:
                                 from .publication import validate_sources
                                 if not await sync_to_async(validate_sources)(image_evidence,(config or {}).get('user_id')):
@@ -1542,7 +1573,11 @@ async def run_agent_stream(
             verdict = None
             source_ok = await sync_to_async(validate_sources)(evidence, (config or {}).get("user_id"))
             if final_complete and source_ok and answer_text:
-                verdict, v_usage = await verify_answer(cfg, message, answer_text, evidence)
+                if any(item.get('kind') == 'chat_attachment' for item in evidence):
+                    verdict, v_usage = await verify_answer(cfg, message, answer_text, evidence,
+                                                         user_id=(config or {}).get('user_id'))
+                else:
+                    verdict, v_usage = await verify_answer(cfg, message, answer_text, evidence)
                 usage_in += v_usage["input_tokens"]
                 usage_out += v_usage["output_tokens"]
                 max_in = max(max_in, v_usage["input_tokens"])
@@ -1591,7 +1626,7 @@ async def run_agent_stream(
                 transcript[-1] = transcript[-1].model_copy(update={'content': published_answer})
             session = retrieval_state.get('session')
             config['next_context'] = {
-                'version': 1, 'messages': messages_to_dict(transcript),
+                'version': 1, 'messages': messages_to_dict(compact_messages(transcript)),
                 'rag': session.snapshot() if session else context.get('rag', {}),
                 'evidence': evidence, 'citations': citations,
             }

@@ -14,7 +14,7 @@ def selection(plan):
     if isinstance(saved,dict) and saved.get('kind') in ('email','teams'):return saved
     # Legacy approvals did not persist their channel in the plan. Recover only
     # from an exactly matching approved definition, never from a report title.
-    keys=('kind','title','columns','range','filters','group_by','aggregates','schedule','trigger')
+    keys=('kind','title','columns','range','filters','group_by','aggregates','schedule','trigger','digest')
     for job in ConnectorDraft.objects.filter(feed=plan.feed,user_id=plan.created_by_id,status='enabled',spec__kind='report').order_by('-created_at')[:20]:
         if all(job.spec.get(key)==plan.spec.get(key) for key in keys):
             chosen=reports.delivery_selection(job)
@@ -31,11 +31,13 @@ def state(feed,user):
     return result
 
 
-def require_ready(plan,chosen):
+def require_ready(plan,chosen,digest=None):
     config=reports.select_destination(reports.destination(plan),chosen)
     reports.selected_workflow(config)
+    digest=plan.spec.get('digest',{}) if digest is None else digest
+    reports.require_html_attachment_mapping(config,digest)
     address=reports.site_address(config)
-    if not address['available']:raise ValueError(address['reason'])
+    if not address['available'] and digest.get('email_format')!='html_attachment':raise ValueError(address['reason'])
     if config.get('kind')=='email':
         try:validate_email(config.get('recipient',''))
         except (ValidationError,TypeError):raise ValueError('请先在对话中补充报告的收件邮箱。') from None
@@ -46,12 +48,21 @@ def change(user,feed,data):
     reports.require_feed(user,feed);access.require_feed_builder(user,feed)
     if not isinstance(data,dict):raise ValueError('报告计划格式无效。')
     action=data.get('action')
-    if action not in ('pause','resume','update_schedule'):raise ValueError('不支持的报告计划操作。')
+    if action not in ('pause','resume','update_schedule','update_digest'):raise ValueError('不支持的报告计划操作。')
     plan=FeedReportPlan.objects.select_for_update().filter(feed=feed).first()
     if not plan:raise ValueError('请先通过 EnGenie 创建并确认报告。')
     before=(plan.spec,plan.schedule_mode,plan.cron,plan.timezone,plan.enabled,plan.next_run_at)
+    digest_supplied='digest' in data
+    digest=None
+    if digest_supplied or action=='update_digest':
+        if plan.spec.get('kind')!='report' or not plan.spec.get('columns'):raise ValueError('请先通过 EnGenie 创建并确认报告。')
+        from .report_digest import normalize_digest
+        digest=normalize_digest(data.get('digest'),reports.output_headers(plan.spec))
+        reports.require_html_attachment_mapping(reports.select_destination(reports.destination(plan),selection(plan)),digest)
     if action=='pause':
         plan.enabled=False;plan.next_run_at=None
+    elif action=='update_digest':
+        plan.spec={**plan.spec,'digest':digest}
     else:
         if plan.spec.get('kind')!='report' or not plan.spec.get('columns'):raise ValueError('请先通过 EnGenie 创建并确认报告。')
         chosen=selection(plan)
@@ -62,14 +73,16 @@ def change(user,feed,data):
         if plan.spec.get('trigger') and schedule['mode']=='after_collection':raise ValueError('条件触发报告需使用独立的检查频率或按需检查。')
         if action=='resume' and schedule['mode']=='manual':raise ValueError('当前仅按需发送，请先设置定时频率。')
         enabled=(True if action=='resume' else plan.enabled) and schedule['mode']!='manual'
-        if enabled:require_ready(plan,chosen)
+        if enabled:require_ready(plan,chosen,digest if digest_supplied else None)
         plan.spec={**plan.spec,'schedule':schedule,**({'delivery':chosen} if chosen else {})}
         plan.schedule_mode=schedule['mode'];plan.cron=schedule.get('cron','');plan.timezone=schedule['timezone']
         if not enabled or plan.schedule_mode!='cron':plan.next_run_at=None
         elif not plan.enabled or plan.next_run_at is None or old!=(plan.schedule_mode,plan.cron,plan.timezone):
             plan.next_run_at=CronSchedule(plan.cron,plan.timezone).next_after(timezone.now())
         plan.enabled=enabled
+    if digest_supplied and action!='update_digest':
+        plan.spec={**plan.spec,'digest':digest}
     after=(plan.spec,plan.schedule_mode,plan.cron,plan.timezone,plan.enabled,plan.next_run_at)
     if before!=after:plan.save(update_fields=['spec','schedule_mode','cron','timezone','enabled','next_run_at','updated_at'])
-    messages={'pause':'报告发送已暂停；已提交的发送可能仍会完成。','resume':'报告发送已启用。','update_schedule':'报告发送频率已保存。'}
+    messages={'pause':'报告发送已暂停；已提交的发送可能仍会完成。','resume':'报告发送已启用。','update_schedule':'报告发送频率已保存。','update_digest':'EnGenie 摘要设置已保存；发送计划保持不变。'}
     return {'ok':True,'report':state(feed,user),'message':messages[action]}

@@ -1,5 +1,5 @@
 {% load static %}
-<link rel="stylesheet" href="{% static 'css/tracker_analysis.css' %}?v=20261107-2">
+<link rel="stylesheet" href="{% static 'css/tracker_analysis.css' %}?v=20261113-hover">
 <section class="ta-panel" id="trackerAnalysis" data-url="{% url 'kb:tracker_analysis' kb.slug %}" aria-labelledby="taHeading">
   <header class="ta-header">
     <div><span class="ta-kicker">业务数据 · 趋势洞察</span><h2 id="taHeading">采集参数分析</h2>
@@ -42,4 +42,5 @@
     <p class="ta-footnote" id="taFootnote"></p>
   </div>
 </section>
-<script type="module" src="{% static 'js/tracker_analysis.js' %}?v=20261107-3"></script>
+<script src="{% static 'js/chart_tooltip.js' %}?v=1"></script>
+<script type="module" src="{% static 'js/tracker_analysis.js' %}?v=20261113-hover"></script>

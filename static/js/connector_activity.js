@@ -2,7 +2,7 @@
   'use strict';
   const names={browser_open:'Open webpage',browser_snapshot:'Inspect page structure',browser_action:'Interact with webpage',browser_network:'Inspect network data',browser_read_response:'Read API response',browser_extract:'Extract page fields',test_browser_connector:'Replay and validate collection',probe_api:'Test API data',search_api_docs:'Search documentation',read_api_documentation:'Read documentation',inspect_connector_environment:'Check collection environment',test_mapping:'Validate data mapping',show_data_preview:'Preview collected data',preview_triggered_report:'Preview conditional delivery',preview_scheduled_report:'Preview scheduled report'};
   const english=(value,fallback)=>window.FosToolText?.message(value,fallback)||(/[\u3400-\u9fff]/u.test(String(value||''))?fallback:String(value||fallback));
-  const toolName=tool=>window.FosToolText?.name(tool)||names[tool]||tool||'Run tool';
+  const toolName=tool=>tool==='preview_engenie_digest'?'Preview EnGenie Digest':window.FosToolText?.name(tool)||names[tool]||tool||'Run tool';
   const node=(tag,className,text)=>{const el=document.createElement(tag);el.setAttribute('translate','no');if(className)el.className=className;if(text!==undefined)el.textContent=text;return el;};
   const number=value=>new Intl.NumberFormat('en-US',{notation:value>99999?'compact':'standard',maximumFractionDigits:1}).format(value || 0);
   const duration=value=>value<60?Math.round(value)+'s':Math.floor(value/60)+'m '+Math.round(value%60)+'s';

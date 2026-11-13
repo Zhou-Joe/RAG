@@ -29,7 +29,7 @@
     if (content !== undefined) node.textContent = content;
     return node;
   };
-  const clear = node => node.replaceChildren();
+  const clear = node => {node._fosChartTooltip?.destroy(); node.replaceChildren();};
   // 对象值多选：一个对象一条曲线，图例按颜色对应
   function renderChips() {
     const host = $('feedKbTrendChips');
@@ -169,7 +169,12 @@
   }
 
   function recordName(record) {
-    return record.document_name || record.values?.标题 || record.source_id || '数据记录';
+    const name = record.document_name || record.values?.标题 || record.source_id || '数据记录';
+    if (Number.isSafeInteger(record.source_row) && record.source_row > 0) {
+      const sheet = record.source_sheet ? `${valueText(record.source_sheet)} · ` : '';
+      return `${valueText(name)} · ${sheet}#${record.source_row}`;
+    }
+    return name;
   }
 
   function detailFields(record, values, list, fullRecord = false) {
@@ -178,7 +183,12 @@
       const pair = element('div');
       const head = element('div', 'fkd-detail-field-head');
       head.append(element('dt', 'notranslate', label));
-      if (editable && fullRecord && state.fields.includes(label)) {
+      // The editor accepts 2,000 characters. A shortened preview must never
+      // become the replacement for a longer value imported from a spreadsheet.
+      const completeValue = !(value && typeof value === 'object' && value.truncated);
+      const editText = value === null || value === undefined ? ''
+        : typeof value === 'object' ? JSON.stringify(value) : String(value);
+      if (editable && fullRecord && completeValue && editText.length <= 2000 && state.fields.includes(label)) {
         const edit = element('button', 'fkd-field-edit', '编辑');
         edit.type = 'button'; edit.setAttribute('aria-label', uiText(`编辑字段：${label}`));
         edit.addEventListener('click', async () => {
@@ -529,7 +539,9 @@
     }
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 900 260');
-    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('role', 'group');
+    svg.setAttribute('aria-label', uiText('周期趋势图'));
+    const tooltip = window.FosChartTooltip?.create(host);
     const add = (tag, attrs, parent = svg) => {
       const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
       Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
@@ -567,11 +579,15 @@
       flush();
       points.forEach((value, index) => {
         if (value === null) return;
-        const dot = add('circle', {cx: x(index), cy: y(value), r: labels.length > 150 ? 2.5 : 4,
-          class: 'fkd-trend-dot'});
+        const dot = add('circle', {cx: x(index), cy: y(value), r: labels.length > 150 ? 1.6 : 2.2,
+          class: 'fkd-trend-dot', 'aria-hidden': 'true', 'vector-effect': 'non-scaling-stroke'});
         dot.style.fill = color; dot.style.stroke = color;
-        const title = add('title', {}, dot);
-        title.textContent = `${labels[index]} · ${shown[seriesIndex].object_value}: ${numberText(value)}`;
+        const label = `${labels[index]} · ${shown[seriesIndex].object_value}: ${numberText(value)}`;
+        const hit = add('circle', {cx: x(index), cy: y(value), r: 9, class: 'fkd-trend-hit',
+          tabindex: '0', role: 'img', 'aria-label': label});
+        if (tooltip) tooltip.bind(hit, () => [shown[seriesIndex].object_value, labels[index],
+          `${uiText(modeNames[chartField()] || '')}: ${numberText(value)}`], {marker: dot});
+        else add('title', {}, hit).textContent = label;
       });
     });
     [...new Set([0, Math.floor((labels.length - 1) / 2), labels.length - 1])].forEach(index => {

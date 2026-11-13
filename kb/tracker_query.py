@@ -137,6 +137,7 @@ class TrackerQuery:
             sample = list(rows.filter(status='done').order_by('-updated_at', '-pk').values('id', 'values')[:2])
             fields = table.fields[field_offset:field_offset+40]
             info = {'kb_slug': table.kb.slug, 'name': table.kb.name, 'enabled': table.enabled,
+                    'query_mode': 'table' if table.kb.table_query else 'tracker',
                     'row_count': stats['total'], 'completed_rows': stats['completed'], 'field_count': len(table.fields),
                     'data_from': stats['data_from'].isoformat() if stats['data_from'] else None,
                     'data_to': stats['data_to'].isoformat() if stats['data_to'] else None,
@@ -181,7 +182,8 @@ class TrackerQuery:
         def expression(field, kind='text'):
             nonlocal rows
             metadata = {'$row_id':'id', '$source_id':'external_id', '$updated_at':'updated_at',
-                        '$status':'status', '$document_name':'document__original_name'}
+                        '$status':'status', '$document_name':'document__original_name',
+                        '$source_sheet':'source_sheet', '$source_row':'source_row'}
             if not isinstance(field,str) or field not in labels and field not in metadata:
                 raise ValueError(f'未知字段「{str(field)[:100]}」，请先用 tracker_preview 查看实际字段。')
             if kind not in ('text', 'number', 'date'):
@@ -281,10 +283,11 @@ class TrackerQuery:
         result = {'kind':'tracker_rows', 'applied_query':applied, 'total_matched':total, 'columns':columns, 'unselected_columns':len(set(labels)-set(columns)),
                   'offset':offset, 'rows':[], 'has_more':False, 'next_offset':None,
                   'notice':'只返回本页；truncated 标记表示单元格省略，不能据此声称拿到完整内容。待确认记录不是已批准事实。'}
-        for row in rows.values('id','tracker__kb__slug','status','updated_at','external_id','document__original_name','values')[offset:offset+limit]:
+        for row in rows.values('id','tracker__kb__slug','status','updated_at','external_id','document__original_name','source_sheet','source_row','values')[offset:offset+limit]:
             record = {'row_id':row['id'], 'kb_slug':row['tracker__kb__slug'], 'status':row['status'],
                       'updated_at':row['updated_at'].isoformat(), 'source_id':cell(row['external_id'],200),
                       'document_name':cell(row['document__original_name'] or '',200),
+                      'source_sheet':row['source_sheet'], 'source_row':row['source_row'],
                       'values':{column:cell(row['values'].get(column), cell_chars) for column in columns}}
             if len(encode({**result, 'rows':result['rows']+[record]}))>cap-300:
                 break

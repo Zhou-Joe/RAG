@@ -25,7 +25,8 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true", help="只列出待处理文档，不实际重建")
 
     def handle(self, *args, **options):
-        qs = Document.objects.filter(status=Document.Status.FAILED).exclude(md_content="")
+        qs = (Document.objects.filter(status=Document.Status.FAILED).exclude(md_content="")
+              .exclude(kb__table_query=True).exclude(kb__parent__table_query=True))
         if options["doc"]:
             qs = qs.filter(id=options["doc"])
         docs = []

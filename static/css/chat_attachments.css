@@ -1,0 +1,28 @@
+.composer.chat-composer-with-attachments{display:grid;grid-template-columns:36px minmax(0,1fr) auto auto;align-items:end}
+.chat-composer-with-attachments textarea{width:100%;min-width:0;box-sizing:border-box}
+.composer .chat-attach-button{display:grid;place-items:center;width:36px;height:46px;min-width:36px;padding:8px;border:1px solid var(--rule);border-radius:9px;background:var(--surface);color:var(--dim);cursor:pointer}
+.chat-attach-button svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.composer .chat-attach-button:hover,.composer .chat-attach-button:focus-visible{color:var(--brand);border-color:var(--brand);background:var(--brand-soft)}
+.composer .chat-attach-button:disabled{opacity:.45;cursor:wait}
+.chat-attachment-tray{grid-column:1/-1;display:flex;gap:7px;flex-wrap:wrap;max-height:154px;overflow:auto;padding:1px}
+.chat-attachment-tray[hidden],.chat-attachment-error[hidden]{display:none}
+.chat-attachment-chip{display:flex;align-items:center;gap:8px;min-width:0;max-width:240px;padding:6px 7px;border:1px solid var(--rule);border-radius:10px;background:var(--surface)}
+.chat-attachment-chip img,.chat-attachment-file-icon{width:34px;height:34px;flex:none;border-radius:6px;object-fit:cover;background:var(--brand-soft)}
+.chat-attachment-file-icon{display:grid;place-items:center;color:var(--brand);font-size:22px}
+.chat-attachment-info{display:flex;flex-direction:column;gap:3px;min-width:0}
+.chat-attachment-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:500}
+.chat-attachment-info small,.chat-message-attachment small{font-size:10px;color:var(--mute)}
+.chat-attachment-remove{flex:none;align-self:flex-start;width:24px;height:24px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--mute);font-size:19px;cursor:pointer}
+.chat-attachment-remove:hover,.chat-attachment-remove:focus-visible{color:var(--danger);background:var(--err-soft)}
+.chat-attachment-remove:disabled{opacity:.4;cursor:wait}
+.chat-attachment-error{grid-column:1/-1;margin:0;font-size:12px;line-height:1.5;color:var(--danger)}
+.chat-col.is-file-drop .composer{outline:2px dashed var(--brand);outline-offset:4px;background:var(--brand-soft)}
+.chat-message-attachments{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.chat-message-attachment{display:flex;flex-direction:column;gap:4px;min-width:90px;max-width:220px;padding:8px 10px;border:1px solid var(--rule);border-radius:10px;background:var(--surface);color:var(--text);text-decoration:none}
+a.chat-message-attachment:hover{border-color:var(--brand)}
+.chat-message-attachment.is-image{padding:5px}
+.chat-message-attachment img{display:block;width:auto;max-width:200px;max-height:170px;object-fit:contain;border-radius:7px}
+.chat-message-attachment.is-image .chat-attachment-name,.chat-message-attachment.is-image small{padding:0 4px}
+.rag-chat-embedded .composer.chat-composer-with-attachments{grid-template-columns:36px minmax(0,1fr) auto auto}
+.rag-chat-embedded .composer .chat-attach-button{height:36px;border:0;background:transparent;border-radius:10px}
+@media(max-width:620px){.chat-attachment-chip{max-width:200px}.chat-message-attachment{max-width:190px}.chat-message-attachment img{max-width:180px}.rag-chat-embedded .composer .chat-attach-button{height:40px}}

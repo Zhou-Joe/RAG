@@ -4,7 +4,7 @@
 <header class="page-head">
   <div class="page-head-main">
     <h1>知识库中心</h1>
-    <p class="page-desc">管理各部门的手册库与业务数据；上传后自动解析、分块并建立索引。</p>
+    <p class="page-desc">管理各部门的文档知识、表格查询与自动采集数据。</p>
   </div>
   <div class="page-actions">
     <a class="btn outline" href="{% url 'kb:feeds' %}">自主数据引擎</a>
@@ -33,6 +33,10 @@
       <input name="name" required maxlength="80"></div>
     <div class="field"><label>描述（可选，会展示给 AI 帮它判断该搜哪个库）</label>
       <input name="description" maxlength="200"></div>
+    <div class="field kb-query-mode">
+      <label class="kb-query-mode-choice" for="kbCreateTableQuery"><input type="checkbox" id="kbCreateTableQuery" name="table_query" value="on"><span>主要用于表格查询</span></label>
+      <p class="kb-query-mode-help">不勾选：用于文档知识问答。勾选：将 Excel / CSV / TSV 逐行保存，用于条件查询和统计，不对整张表做向量化。首个非空行为表头，可包含多个 Sheet。</p>
+    </div>
     {% include "kb/_access_fields.html" %}
     <div class="dialog-err" id="kbCreateErr" hidden></div>
     <div class="dialog-actions">
@@ -210,6 +214,7 @@ document.addEventListener('click', async (event) => {
   document.getElementById('openKbCreate').addEventListener('click', () => {
     err.hidden = true;
     form.elements.namedItem('name').value = '';
+    form.elements.namedItem('table_query').checked = false;
     dlg.showModal();
     form.elements.namedItem('name').focus();
   });

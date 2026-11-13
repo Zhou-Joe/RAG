@@ -13,7 +13,8 @@
     ask_user_questions:'Request missing information',set_source_access:'Configure source access',preview_calculation:'Preview calculation',
     configure_report_delivery:'Configure report delivery',get_current_time:'Check current time',inspect_task_history:'Inspect task history',
     get_report_site_address:'Check report site address',inspect_report_data:'Inspect report data',preview_report_calculation:'Preview report calculation',
-    preview_scheduled_report:'Preview scheduled report',preview_triggered_report:'Preview conditional delivery'
+    preview_scheduled_report:'Preview scheduled report',preview_triggered_report:'Preview conditional delivery',
+    preview_engenie_digest:'Preview EnGenie Digest'
   };
   const progress = {
     '正在执行…':'Running…','正在执行':'Running','执行完成':'Completed','执行未完成':'Failed',

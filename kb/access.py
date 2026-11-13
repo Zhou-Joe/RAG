@@ -64,11 +64,11 @@ def can_manage_kb(user,kb):
     return is_global_admin(user) or (is_manager(user) and root.department in mine and kb.department in mine)
 
 
-def _permission_q(user,prefix='',manage=False,admin_all=False):
+def _permission_q(user,prefix='',manage=False,admin_all=True):
     """两套范围：读（kb_q，搜索/问答）与写（managed_q，上传/改名/删除）。
 
     读：共享库 = 「通用」∪ 账号所属的**全部**部门（一个账号可有多个部门；
-        admin_all=True 时全局管理员追加全部共享库）。
+        全局管理员默认可读全部共享库；admin_all=False 仅供显式部门范围查询）。
     写：共享库 = 仅本人**可写部门集合**内（全局管理员不限部门）。「通用」默认分配给
         所有账号，因此对多数人只读：库照常可见（见 visible_q），写操作由全局管理员
         或主部门就是「通用」的部门管理员执行（见 accounts.models.user_write_departments）。
@@ -89,7 +89,7 @@ def _permission_q(user,prefix='',manage=False,admin_all=False):
     return top|parent_private|children
 
 
-def kb_q(user,prefix='',*,admin_all=False):return _permission_q(user,prefix,admin_all=admin_all)
+def kb_q(user,prefix='',*,admin_all=True):return _permission_q(user,prefix,admin_all=admin_all)
 
 
 def managed_q(user,prefix=''):return _permission_q(user,prefix,manage=True)

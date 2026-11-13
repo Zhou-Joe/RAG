@@ -47,9 +47,10 @@ function svgNode(tag, attributes = {}, text) {
   return element;
 }
 
-function numericChart(data, metric, width = 924) {
+export function numericChart(data, metric, width = 924, host = null) {
+  const t = value => globalThis.FOSI18n?.t(value) || value;
   const chartWidth=Math.max(260,Math.min(900,width-24));
-  const svg = svgNode('svg', {viewBox:`0 0 ${chartWidth} 250`, role:'img', 'aria-label':`${data.parameter}按采集时间的${METRICS[metric]}趋势`});
+  const svg = svgNode('svg', {viewBox:`0 0 ${chartWidth} 250`, role:'group', 'aria-label':`${data.parameter} · ${t(METRICS[metric])}`});
   const periods = data.periods;
   const values = periods.filter(p => p[metric] !== null && Number.isFinite(Number(p[metric]))).map(p => Number(p[metric]));
   if (!values.length) return node('p', 'ta-help', '本范围没有可绘制的有效数值。');
@@ -79,11 +80,17 @@ function numericChart(data, metric, width = 924) {
     connected=true;
   }
   svg.append(svgNode('path',{d:path,class:'ta-line'}));
+  const tooltip = host && globalThis.FosChartTooltip?.create(host);
+  if (tooltip) host._fosChartTooltip = tooltip;
   for (const period of periods) {
     if (period[metric] === null || !Number.isFinite(Number(period[metric]))) continue;
-    const label = `${periodLabel(period.start,data.grain,data.timezone)} · ${METRICS[metric]} ${formatValue(period[metric],data.kind)} · ${period.valid_count} 个有效样本`;
-    const dot=svgNode('circle',{cx:x(period),cy:y(period[metric]),r:3.5,class:'ta-dot',tabindex:'0','aria-label':label});
-    dot.append(svgNode('title',{},label));svg.append(dot);
+    const lines = () => [data.parameter, periodLabel(period.start,data.grain,data.timezone),
+      `${t(METRICS[metric])}: ${formatValue(period[metric],data.kind)}`,
+      `${t('有效 / 总样本')}: ${period.valid_count} / ${period.count}`];
+    const dot=svgNode('circle',{cx:x(period),cy:y(period[metric]),r:2,class:'ta-dot','aria-hidden':'true'});
+    const hit=svgNode('circle',{cx:x(period),cy:y(period[metric]),r:9,class:'ta-point-hit',tabindex:'0',role:'img','aria-label':lines().join(' · ')});
+    hit.append(svgNode('title',{},lines().join(' · ')));svg.append(dot,hit);
+    tooltip?.bind(hit,lines,{marker:dot});
   }
   return svg;
 }
@@ -119,14 +126,17 @@ function init(panel) {
     }
     return response.json();
   }
-  function showError(message) {error.textContent=message;error.hidden=false;result.hidden=true;empty.hidden=true;}
+  function showError(message) {get('taChart')._fosChartTooltip?.hide();error.textContent=message;error.hidden=false;result.hidden=true;empty.hidden=true;}
   function drawChart() {
     if(!data || result.hidden || view!=='chart')return;
     const chart=get('taChart');
-    chart.replaceChildren(data.kind==='category' ? categoryChart(data) : numericChart(data,metric.value,chart.clientWidth));
+    chart._fosChartTooltip?.destroy();
+    chart._fosChartTooltip = null;
+    chart.replaceChildren(data.kind==='category' ? categoryChart(data) : numericChart(data,metric.value,chart.clientWidth,chart));
   }
   function setView(next) {
     view=next;
+    if(view!=='chart')get('taChart')._fosChartTooltip?.hide();
     get('taChartWrap').hidden=view!=='chart';get('taTableWrap').hidden=view!=='table';
     panel.querySelectorAll('[data-ta-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.taView===view)));
     if(!data)return;
@@ -173,6 +183,7 @@ function init(panel) {
     get('taFootnote').textContent=notes.join(' ');
   }
   async function load() {
+    get('taChart')._fosChartTooltip?.hide();
     if(!controls.item.value || !controls.parameter.value)return;
     if(controls.start.value && controls.end.value && controls.start.value>controls.end.value) {
       controller?.abort();version++;panel.removeAttribute('aria-busy');status.textContent='请调整时间范围';showError('开始时间不能晚于结束时间。');return;

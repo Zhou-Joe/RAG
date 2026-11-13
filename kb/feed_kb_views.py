@@ -286,6 +286,7 @@ def _record_data(request, kb, tracker, row_scope, record_scope, common, *, trend
         row = get_object_or_404(TrackerRow.objects.filter(record_scope), pk=row_id,
                                 tracker=tracker, status=TrackerRow.Status.DONE)
         response = JsonResponse({"ok": True, "row_id": row.pk, "source_id": row.external_id,
+                                 "source_sheet": row.source_sheet, "source_row": row.source_row,
                                  "values": {key: cell(row.values[key], 2000) for key in fields if key in row.values}})
         response["Cache-Control"] = "private, no-store"
         return response

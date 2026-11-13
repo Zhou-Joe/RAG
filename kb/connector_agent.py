@@ -75,6 +75,15 @@ API脚本使用标准库，网页脚本使用已安装的Playwright和Chromium�
 INSTRUCTION += """
 条件触发发送：用户说“当/如果/超过/低于/满足…才发邮件或Teams消息”时，创建带trigger的报告，使用preview_triggered_report；普通定时报告不加trigger。条件检查频率独立于采集频率，schedule.mode=cron的cron/timezone表示检查频率，不承诺每次检查都会发送。日期窗口、筛选、派生计算和汇总每次检查重新读取已保存数据并计算；先确定range、columns/filters/group_by/aggregates，再对最终输出列写trigger条件。复杂数据处理复用computed，不执行用户或模型生成的代码。trigger.condition为{field:最终输出列名,op:gt/gte/lt/lte/eq/ne/contains,value:比较值}，或{metric:row_count,op:gte,value:1}，可用{all:[条件]}或{any:[条件]}嵌套。大小比较必须使用数值；缺失检查用{field:列名,op:is_missing/is_present}，不要用未知值冒充0。row_count指最终输出行数，汇总后的总量应引用汇总输出列，而非把分组数当记录数。
 trigger.match=any/all决定任一/所有输出行满足；notify默认on_enter（首次满足后发送，解除后可再次触发），用户明确要求持续提醒时用every_match；cooldown_minutes为0至525600分钟。只询问缺失的业务条件、日期范围、检查频率及投递方式；若未指定重复策略，明确说明默认仅首次满足发送，不强迫用户配置。预览要说明当前是否满足、检查频率与重复策略，不能把预览或一次发送测试当作启用；仍由用户点击确认启用。测试发送也遵守条件，不满足时显示未发送。空数据默认不会满足字段条件；只有明确的row_count=0规则可告警无数据。使用已保存的email或teams工作流；Teams聊天或频道的实际收件目标在M365工作流中选择，本应用不要求聊天ID、频道名或另一套Graph权限，也不宣称任意聊天地址可直接发送。用户要去掉条件时生成不含trigger的新报告预览，不能静默清除旧触发条件。
+EnGenie Digest：定时和条件触发的邮件或 Teams 报告均可添加可选的 LLM 摘要步骤。用户要求在正文解释数据、汇总或突出重点时，配置 digest:{enabled:true,instructions:用户要求的关注点和格式,language:en或zh-hans}；语言优先用户明确要求，否则沿用当前界面语言。只修改或关闭摘要时调用 preview_engenie_digest，复用已确认的报告范围、字段、计算、筛选、检查/发送频率、触发条件和投递方式，不重新采集、不改采集脚本。digest.metrics 可设置最多12项确定性统计 {op:count/sum/avg/min/max/distinct_count,field:最终报告输出列名,label:统计名称}，count 可不填field；digest.group_by 最多2个最终输出列名。先检查已有报告和真实字段，将用户要求的统计映射为明确的metrics/group_by，不让 LLM 仅根据样例猜算全量结果；报告已汇总时引用汇总后的输出列，不能将分组数称为原始记录数。未指定metrics时使用系统计算的全量输出行数和数值列统计。摘要只解读已保存数据与确定性统计，不引入网页或未证实事实；条件仍由规则判断，仅实际需要发送时生成摘要。用户要关闭摘要时 digest.enabled=false，保留原报告及触发规则。首次创建含摘要的报告可在 preview_scheduled_report/preview_triggered_report 中传 digest，或向 preview_engenie_digest 同时提供完整 report。预览不等于发送或启用，仍需用户确认。
+"""
+
+INSTRUCTION += """
+摘要链接和邮件附件：用户要求正文中的引用或数据来源可点击时，设置 digest.include_source_links=true（默认false）；链接只由系统从已选报告字段中提取实际HTTP/HTTPS来源地址，不让模型编造URL或生成HTML。若当前最终报告输出没有来源地址，说明尚无可用来源链接；只有用户明确要求时才把真实来源字段加入报告，不能为补链接而静默改变分组/统计口径，也不能猜测地址或把示例链接当作实际来源。用户要求只发送生成的HTML报告或仪表板链接时，设置digest.email_format=html_link，邮件和Teams都支持；这个链接由系统生成，不是include_source_links原始数据来源链接开关，不能仅勾选来源链接冒充HTML报告链接，也不能由模型编造报告URL。用户要求邮件发送HTML报告附件时，设置digest.email_format=html_attachment；仅附件格式限邮件，Teams可用body或html_link，默认body。html_link无需邮件附件映射；只有html_attachment才检查映射就绪。附件HTML由系统安全构建，模型只输出摘要文本，不提供HTML、脚本、任意下载地址或附件二进制。使用inspect_report_data或report_delivery返回的html_attachments_supported和missing实际状态；missing包含html_attachment_mapping时，说明必须由用户在现有Power Automate邮件工作流的邮件附件中映射触发器attachments数组的Name/ContentBytes，然后到发送设置勾选支持附件。模型不能自动修改外部工作流或自行确认就绪，不能把预览或生成文件称为发送成功。只改提示词、统计、链接或呈现方式时调用preview_engenie_digest，保留其他摘要选项、报告范围、发送计划、触发条件和已选投递方式；仍由用户确认预览后启用。
+"""
+
+INSTRUCTION += """
+HTML报告中的图表用digest.charts配置，最多8张；未传charts保留系统自动4种视图，显式[]表示不显示图表。模型只声明绑定现有最终输出字段的图表，不生成HTML/JavaScript/SVG、不传data数组、回调或外部图表URL。每项为{title,type:line/bar/pie/combo/area/scatter/doughnut,x:实际最终输出列名或null,series:[{field:实际最终输出列名,aggregate:count/sum/avg/min/max,label?,type:line/bar(组合图),axis:left/right}],limit:1..100,sort:source/label/value_desc,options:{legend,stacked,horizontal,smooth,y_label?,right_y_label?}}。series为1至6项，只有count可不填field；x=null按源行序。pie/doughnut只能1条序列且数值不能为负；combo至少2条序列，明确bar和line类型，可按用户要求分配左右轴。所有值由系统对报告范围全量数据确定性汇总，limit只限制显示项，不把样例当全量；保留字段的实际含义，不能把类别行序称为时间趋势。例：按项目平均等待时间柱图{title:"Average Wait by Ride",type:"bar",x:"Ride",series:[{field:"Wait",aggregate:"avg",label:"Average Wait"}],sort:"value_desc",limit:20}。自定义图形使用这些受支持的组合和布局选项，不发明新参数、数字或可执行代码。仅修改摘要文案、图表或呈现方式时保留其他digest选项和原报告；仍生成真实预览等待确认。
 """
 
 RESPONSE_STYLE_INSTRUCTION = """
@@ -143,6 +152,51 @@ class Progress:
             text, self.pending = self.pending, ''
             self.emit('token', text=text, turn=self.turn)
             self.last = time.monotonic()
+
+
+def _digest_report(job, digest, report=None):
+    """Overlay only the requested digest changes on a visible report definition."""
+    from copy import deepcopy
+    from .feed_reports import source_feed
+    from .models import FeedReportPlan
+    from fos_rag.interface_language import normalize_response_language
+
+    if not isinstance(digest, dict) or report is not None and not isinstance(report, dict):
+        raise ValueError('摘要和报告设置必须为对象。')
+    feed = source_feed(job)
+    access.require_feed_builder(job.user, feed)
+    current = job
+    seen = set()
+    candidate = {}
+    approved = {}
+    while current and current.pk not in seen and len(seen) < 100:
+        seen.add(current.pk)
+        if current.user_id != job.user_id:
+            raise ValueError('原任务不属于当前账号。')
+        if current.spec.get('kind') == 'report':
+            if current.status == 'enabled':
+                approved = deepcopy(current.spec)
+            else:
+                candidate = deepcopy(current.spec)
+            break
+        current = current.parent
+    if not candidate:
+        plan = FeedReportPlan.objects.filter(feed=feed).first()
+        if plan and plan.spec.get('kind') == 'report':
+            candidate = deepcopy(plan.spec)
+        elif approved:
+            candidate = approved
+    if report is not None:
+        candidate.update(deepcopy(report))
+    if not all(candidate.get(key) for key in ('columns', 'range', 'schedule')):
+        raise ValueError('请先确认报告字段、数据范围和发送计划，再添加 EnGenie Digest。')
+    previous = candidate.get('digest')
+    settings = deepcopy(previous) if isinstance(previous, dict) else {}
+    settings.update(deepcopy(digest))
+    settings.setdefault('enabled', True)
+    settings.setdefault('language', normalize_response_language(job.response_language))
+    candidate['digest'] = settings
+    return candidate
 
 
 def run(job_id) -> ConnectorDraft:
@@ -635,7 +689,7 @@ def run(job_id) -> ConnectorDraft:
 
     @tool
     def preview_scheduled_report(report: dict) -> dict:
-        """预览已有任务的 Excel 报告。标题自动使用知识库名称，无需另填 title。report: columns:[{label,field 或 computed}], range:{mode:all/latest/today/yesterday/days/dates/last_week/last_month,days/start/end,include_today,field:日期字段(默认_collected_at)} 和 schedule:{mode:cron/manual/after_collection,cron:独立发送的五字段计划,timezone} 必须明确。filters:[{field,op:eq/contains/gte/lte,value}], 可选 group_by:[报告列名], aggregates:[{field:报告列名,op:count/sum/avg/min/max,label}]。日期范围默认按采集日期，也可按业务日期字段。空group_by配合aggregates可作总体汇总；非空则按字段分组汇总。computed 使用现有计算规则。只生成真实预览，不发送或启用。"""
+        """预览已有任务的 Excel 报告。标题自动使用知识库名称，无需另填 title。report: columns:[{label,field 或 computed}], range:{mode:all/latest/today/yesterday/days/dates/last_week/last_month,days/start/end,include_today,field:日期字段(默认_collected_at)} 和 schedule:{mode:cron/manual/after_collection,cron:独立发送的五字段计划,timezone} 必须明确。filters:[{field,op:eq/contains/gte/lte,value}], 可选 group_by:[报告列名], aggregates:[{field:报告列名,op:count/sum/avg/min/max,label}]。可选digest:{enabled,instructions,language:en/zh-hans,include_source_links:bool,email_format:body/html_link/html_attachment(附件仅邮件),charts:[声明式图表配置](可选;最多8张),metrics:[{op:count/sum/avg/min/max/distinct_count,field:最终输出列名,label}],group_by:[最终输出列名]}在邮件/Teams正文加入EnGenie摘要与系统统计。日期范围默认按采集日期，也可按业务日期字段。空group_by配合aggregates可作总体汇总；非空则按字段分组汇总。computed 使用现有计算规则。只生成真实预览，不发送或启用。"""
         nonlocal preview_ready
         from .feed_reports import preview
         spec,result=preview(job,report)
@@ -647,6 +701,11 @@ def run(job_id) -> ConnectorDraft:
         if 'workflow_url' in missing:
             result.update(setup_required=True,setup_hint=delivery['workflow_setup_hint'],settings_url=delivery['settings_url'])
             preview_ready=(spec,result);return result
+        if 'html_attachment_mapping' in missing:
+            result.update(setup_required=True,
+                setup_hint='请先在现有 Power Automate 邮件工作流中将 attachments 数组的 Name 和 ContentBytes 映射到邮件附件，然后在发送设置勾选支持 HTML 附件。',
+                settings_url=delivery['settings_url'])
+            preview_ready=(spec,result);return result
         if 'recipient' in missing:fields.append({'key':'recipient','label':'收件邮箱','type':'email','required':True})
         if 'public_base' in missing:fields.append({'key':'public_base','label':'无法识别报告站点公开地址，请管理员提供部署入口','type':'url','required':True})
         if fields:result['question_fields']=fields
@@ -654,12 +713,18 @@ def run(job_id) -> ConnectorDraft:
 
     @tool
     def preview_triggered_report(report: dict) -> dict:
-        """预览条件触发报告，不发送或启用。report包含columns:[{label,field或computed}]、range:{mode:all/latest/today/yesterday/days/dates/last_week/last_month,field,days/start/end}、filters:[{field,op:eq/contains/gte/lte,value}]、可选group_by和aggregates:[{field,op:count/sum/avg/min/max,label}]、schedule:{mode:cron/manual,cron:独立检查频率,timezone}。必需trigger:{condition:{field:最终输出列名,op:eq/ne/gt/gte/lt/lte/contains,value}或{metric:row_count,op,value}或{all:[条件]}/{any:[条件]},match:any/all,notify:on_enter/every_match,cooldown_minutes:0..525600}。is_missing/is_present无需value。条件应用于日期范围和处理后的输出，缺失不当0；row_count是输出行数。返回真实数据预览、trigger_evaluation和next_check_at。默认首次满足通知，解除后重新触发；用户明确要求才持续提醒。"""
+        """预览条件触发报告，不发送或启用。report包含columns:[{label,field或computed}]、range:{mode:all/latest/today/yesterday/days/dates/last_week/last_month,field,days/start/end}、filters:[{field,op:eq/contains/gte/lte,value}]、可选group_by和aggregates:[{field,op:count/sum/avg/min/max,label}]、schedule:{mode:cron/manual,cron:独立检查频率,timezone}。可选digest:{enabled,instructions,language:en/zh-hans,include_source_links:bool,email_format:body/html_link/html_attachment(附件仅邮件),charts:[声明式图表配置](可选;最多8张),metrics:[{op,field:最终输出列名,label}],group_by:[最终输出列名]}；摘要不会替代确定性的触发判断。必需trigger:{condition:{field:最终输出列名,op:eq/ne/gt/gte/lt/lte/contains,value}或{metric:row_count,op,value}或{all:[条件]}/{any:[条件]},match:any/all,notify:on_enter/every_match,cooldown_minutes:0..525600}。is_missing/is_present无需value。条件应用于日期范围和处理后的输出，缺失不当0；row_count是输出行数。返回真实数据预览、trigger_evaluation和next_check_at。默认首次满足通知，解除后重新触发；用户明确要求才持续提醒。"""
         if not isinstance(report, dict) or 'trigger' not in report:
             raise ValueError('条件触发报告需要明确的触发条件。')
         return preview_scheduled_report.invoke({'report': report})
 
-    tools = {fn.name:fn for fn in (ask_user_questions,configure_report_delivery,get_current_time,inspect_task_history,get_report_site_address,inspect_report_data,preview_report_calculation,preview_scheduled_report,preview_triggered_report,search_api_docs,read_api_documentation,probe_api,inspect_api_sample,set_source_access,inspect_connector_environment,test_mapping,show_data_preview,preview_calculation,
+    @tool
+    def preview_engenie_digest(digest: dict, report: dict | None = None) -> dict:
+        """创建或修改邮件/Teams的EnGenie Digest及HTML报告链接/邮件附件预览，不发送或启用。digest:{enabled:true/false,instructions:摘要关注点/格式(最多2000字符),language:en/zh-hans,include_source_links:bool,email_format:body/html_link/html_attachment(附件仅邮件),charts:[声明式图表配置](可选;最多8张),metrics:[{op:count/sum/avg/min/max/distinct_count,field:最终输出列名,label:统计名}],group_by:[最终输出列名](最多2项)}。仅修改摘要时省略report，复用最新草稿或已批准的完整报告；开启、关闭、改提示词均保留原范围/筛选/字段/触发条件/频率/投递方式。首次创建报告可同时提供report的columns、range、schedule等完整设置。需要统计时明确填写metrics/group_by，不能根据样例估算全量。"""
+        candidate=_digest_report(job,digest,report)
+        return preview_scheduled_report.invoke({'report': candidate})
+
+    tools = {fn.name:fn for fn in (ask_user_questions,configure_report_delivery,get_current_time,inspect_task_history,get_report_site_address,inspect_report_data,preview_report_calculation,preview_scheduled_report,preview_triggered_report,preview_engenie_digest,search_api_docs,read_api_documentation,probe_api,inspect_api_sample,set_source_access,inspect_connector_environment,test_mapping,show_data_preview,preview_calculation,
         browser_open,browser_snapshot,browser_action,browser_network,browser_read_response,browser_extract,test_browser_connector)}
     try:
         checkpoint()
@@ -685,6 +750,7 @@ def run(job_id) -> ConnectorDraft:
             messages.append(HumanMessage(content='用户当前消息（按本条意图回答，不自动重跑原任务）：'+clean(job.feedback)+'。'+restart+
                 '本轮当前时间（覆盖历史时间）：'+json.dumps(current_time,ensure_ascii=False)+
                 '当前已确认的脚本（写入模式如无新要求须保留）：'+json.dumps(clean(context.get('previous_connector',{})),ensure_ascii=False)+
+                '；当前报告定义（只修改摘要时保留其他设置）：'+json.dumps(clean(context.get('previous_report',{})),ensure_ascii=False)+
                 '；当前报告发送设置与本站部署地址（优先使用，不重复询问）：'+json.dumps(clean(context.get('report_delivery',{})),ensure_ascii=False)+current_reply_language))
             progress.emit('resume',message='已恢复保存的模型上下文与工具结果。' if resumed.get('restored_from_storage') else '已接续完整模型上下文、工具结果及浏览器。')
             metrics['context_resumed']=True

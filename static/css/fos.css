@@ -774,6 +774,14 @@ html[data-theme="dark"] .fos-dialog{box-shadow:0 24px 64px -16px rgba(0,0,0,.6),
 .fos-dialog .field input,.fos-dialog .field select{width:100%;padding:9px 11px;font-size:13px;font-family:var(--fb);
   border:1px solid var(--rule);border-radius:6px;background:var(--surface);color:var(--text);box-sizing:border-box;outline:none}
 .fos-dialog .field input:focus,.fos-dialog .field select:focus{border-color:var(--brand)}
+.kb-query-mode,.kb-query-mode-info{padding:12px;border:1px solid var(--rule);border-radius:8px;background:var(--brand-soft)}
+.fos-dialog .kb-query-mode-choice{display:flex;align-items:center;gap:9px;margin:0;color:var(--text);font-size:13px}
+.fos-dialog .kb-query-mode-choice input[type=checkbox]{width:16px;height:16px;margin:0;padding:0;flex:none;accent-color:var(--brand)}
+.kb-query-mode-help{margin:7px 0 0;font-size:12px;line-height:1.6;color:var(--dim)}
+.kb-query-mode-label{display:block;margin-bottom:4px;font-size:12px;color:var(--dim)}
+.kb-query-mode-info strong{font-size:13px;font-weight:600}
+.kb-purpose-badge{display:inline-flex;align-items:center;padding:2px 8px;border:1px solid var(--rule);border-radius:999px;background:var(--brand-soft);color:var(--brand);font:600 11px/1.6 var(--fb);vertical-align:middle}
+.kb-table-query-help{max-width:760px;margin:8px 0 0;font-size:12px;line-height:1.6;color:var(--dim)}
 .fos-dialog .dialog-err{background:var(--err-soft);color:var(--danger);border:1px solid var(--danger);
   border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:12px}
 .fos-dialog .dialog-actions{display:flex;gap:8px;justify-content:flex-end;padding:16px 0 20px}
@@ -845,6 +853,7 @@ dialog.ev-dialog .ev-quote-text{font:11.5px var(--fcode);color:var(--dim);line-h
 
 /* 视觉文档模式：上传选项 + 文档行徽标 */
 .page-embed-opt{display:inline-flex;align-items:center;gap:7px;margin-top:10px;font-size:12px;color:var(--dim);cursor:pointer;user-select:none}
+.page-embed-opt[hidden]{display:none}
 .page-embed-opt input{width:15px;height:15px;accent-color:var(--brand)}
 .doc-badge.badge-vis{background:rgba(124,77,190,.14);color:#7c4dbe;border:1px solid rgba(124,77,190,.35)}
 
@@ -860,3 +869,6 @@ dialog.ev-dialog .ev-quote-text{font:11.5px var(--fcode);color:var(--dim);line-h
 .uq-item.run .uq-state{color:var(--brand)}
 .uq-item.done .uq-state{color:var(--ok);font-weight:700}
 .uq-item.fail .uq-state{color:var(--danger);font-weight:700}
+.fos-chart-tooltip{position:fixed;z-index:1200;max-width:min(340px,calc(100vw - 16px));padding:9px 12px;border:1px solid var(--rule-strong,var(--rule));border-radius:9px;background:var(--surface);color:var(--ink,var(--text));box-shadow:var(--shadow-md);font:12px/1.55 var(--fb);font-variant-numeric:tabular-nums;overflow-wrap:anywhere;white-space:pre-wrap;pointer-events:none}
+.fos-chart-tooltip[hidden]{display:none!important}
+.fos-chart-tooltip>div:first-child{font-weight:650}

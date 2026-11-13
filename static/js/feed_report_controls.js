@@ -48,6 +48,17 @@
   if(value.frequency==='after_collection')return t('采集后发送（原有设置）');
   return 'Cron: '+value.cron;
  }
+ function parseDigest(digest={}){
+  return {enabled:!!digest.enabled,instructions:typeof digest.instructions==='string'?digest.instructions:'',language:digest.language==='zh-hans'?'zh-hans':'en',include_source_links:digest.include_source_links===true,email_format:['body','html_link','html_attachment'].includes(digest.email_format)?digest.email_format:'body',
+   ...(Array.isArray(digest.group_by)?{group_by:digest.group_by.slice()}:{}),...(Array.isArray(digest.metrics)?{metrics:digest.metrics.slice()}:{}),...(Array.isArray(digest.charts)?{charts:digest.charts.slice()}:{})};
+ }
+ function buildDigest(values,previous={}){
+  const instructions=String(values.instructions??'');if(instructions.length>2000)throw Error('Digest 要求不能超过 2000 字符。');
+  if(!['en','zh-hans'].includes(values.language))throw Error('请选择 Digest 语言。');
+  const current=parseDigest(previous),emailFormat=values.email_format??current.email_format;
+  if(!['body','html_link','html_attachment'].includes(emailFormat))throw Error('请选择有效的报告展示方式。');
+  return {...current,enabled:!!values.enabled,instructions,language:values.language,include_source_links:values.include_source_links??current.include_source_links,email_format:emailFormat};
+ }
  const pending=new Set();
  const el=(tag,text,cls)=>{const node=global.document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;};
  function render(feed){
@@ -62,6 +73,17 @@
   const title=el('p',report.title,'feed-meta');title.translate='no';section.append(title);
   section.append(el('p',t(report.kind==='teams'?'Teams 频道':'邮件')+' · '+t(report.enabled?'报告计划已启用':report.schedule?.mode==='manual'?'仅按需发送':'报告已暂停'),'feed-report-status'));
   section.append(el('p',(report.trigger?t('条件检查计划')+': ':'')+scheduleText(report.schedule||{})+' · '+(report.schedule?.timezone||feed.timezone),'feed-meta'));
+  if(report.digest?.enabled){
+   const digest=el('details',undefined,'feed-digest-summary');digest.append(el('summary',t('EnGenie Digest 已启用')));
+   const instructions=el('p',report.digest.instructions||t('自动概述报告数据并附上汇总数字。'),'feed-meta');if(report.digest.instructions)instructions.translate='no';digest.append(instructions);
+   digest.append(el('small',t('Digest 语言')+': '+t(report.digest.language==='zh-hans'?'简体中文':'英语')));section.append(digest);
+   if(report.digest.include_source_links)digest.append(el('p',t('包含来源链接'),'feed-meta'));
+   if(report.digest.email_format==='html_link')digest.append(el('p',t('HTML 报告链接'),'feed-meta'));
+   if(report.kind==='email'&&report.digest.email_format==='html_attachment'){
+    digest.append(el('p',t('HTML 邮件附件'),'feed-meta'));
+    if(!report.html_attachments_supported)section.append(el('p',t('邮件工作流尚未确认附件映射；完成配置后才能发送 HTML 附件。'),'feed-digest-capability-note'));
+   }
+  }
   if(report.trigger&&global.ReportTriggerUI)section.append(global.ReportTriggerUI.render(report.trigger));
   if(report.enabled&&report.next_run_at){
    let next=report.next_run_at;try{next=new Date(next).toLocaleString(global.FOSI18n?.locale||'zh-CN',{timeZone:report.schedule.timezone});}catch(_error){}
@@ -73,39 +95,53 @@
    const button=(text,action)=>{const node=el('button',text,'btn sm outline');node.type='button';node.dataset.reportAction=action;node.dataset.feedId=feed.id;node.disabled=pending.has(feed.id);return node;};
    if(report.enabled)actions.append(button('暂停报告发送','pause'));
    else if(report.schedule?.mode!=='manual')actions.append(button('启用报告发送','resume'));
-   actions.append(button(report.trigger?'调整检查频率':'调整发送频率','edit'));section.append(actions);
+   actions.append(button(report.trigger?'调整检查频率':'调整发送频率','edit'));
+   actions.append(button(report.digest?.enabled?'编辑 EnGenie Digest':'添加 EnGenie Digest','digest'));section.append(actions);
   }else section.append(el('p','仅创建者可编辑','feed-meta'));
   return section;
  }
  function init(options){
   const document=global.document,dialog=document.getElementById('feedReportEditor'),form=document.getElementById('feedReportForm'),error=document.getElementById('feedReportError'),save=document.getElementById('feedReportSave');
   if(!dialog||!form)return;
-  let editing=null;
+  let editing=null,digestOnly=false;
   function fields(){
+   const scheduleFields=form.querySelector('[data-report-schedule-fields]');
+   if(scheduleFields){scheduleFields.hidden=digestOnly;for(const input of scheduleFields.querySelectorAll('input,select'))input.disabled=digestOnly;}
    for(const group of form.querySelectorAll('[data-report-frequency]')){
     const visible=group.dataset.reportFrequency.split(' ').includes(form.elements.frequency.value);group.hidden=!visible;
-    for(const input of group.querySelectorAll('input,select'))input.disabled=!visible;
+    for(const input of group.querySelectorAll('input,select'))input.disabled=!visible||digestOnly;
+   }
+   const digestFields=document.getElementById('feedReportDigestFields');
+   if(digestFields){
+    const enabled=form.elements.digest_enabled.checked,email=editing?.report.kind==='email';digestFields.hidden=!enabled;for(const input of digestFields.querySelectorAll('textarea,select,input'))input.disabled=!enabled;
+    const emailFields=document.getElementById('feedReportDigestEmailFields');if(emailFields)emailFields.hidden=false;
+    form.elements.digest_email_format.disabled=!enabled;
+    const attachmentOption=form.elements.digest_email_format.querySelector('[value=html_attachment]');if(attachmentOption){attachmentOption.hidden=!email;attachmentOption.disabled=!email;}
+    if(!email&&form.elements.digest_email_format.value==='html_attachment')form.elements.digest_email_format.value='body';
+    const warning=document.getElementById('feedReportDigestAttachmentWarning');if(warning)warning.hidden=!(enabled&&email&&form.elements.digest_email_format.value==='html_attachment'&&!editing.report.html_attachments_supported);
    }
   }
-  function edit(feed){
-   editing=feed;form.reset();error.textContent='';document.getElementById('feedReportTitle').textContent=feed.report.title;
+  function edit(feed,onlyDigest=false){
+   editing=feed;digestOnly=onlyDigest;form.reset();error.textContent='';document.getElementById('feedReportTitle').textContent=feed.report.title;
    const conditional=Boolean(feed.report.trigger);
    const label=(selector,value)=>{const node=form.querySelector(selector);if(node)node.textContent=t(value);};
-   label('h2',conditional?'调整条件检查频率':'调整报告发送频率');
+   label('h2',digestOnly?'编辑 EnGenie Digest':conditional?'调整条件检查频率':'调整报告发送频率');
    label('label[for="feedReportFrequency"]',conditional?'检查频率':'报告频率');
    label('label[for="feedReportTime"]',conditional?'检查时间':'发送时间');
    label('label[for="feedReportMinute"]',conditional?'检查分钟':'发送分钟');
-   save.textContent=t(conditional?'保存检查频率':'保存报告频率');
+   save.textContent=t(digestOnly?'保存 Digest':'保存发送设置');
    const values=parseSchedule(feed.report.schedule||{mode:'manual',timezone:feed.timezone});
    for(const [key,value] of Object.entries(values))form.elements[key].value=value;
    form.elements.frequency.querySelector('[value=after_collection]').hidden=values.frequency!=='after_collection';
-   fields();dialog.showModal();form.elements.frequency.focus();
+   const digest=parseDigest(feed.report.digest);form.elements.digest_enabled.checked=digest.enabled;form.elements.digest_instructions.value=digest.instructions;form.elements.digest_language.value=digest.language;
+   form.elements.digest_source_links.checked=digest.include_source_links;form.elements.digest_email_format.value=digest.email_format;
+   fields();dialog.showModal();(digestOnly?form.elements.digest_enabled:form.elements.frequency).focus();
   }
-  async function post(feed,action,schedule){
+  async function post(feed,action,data={}){
    if(pending.has(feed.id))throw Error('报告操作正在保存，请稍候。');
    pending.add(feed.id);const abort=new AbortController(),timeout=setTimeout(()=>abort.abort(),15000);
    try{
-    const response=await fetch(feed.report.control_url,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-CSRFToken':options.csrf(),'X-Requested-With':'XMLHttpRequest'},body:JSON.stringify({action,...(schedule?{schedule}:{})}),signal:abort.signal});
+    const response=await fetch(feed.report.control_url,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-CSRFToken':options.csrf(),'X-Requested-With':'XMLHttpRequest'},body:JSON.stringify({action,...data}),signal:abort.signal});
     if(!response.headers.get('content-type')?.includes('application/json'))throw Error('会话已失效，请重新登录。');
     const result=await response.json();if(!response.ok||!result.ok)throw Error(result.error||'报告操作失败。');
     feed.report=result.report;options.message.textContent=result.message;return result;
@@ -113,23 +149,30 @@
    finally{clearTimeout(timeout);pending.delete(feed.id);}
   }
   form.elements.frequency.addEventListener('change',fields);
+  form.elements.digest_enabled.addEventListener('change',fields);
+  form.elements.digest_email_format.addEventListener('change',fields);
   options.list.addEventListener('click',async event=>{
    const button=event.target.closest('[data-report-action]');if(!button)return;
    const feed=options.getFeed(button.dataset.feedId);if(!feed||pending.has(feed.id))return;
    if(!feed.can_edit||!feed.report?.can_edit){options.message.textContent='仅此自动任务的创建者可编辑配置。';return;}
-   if(button.dataset.reportAction==='edit'){edit(feed);return;}
+   if(['edit','digest'].includes(button.dataset.reportAction)){edit(feed,button.dataset.reportAction==='digest');return;}
    button.disabled=true;
    try{await post(feed,button.dataset.reportAction);await options.refresh();}
    catch(exc){options.message.textContent=exc.message;}finally{button.disabled=false;}
   });
   form.addEventListener('submit',async event=>{
    event.preventDefault();if(!editing)return;const feed=editing;save.disabled=true;error.textContent='';
-   try{const schedule=buildSchedule(Object.fromEntries(new FormData(form)));await post(feed,'update_schedule',schedule);dialog.close();await options.refresh();}
+   try{
+    const digest=buildDigest({enabled:form.elements.digest_enabled.checked,instructions:form.elements.digest_instructions.value,language:form.elements.digest_language.value,include_source_links:form.elements.digest_source_links.checked,email_format:form.elements.digest_email_format.value},feed.report.digest);
+    if(digestOnly)await post(feed,'update_digest',{digest});
+    else{const schedule=buildSchedule(Object.fromEntries(new FormData(form)));await post(feed,'update_schedule',{schedule,digest});}
+    dialog.close();await options.refresh();
+   }
    catch(exc){error.textContent=exc.message;}finally{save.disabled=false;}
   });
-  dialog.addEventListener('close',()=>{editing=null;form.reset();error.textContent='';});
+  dialog.addEventListener('close',()=>{editing=null;digestOnly=false;form.reset();error.textContent='';});
  }
- const api={parseSchedule,buildSchedule,scheduleText,render,init};
+ const api={parseSchedule,buildSchedule,scheduleText,parseDigest,buildDigest,render,init};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
  global.FeedReportControls=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -88,6 +88,11 @@ def validate_sources(evidence, user_id):
     if user is None or not evidence:
         return False
     for ev in evidence:
+        if ev.get('kind') == 'chat_attachment':
+            from .chat_attachments import snapshot_current
+            if not snapshot_current(ev, user.pk):
+                return False
+            continue
         if ev.get('kind')=='image':
             if not image_snapshot_current(ev,user):return False
             continue

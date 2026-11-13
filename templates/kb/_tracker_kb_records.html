@@ -1,17 +1,17 @@
 <section class="fkd-panel" id="feedKbData" data-url="{% url 'kb:tracker_kb_data' kb.slug %}" data-mode="tracker" aria-labelledby="feedKbRowsHeading">
-  <div class="section-bar"><div><h2 id="feedKbRowsHeading">追踪记录</h2><p>浏览已完成的追踪表记录，点击记录可展开全部字段{% if can_manage %}、编辑字段或删除记录{% endif %}。</p></div><span class="count-chip" id="feedKbMatchCount">{{ tracker_rows_count }} 条</span></div>
+  <div class="section-bar"><div><h2 id="feedKbRowsHeading">{% if kb.table_query %}表格记录{% else %}追踪记录{% endif %}</h2><p>{% if kb.table_query %}浏览导入的表格记录，点击记录可展开全部字段。{% else %}浏览已完成的追踪表记录，点击记录可展开全部字段{% if can_manage %}、编辑字段或删除记录{% endif %}。{% endif %}</p></div><span class="count-chip" id="feedKbMatchCount">{{ tracker_rows_count }} 条</span></div>
   <form class="fkd-filters" id="feedKbFilters">
     <input type="hidden" id="feedKbFeed" value="">
     <input type="hidden" id="feedKbScope" value="history">
     <label class="fkd-search">搜索记录<input id="feedKbSearch" type="search" maxlength="300" placeholder="文档名或字段内容"></label>
     <label>筛选字段<select id="feedKbFilterField"><option value="">不限字段</option>{% for field in tracker_fields %}<option value="{{ field }}" translate="no">{{ field }}</option>{% endfor %}</select></label>
     <label>包含<input id="feedKbFilterValue" type="text" maxlength="500" placeholder="输入筛选值"></label>
-    <label>开始日期<input id="feedKbFrom" type="date"></label>
-    <label>结束日期<input id="feedKbTo" type="date"></label>
+    <label>{% if kb.table_query %}导入开始日期{% else %}开始日期{% endif %}<input id="feedKbFrom" type="date"></label>
+    <label>{% if kb.table_query %}导入结束日期{% else %}结束日期{% endif %}<input id="feedKbTo" type="date"></label>
     <div class="fkd-filter-actions"><button class="btn primary" type="submit">应用筛选</button><button class="btn outline" type="button" id="feedKbReset">重置</button></div>
   </form>
   <p class="fkd-message" id="feedKbError" role="alert" hidden></p>
-  <p class="fkd-subnote" id="feedKbScopeNote">仅展示已完成的记录；待确认、失败和抽取中的记录请到追踪表处理。</p>
+  <p class="fkd-subnote" id="feedKbScopeNote">{% if kb.table_query %}此处日期筛选按导入时间；如需按表格中的日期字段筛选或汇总，请通过 EnGenie 查询。{% else %}仅展示已完成的记录；待确认、失败和抽取中的记录请到追踪表处理。{% endif %}</p>
   <label class="fkd-column-picker" id="feedKbColumnWrap" hidden>显示字段<select id="feedKbColumns"></select></label>
   {% if can_manage %}<div class="fkd-record-actions" id="feedKbRecordActions"><label><input type="checkbox" id="feedKbSelectLoaded"> 选择已加载记录</label><span id="feedKbSelectedCount" aria-live="polite">已选 0 条</span><button type="button" class="btn sm danger" id="feedKbDeleteSelected" disabled>删除选中记录</button></div>{% endif %}
   <div class="fkd-table-scroll" tabindex="0" aria-label="追踪记录表，可横向滚动"><table class="fkd-table"><thead id="feedKbRowsHead"></thead><tbody id="feedKbRowsBody"></tbody></table></div>

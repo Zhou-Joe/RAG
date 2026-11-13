@@ -33,7 +33,8 @@ class Command(BaseCommand):
         dry = options["dry_run"]
         only_slug = options["kb"]
 
-        qs = Document.objects.filter(status=Document.Status.COMPLETED).exclude(md_content="")
+        qs = (Document.objects.filter(status=Document.Status.COMPLETED).exclude(md_content="")
+              .exclude(kb__table_query=True).exclude(kb__parent__table_query=True))
         if only_slug:
             qs = qs.filter(kb__slug=only_slug)
         docs = list(qs)

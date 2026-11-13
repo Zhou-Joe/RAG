@@ -1,0 +1,23 @@
+.chat-chart-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;margin:14px 0;width:100%;min-width:0}
+.chat-chart-card{margin:0;padding:16px;border:1px solid var(--rule-soft,#e0e8f0);border-radius:14px;background:var(--panel,#fff);box-shadow:0 3px 14px #14324b05;min-width:0;overflow:hidden}
+.chat-chart-title{margin:0 0 12px;font-size:14px;line-height:1.5;font-weight:650;color:var(--ink,#16324f);overflow-wrap:anywhere}
+.chat-chart-canvas{min-width:0;position:relative}
+.chat-chart-canvas svg{display:block;width:100%;height:auto;min-height:200px;overflow:visible}
+.chat-chart-note{margin:10px 0 0;font-size:12px;color:var(--mute,#63758a)}
+.chat-chart-images{margin:10px 0;color:var(--mute,#63758a);font-size:12px}
+.chat-chart-images summary{cursor:pointer}
+.chat-chart-images figure{margin:10px 0;text-align:center}
+.chat-chart-images img{display:block;max-width:100%;height:auto;margin:auto;border:1px solid var(--rule-soft,#e0e8f0);border-radius:8px}
+.erc-legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:12px 0 0;max-height:120px;overflow:auto;font:12px system-ui;color:#526174}
+.erc-legend-item{display:inline-flex;align-items:center;gap:6px;border:0;background:none;padding:2px 0;font:inherit;color:inherit;text-align:left}
+.erc-legend-item[aria-pressed]{cursor:pointer}
+.erc-swatch{width:9px;height:9px;border-radius:3px;flex:none}
+.erc-tooltip{position:fixed;z-index:99999;max-width:min(320px,calc(100vw - 16px));padding:9px 12px;border-radius:9px;color:#fff;background:#142840;box-shadow:0 8px 24px #10243b30;font:12px/1.5 system-ui;white-space:pre-wrap;pointer-events:none;overflow-wrap:anywhere}
+.erc-tooltip[hidden]{display:none!important}
+.erc-empty{padding:70px 15px;text-align:center;color:#63758a;font:13px system-ui}
+.erc-hit{cursor:crosshair;outline:none}
+.erc-axis{font:10px system-ui;fill:#63758a}
+.erc-grid{stroke:#e7edf3;stroke-width:1}
+.erc-point-active{stroke:#142840;stroke-width:2}
+@media(max-width:560px){.chat-chart-card{padding:10px}.chat-chart-canvas svg{min-height:160px}}
+@media print{.erc-tooltip{display:none!important}.erc-legend{max-height:none;overflow:visible}.chat-chart-card{break-inside:avoid;box-shadow:none}}

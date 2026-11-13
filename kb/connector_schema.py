@@ -11,6 +11,54 @@ def calculation_schema():
             'path':{'type':'string','description':'仅group_by：每条子记录的分组路径。'},'aggregate':{'type':'object','description':'在每组数组上执行的嵌套表达式；{"field":""}指当前组数组。'},'part':{'type':'string','enum':['date','year','month','day','weekday','hour']}}}
 
 
+def digest_chart_schema():
+    """A declarative data binding; render code and values remain server-owned."""
+    return {'type': 'array', 'maxItems': 8,
+        'description': 'Optional field-bound charts. Omit for four automatic views; [] disables charts. Never supply raw data, code, HTML, URLs or callbacks.',
+        'items': {'type': 'object', 'required': ['title', 'type', 'x', 'series'], 'additionalProperties': False,
+            'properties': {
+                'title': {'type': 'string', 'maxLength': 120},
+                'type': {'type': 'string', 'enum': ['line', 'bar', 'pie', 'combo', 'area', 'scatter', 'doughnut']},
+                'x': {'anyOf': [{'type': 'string'}, {'type': 'null'}],
+                    'description': 'Actual final report output column, or null for source row order.'},
+                'series': {'type': 'array', 'minItems': 1, 'maxItems': 6,
+                    'description': 'Use exactly one series for pie/doughnut. Combo needs bar and line series. Values are calculated over all selected rows.',
+                    'items': {'type': 'object', 'required': ['aggregate'], 'additionalProperties': False,
+                        'properties': {
+                            'field': {'type': 'string', 'description': 'Actual final report output column; omit only for row-count aggregate.'},
+                            'aggregate': {'type': 'string', 'enum': ['count', 'sum', 'avg', 'min', 'max']},
+                            'label': {'type': 'string', 'maxLength': 80},
+                            'type': {'type': 'string', 'enum': ['line', 'bar']},
+                            'axis': {'type': 'string', 'enum': ['left', 'right']}}}},
+                'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100, 'default': 30},
+                'sort': {'type': 'string', 'enum': ['source', 'label', 'value_desc']},
+                'options': {'type': 'object', 'additionalProperties': False, 'properties': {
+                    'legend': {'type': 'boolean', 'default': True},
+                    'stacked': {'type': 'boolean', 'default': False},
+                    'horizontal': {'type': 'boolean', 'default': False},
+                    'smooth': {'type': 'boolean', 'default': False},
+                    'y_label': {'type': 'string', 'maxLength': 80},
+                    'right_y_label': {'type': 'string', 'maxLength': 80}}}}}}
+
+
+def digest_schema():
+    return {'type': 'object', 'description': 'Optional EnGenie Digest for email/Teams; summarize deterministic statistics over the final report output.',
+        'properties': {
+            'enabled': {'type': 'boolean'},
+            'instructions': {'type': 'string', 'maxLength': 2000, 'description': 'User-requested focus, comparisons and presentation; never instructions to fetch external data.'},
+            'language': {'type': 'string', 'enum': ['en', 'zh-hans']},
+            'include_source_links': {'type': 'boolean', 'default': False,
+                'description': 'Add clickable source links extracted deterministically from selected report fields; never invent URLs.'},
+            'email_format': {'type': 'string', 'enum': ['body', 'html_link', 'html_attachment'], 'default': 'body',
+                'description': 'Delivery presentation: body keeps the digest in the message; html_link sends a generated HTML dashboard link in email or Teams; html_attachment is email only. Never provide raw HTML or invent the report URL.'},
+            'charts': digest_chart_schema(),
+            'group_by': {'type': 'array', 'maxItems': 2, 'uniqueItems': True, 'items': {'type': 'string'}, 'description': 'Actual final report output column names.'},
+            'metrics': {'type': 'array', 'maxItems': 12, 'items': {'type': 'object', 'required': ['op', 'label'],
+                'properties': {'op': {'type': 'string', 'enum': ['count', 'sum', 'avg', 'min', 'max', 'distinct_count']},
+                    'field': {'type': 'string', 'description': 'Actual final report output column; may be omitted for row count.'},
+                    'label': {'type': 'string', 'minLength': 1, 'maxLength': 80}}}}}}
+
+
 def normalize_spec(spec):
     """兼容工具常见的确定性参数错位，不猜测任何网页选择器或业务字段。"""
     from copy import deepcopy
@@ -67,6 +115,9 @@ def model_tools(tools):
             mapping={'type':'object','additionalProperties':{'type':'object','properties':{'selector':{'type':'string'},'attribute':{'type':'string'},'regex':{'type':'string'},'group':{'type':'integer'},'all':{'type':'boolean'},'required':{'type':'boolean'},'source':{'type':'string','enum':['url','today','now']},'prefix':{'type':'string'},'default':{'type':'string'},'path':{'type':'string'}}}}
             output['fields']=mapping;detail['properties']['fields']=mapping
         if 'computed' in props:props['computed']=calculation_schema()
+        if 'digest' in props:props['digest']=digest_schema()
+        if 'report' in props and props['report'].get('type') == 'object':
+            props['report'].setdefault('properties', {})['digest']=digest_schema()
         result.append(schema)
     return result
 
