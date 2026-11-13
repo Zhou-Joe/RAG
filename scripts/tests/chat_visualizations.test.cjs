@@ -116,13 +116,14 @@ test('single-value cards normalize zero, missing values and quality without fabr
   assert.throws(()=>visuals.normalize({type:'metric',title:'Bad',value:1,quality:{valid:2,records:1}}));
 });
 
-test('metric cards show a highlighted scalar and safe literal title, unit and subtitle',()=>{
+test('metric cards show only a safe literal title and highlighted value with its inline unit',()=>{
   for(const [value,expected] of [[0,'0'],[null,'—'],[-12.5,'-12.5']]){
     const h=environment();
-    assert.equal(visuals.mount(h.host,[{type:'metric',title:'Total <script>',value,unit:'<img>',subtitle:'Source <b>'}]),1);
+    assert.equal(visuals.mount(h.host,[{type:'metric',title:'Total <script>',value,unit:'<img>',subtitle:'Source <b>',quality:{valid:7,records:10}}]),1);
     const scalar=h.host.all().find(node=>node.className==='erc-metric-value');
-    assert.equal(scalar.textContent,expected);assert.ok(h.host.textContent.includes('Total <script>'));
-    assert.ok(h.host.textContent.includes('<img>'));assert.ok(h.host.textContent.includes('Source <b>'));
+    assert.equal(scalar.textContent,expected+' <img>');assert.ok(h.host.textContent.includes('Total <script>'));
+    assert.ok(!h.host.textContent.includes('Source <b>'));assert.ok(!h.host.textContent.includes('records'));
+    assert.equal(h.host.all().filter(node=>['erc-metric-subtitle','erc-metric-quality','erc-metric-unit'].includes(node.className)).length,0);
     assert.equal(h.host.all().filter(node=>node.tagName==='svg'||node.tagName==='script'||node.tagName==='img').length,0);
     assert.equal(h.document.body.all().filter(node=>node.className==='erc-tooltip').length,0);
     visuals.destroy(h.host);

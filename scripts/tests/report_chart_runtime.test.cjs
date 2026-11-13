@@ -50,6 +50,35 @@ test('pie/doughnut share the runtime, handle zero totals, and expose exact value
     const slices=h.host.all().filter(n=>n.tagName==='path');assert.equal(slices.length,2);slices[1].emit('focus');assert.ok(h.document.body.all().find(n=>n.className==='erc-tooltip').textContent.includes('Records: 3'));
     charts.render(h.host,data(type,{labels:['A'],series:[{label:'Records',values:[0]}]}));assert.ok(h.host.textContent.includes('No positive values'));assert.equal(h.host.all().filter(n=>n.tagName==='path').length,0);}
 });
+
+test('pie and doughnut surfaces and center text follow live theme tokens while retaining report fallbacks',()=>{
+  for(const type of ['pie','doughnut'])for(const values of [[2,3],[5]]){
+    const h=environment();charts.render(h.host,data(type,{labels:values.map((_,i)=>String(i)),series:[{label:'Requests',values}]}));
+    const marks=h.host.all().filter(n=>['path','circle'].includes(n.tagName)&&n.getAttribute('stroke')!==null);
+    assert.equal(marks.length,values.length);
+    for(const mark of marks)assert.equal(mark.getAttribute('stroke'),'var(--surface,#fff)');
+    if(type==='doughnut'){
+      const total=h.host.all().find(n=>n.tagName==='text'&&n.getAttribute('font-size')==='24');
+      assert.equal(total.textContent,'5');assert.equal(total.getAttribute('fill'),'var(--text,#16324f)');
+      if(values.length===1){
+        const hole=h.host.all().find(n=>n.tagName==='circle'&&n.getAttribute('r')==='64');
+        assert.equal(hole.getAttribute('fill'),'var(--surface,#fff)');
+      }
+    }
+  }
+});
+
+test('chart marks and legend swatches share overridable theme colors including the Other group',()=>{
+  const h=environment();charts.render(h.host,data('bar',{labels:['A','B'],series:[{label:'Requests',values:[2,3]}]}));
+  const bars=h.host.all().filter(n=>n.tagName==='rect'),swatch=h.host.all().find(n=>n.className==='erc-swatch');
+  assert.equal(bars[0].getAttribute('fill'),'var(--erc-series-1,#3574d5)');
+  assert.equal(bars[1].getAttribute('fill'),swatch.style.background);
+  charts.render(h.host,data('pie',{labels:['A','Other'],series:[{label:'Requests',values:[2,3]}],meta:{other_included:true}}));
+  const slices=h.host.all().filter(n=>n.tagName==='path'),swatches=h.host.all().filter(n=>n.className==='erc-swatch');
+  assert.equal(slices[1].getAttribute('fill'),'var(--erc-other,#a8b5c5)');
+  assert.equal(swatches[1].style.background,slices[1].getAttribute('fill'));
+  assert.equal(swatches[0].style.background,slices[0].getAttribute('fill'));
+});
 test('horizontal stacked bars and area/scatter configurations render using the same dependency',()=>{
   const horizontal=environment();charts.render(horizontal.host,data('bar',{series:[{label:'One',values:[1,2,3,4]},{label:'Two',values:[2,3,4,5]}],options:{horizontal:true,stacked:true}}));
   assert.equal(horizontal.host.all().filter(n=>n.tagName==='rect').length,8);
@@ -80,16 +109,17 @@ test('line and area charts preserve irregular numeric horizontal spacing',()=>{
   }
 });
 
-test('metric cards highlight one formatted value, preserve zero, and render units and subtitles as text',()=>{
+test('metric cards highlight one formatted value with inline units and omit source and record metadata',()=>{
   const h=environment();
   charts.render(h.host,{type:'metric',title:'Average wait <b>',value:1234.125,unit:'min <img src=x onerror=alert(1)>',
     subtitle:'Latest <script>alert(1)</script>',quality:{valid:7,records:10,missing:3},language:'en'});
   const find=name=>h.host.all().find(n=>n.className===name);
-  assert.equal(find('erc-metric-value').textContent,'1,234.125');
-  assert.equal(find('erc-metric-unit').textContent,'min <img src=x onerror=alert(1)>');
-  assert.equal(find('erc-metric-subtitle').textContent,'Latest <script>alert(1)</script>');
+  assert.equal(find('erc-metric-value').textContent,'1,234.125 min <img src=x onerror=alert(1)>');
+  assert.equal(find('erc-metric-unit'),undefined);
+  assert.equal(find('erc-metric-subtitle'),undefined);
   assert.equal(find('erc-metric').getAttribute('aria-label'),'Average wait <b>');
-  assert.equal(find('erc-metric-quality').textContent,'Valid / records: 7 / 10 · Missing: 3');
+  assert.equal(find('erc-metric-quality'),undefined);
+  assert.ok(!h.host.textContent.includes('Latest'));assert.ok(!h.host.textContent.includes('records'));
   assert.equal(h.host.all().filter(n=>['img','script','svg'].includes(n.tagName)).length,0);
   assert.equal(h.document.body.all().filter(n=>n.className==='erc-tooltip').length,0);
   charts.render(h.host,{type:'metric',title:'Count',value:0});
@@ -105,9 +135,9 @@ test('metric cards distinguish missing values from zero and keep signed percenta
     assert.equal(value(),'—');
   }
   charts.render(h.host,{type:'metric',title:'Change',value:-12.5,unit:'%',language:'zh-hans',quality:{valid:0,records:2,missing:2}});
-  assert.equal(value(),'-12.5');
-  assert.equal(h.host.all().find(n=>n.className==='erc-metric-unit').textContent,'%');
-  assert.equal(h.host.all().find(n=>n.className==='erc-metric-quality').textContent,'有效 / 记录: 0 / 2 · 缺失: 2');
+  assert.equal(value(),'-12.5%');
+  assert.equal(h.host.all().find(n=>n.className==='erc-metric-unit'),undefined);
+  assert.equal(h.host.all().find(n=>n.className==='erc-metric-quality'),undefined);
 });
 
 test('switching between charts and scalar cards removes old tooltip resources and supports inert report JSON',()=>{
@@ -121,8 +151,8 @@ test('switching between charts and scalar cards removes old tooltip resources an
   const payload=h.document.createElement('script');payload.setAttribute('id','engenie-chart-data');
   payload.textContent=JSON.stringify([{type:'metric',title:'Total',value:0,unit:'visits'}]);
   h.document.body.append(payload);h.host.setAttribute('data-engenie-chart','0');charts.mount(h.document);
-  assert.equal(h.host.all().find(n=>n.className==='erc-metric-value').textContent,'0');
-  assert.equal(h.host.all().find(n=>n.className==='erc-metric-unit').textContent,'visits');
+  assert.equal(h.host.all().find(n=>n.className==='erc-metric-value').textContent,'0 visits');
+  assert.equal(h.host.all().find(n=>n.className==='erc-metric-unit'),undefined);
   charts.render(h.host,data());
   assert.equal((h.window.events.scroll||[]).length,1);
 });

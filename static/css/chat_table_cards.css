@@ -1,9 +1,9 @@
-.chat-table-card{box-sizing:border-box;display:block;width:100%;max-width:340px;min-width:0;margin:12px 0;border:1px solid var(--rule-soft,#e0e8f0);border-radius:14px;background:var(--panel,#fff);overflow:hidden;box-shadow:0 3px 14px #14324b05}
+.chat-table-card{box-sizing:border-box;display:block;width:100%;max-width:340px;min-width:0;margin:12px 0;border:1px solid var(--rule-soft,#e0e8f0);border-radius:14px;background:var(--surface,#fff);color:var(--text,#16324f);overflow:hidden;box-shadow:var(--shadow-sm,0 3px 14px #14324b05)}
 .chat-table-card.is-expanded{max-width:none;width:100%}
 .chat-table-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--rule-soft,#e0e8f0)}
-.chat-table-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0;font-size:13px;font-weight:650;color:var(--ink,#16324f)}
+.chat-table-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0;font-size:13px;font-weight:650;color:var(--text,#16324f)}
 .chat-table-toggle{flex:none;padding:4px 8px;border:1px solid var(--rule-soft,#dce5ef);border-radius:7px;background:transparent;color:var(--brand,#3574d5);font:inherit;font-size:11px;line-height:1.4;cursor:pointer}
-.chat-table-toggle:hover{background:var(--hover,#edf4fc)}
+.chat-table-toggle:hover{background:var(--surface-2,#edf4fc)}
 .chat-table-toggle:focus-visible{outline:2px solid var(--brand,#3574d5);outline-offset:2px}
 .chat-table-viewport{max-height:220px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
 .chat-table-card.is-expanded .chat-table-viewport{max-height:520px}

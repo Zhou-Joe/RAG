@@ -4,7 +4,9 @@ Normal EnGenie chat can display interactive charts directly below an answer. It 
 
 Charts, single-value cards, answer tables, and generated image previews start compact. Click the card header or **Expand** to use the chat's full content width; **Collapse** returns it to the compact size. Each card retains its own size choice during streamed redraws and interface language changes. Compact tables scroll within their card. Generated image previews can also expand or collapse by clicking the image. Selected KB photos, single-value cards, and charts share a wrapping row within each answer; expanding one card uses the full row, and collapsing it returns it to the compact layout. KB image captions retain the numbered document source and exact page when available. Uploaded photos keep their original presentation.
 
-Single-value cards display a title and highlighted numeric value, with optional units, subtitle, and available data-quality counts. A true zero displays as zero; an unavailable value displays as a dash.
+Single-value cards display only a title and highlighted numeric value, with an optional unit included in that value. KB/source subtitles and record/quality counts are not shown on the card. Source metadata remains in the saved evidence and numbered citation list. A true zero displays as zero; an unavailable value displays as a dash.
+
+EnGenie's instructions encourage relevant visuals without waiting for an explicit chart request: one KPI uses a value card, category comparisons use bars, and time changes use lines. It should give a short conclusion alongside one or two compact visuals and respect text-only or table-only preferences. Plots use the selected fields and the same verified query result; record update time must not be presented as a business-date axis. Download links are included when the user asks for an export.
 
 ## Tracker Analysis
 
@@ -27,5 +29,7 @@ PNG downloads and PDF export remain available. Unsupported or oversized figures 
 Only bounded chart data and typed options reach the shared renderer. Titles, category names, and series labels use text nodes. Model-produced HTML and scripts are not accepted as chart definitions. All assets are served by the app, with no external chart service.
 
 The chat page loads the chart renderer in both standalone and embedded modes. Shared tooltip resources are removed when conversations are cleared or redrawn. System controls and validation errors support the interface language; source names and plotted content retain their original wording.
+
+Card surfaces, titles, controls, chart labels and grid lines follow the app's active light/dark theme. Chart series use a brighter dark-theme palette; pie/doughnut surfaces and center labels change with the theme without rebuilding the chart. Original photos retain their original colors.
 
 Deploy by collecting static files and restarting the web service. This feature adds no database migration.

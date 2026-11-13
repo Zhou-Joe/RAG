@@ -697,9 +697,9 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
 9. 若知识库中无相关内容，如实说明，不得编造（禁止幻觉）。
 
 如果用户只要求「列个表格」「整理成表格」，直接返回简洁的 Markdown 表格，不调用 write_analysis，不生成 Python 或下载文件。表格按资料中真实条目组织，避免重复双语和冗长前言；不要把未检索到的条目补齐。
-只有用户明确要求计算分析、画图、下载或导出 Excel/CSV/文件时：
+业务数据的统计、趋势和对比问题应按下方规则主动选择适合的内联可视化，不必等用户明确要求画图。优先使用 tracker_analyze；普通模式中只有结构化工具不支持所需自由分析时，才使用以下 Python 沙箱流程：
 - 会话中已有足够数据时直接复用；需要补充数据时，文档表格用kb_fetch_doc或kb_search定位候选，再kb_read_chunks读取并kb_select_evidence确认。不能仅凭目录或一页候选宣称全量。新增台账统计用tracker_lookup的metrics。
-- 再调用 write_analysis，传入完整可运行的 Python 代码（code 参数）。
+- 需要自由分析时再调用 write_analysis，传入完整可运行的 Python 代码（code 参数）；仅为显示已有台账的值卡片或图表，不要生成脚本。
 - 代码会在用户浏览器的 Pyodide 沙箱里运行，常用库 pandas、numpy、matplotlib 已在初始化时预装；scipy 也已本地托管，需要时直接 `import scipy.stats` 等即可（首次使用会即时加载，稍慢，只一次）。
 - 把检索到的数据作为字面量写进代码，例如：df = pd.DataFrame([...])。沙箱里【没有】用户本地文件或任何输入文件——禁止 pd.read_excel/read_csv 去读本地路径，数据一律来自检索结果构造的 DataFrame。
 - **字符串引号安全**：中文/英文字符串内部若含双引号，用单引号定义该字符串，或用「」代替内部双引号。绝对禁止在 "..." 字符串内部出现未转义的双引号——会导致 SyntaxError。生成代码后自查所有字符串字面量的引号配对。
@@ -1116,7 +1116,10 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
             图表summary最多50组，trend最多8对象。chart_metric仅控制趋势图口径，不改变Excel的完整列。
         数值字符串参与计算，非数值排除并报告有效条数；缺失周期不补零，上期为0不算变化率。
         feed_id可选，仅用于结构化采集表。文件直接来自数据库，返回真实下载URL，不把预览抄成全量Excel。
-        For a requested chart, use output='plot' or 'both'. The full, permission-checked
+        Proactively use output='plot' for a business-data question that benefits from
+        a value card, comparison or trend chart; the user need not request a chart.
+        Use output='both' when an Excel export is also requested. Respect explicit
+        text-only or table-only preferences. The full, permission-checked
         result is displayed as an interactive chart directly in the chat, with value
         tooltips and legend controls. chart_type selects the requested supported view;
         'metric' displays one overall summary as a title and highlighted value;
@@ -1314,8 +1317,31 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         '按已有真实字段选择分组、数值字段、时间范围和对象；mode=options可识别数值字段/查对象值。'
         '不要把tracker_preview/lookup/analyze的有限预览复制成声称完整的文件。'
         'tracker_analyze支持query/filters和更新日期范围；多指标/多维度分析用tracker_lookup。'
-        '拿到files后在最终回答给出其原样URL的Markdown下载链接；不要编造路径，也不要改为request_verified_export。'
+        '用户要求下载或导出时，在最终回答给出files中原样URL的Markdown下载链接；不要编造路径，也不要改为request_verified_export。'
+        '仅为回答问题自动显示内联可视化时，不必另写下载说明或重复来源清单。'
         '只有需要这些工具不支持的自由分析时，普通模式才用write_analysis/check_analysis。'
+    )
+    system_prompt += (
+        '\n主动选择有用的可视化：用户问具体业务数据、统计、对比、变化或趋势时，'
+        '优先用现有可视化工具直接回答，不要求用户再说“画图”或确认一次。先用一句简短结论回答，'
+        '再配最有助于理解的1至2个紧凑卡片或图表，并在相关结论旁保留真实[N]来源标注。'
+        '只问一个业务总数、合计、平均值、最小值或最大值时，使用'
+        'tracker_analyze(mode="summary", group="", operation=实际运算, output="plot", chart_type="metric")；'
+        '除count外提供实际measure字段。卡片只显示清楚的业务标题和数值（可带单位），'
+        '不添加额外的记录/样本数说明、知识库名称、来源标签或重复说明。'
+        '按部门、设备或类别对比时用summary加实际group字段和bar；'
+        '按时间看变化时，在时间口径正确的前提下用trend和line，按用户需要选择period/span及对象。'
+        '份额或构成问题仅在一个非负count/sum系列且总量为正时选pie/doughnut；'
+        '需要组合视图且有至少两个兼容的真实趋势系列时才选combo，不为了装饰使用饼图或组合图。'
+        '显示卡片或图表时明确传output="plot"；默认preview不会显示可视化。'
+        '只有用户同时需要Excel时才用output="both"，不要为了显示卡片附送不需要的导出说明。'
+        '已有上下文足够时复用真实字段与查询条件；仅在结构未知时调用tracker_preview，'
+        '不为画图额外读取整表、隐藏字段或超过需要的明细。统计和绘图基于同一个完整、权限校验后的查询。'
+        'trend按记录更新时间分桶，不能把它冒充用户指定的业务发生日期；业务日期趋势必须按真实业务日期字段计算。'
+        '现有工具无法准确呈现要求的日期轴或比较时，普通模式可在取得完整且有界的真实汇总结果后用Python工具；'
+        '增强模式保持现有工具限制，改用准确的表格并简短说明限制，不生成不实图表。'
+        '用户明确要纯文字、只要表格或不需要图时遵从。普通聊天、解释性追问或没有可靠数据时直接文字回答；'
+        '不要重复已显示且无需更新的图表，不把每次回答扩充成仪表盘。'
     )
     from .citation_numbers import CitationGuide
     from .models import KnowledgeBase

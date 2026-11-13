@@ -2,7 +2,9 @@
 (function(root) {
   'use strict';
   const NS='http://www.w3.org/2000/svg';
-  const COLORS=['#3574d5','#18a48e','#f09b45','#8b68cf','#de6583','#378da7','#b89a30','#697b95'];
+  const COLORS=['#3574d5','#18a48e','#f09b45','#8b68cf','#de6583','#378da7','#b89a30','#697b95']
+    .map((color,index)=>`var(--erc-series-${index+1},${color})`);
+  const SURFACE='var(--surface,#fff)', TEXT='var(--text,#16324f)', OTHER='var(--erc-other,#a8b5c5)';
   const finite=value=>value!==null&&value!==undefined&&Number.isFinite(Number(value));
   const format=(value,language='en')=>{if(!finite(value))return '—';const number=Number(value);return number&&(Math.abs(number)>=1e12||Math.abs(number)<1e-9)?number.toExponential(6):new Intl.NumberFormat(language==='zh-hans'?'zh-CN':'en-US',{maximumFractionDigits:12}).format(number);};
   const short=(value,length=20)=>String(value).length>length?String(value).slice(0,length-1)+'…':String(value);
@@ -48,17 +50,10 @@
       metric.setAttribute('aria-label',data.title||(zh?'指标':'Metric'));
       const main=document.createElement('div');main.className='erc-metric-main';
       const value=document.createElement('span');value.className='erc-metric-value';
-      value.textContent=typeof data.value==='number'&&Number.isFinite(data.value)?format(data.value,language):'—';main.appendChild(value);
-      if(typeof data.unit==='string'&&data.unit){const unit=document.createElement('span');unit.className='erc-metric-unit';unit.textContent=data.unit;main.appendChild(unit);}
+      const formatted=typeof data.value==='number'&&Number.isFinite(data.value)?format(data.value,language):'—';
+      const unit=typeof data.unit==='string'?data.unit.trim():'';
+      value.textContent=formatted+(unit?(unit==='%'?'':' ')+unit:'');main.appendChild(value);
       metric.appendChild(main);
-      if(typeof data.subtitle==='string'&&data.subtitle){const subtitle=document.createElement('p');subtitle.className='erc-metric-subtitle';subtitle.textContent=data.subtitle;metric.appendChild(subtitle);}
-      const quality=data.quality;
-      if(quality&&Number.isSafeInteger(quality.valid)&&Number.isSafeInteger(quality.records)&&quality.valid>=0&&quality.records>=quality.valid){
-        const note=document.createElement('p');note.className='erc-metric-quality';
-        note.textContent=(zh?'有效 / 记录':'Valid / records')+`: ${quality.valid} / ${quality.records}`;
-        if(Number.isSafeInteger(quality.missing)&&quality.missing>=0)note.textContent+=(zh?' · 缺失':' · Missing')+`: ${quality.missing}`;
-        metric.appendChild(note);
-      }
       host.appendChild(metric);return;
     }
     const tips=tooltip(host,document);host._ercTooltip=tips;
@@ -72,17 +67,17 @@
     if(kind==='pie'||kind==='doughnut'){
       const item=series[0],values=item.values.map(value=>finite(value)?Math.max(0,Number(value)):0),total=values.reduce((a,b)=>a+b,0);
       if(!total){add('text',{x:280,y:145,'text-anchor':'middle',class:'erc-axis'},zh?'没有正值可绘制占比。':'No positive values for a distribution.');legend();return;}
-      const pieColor=index=>data.meta?.other_included&&index===labels.length-1?'#a8b5c5':COLORS[index%COLORS.length];
+      const pieColor=index=>data.meta?.other_included&&index===labels.length-1?OTHER:COLORS[index%COLORS.length];
       const cx=280,cy=150,r=116,inner=kind==='doughnut'?64:0;let start=-Math.PI/2;
       values.forEach((value,index)=>{if(value===0)return;const angle=value/total*Math.PI*2,end=start+angle,large=angle>Math.PI?1:0;
         let path;
-        if(angle>=Math.PI*2-1e-9){const circle=add('circle',{cx,cy,r,fill:pieColor(index),stroke:'#fff','stroke-width':2});mark(circle,item,index,value);if(inner)add('circle',{cx,cy,r:inner,fill:'#fff','pointer-events':'none'});start=end;return;}
+        if(angle>=Math.PI*2-1e-9){const circle=add('circle',{cx,cy,r,fill:pieColor(index),stroke:SURFACE,'stroke-width':2});mark(circle,item,index,value);if(inner)add('circle',{cx,cy,r:inner,fill:SURFACE,'pointer-events':'none'});start=end;return;}
         const x1=cx+r*Math.cos(start),y1=cy+r*Math.sin(start),x2=cx+r*Math.cos(end),y2=cy+r*Math.sin(end);
         if(inner){const a=cx+inner*Math.cos(end),b=cy+inner*Math.sin(end),c=cx+inner*Math.cos(start),d=cy+inner*Math.sin(start);path=`M${x1},${y1}A${r},${r} 0 ${large} 1 ${x2},${y2}L${a},${b}A${inner},${inner} 0 ${large} 0 ${c},${d}Z`;}
         else path=`M${cx},${cy}L${x1},${y1}A${r},${r} 0 ${large} 1 ${x2},${y2}Z`;
-        const sector=add('path',{d:path,fill:pieColor(index),stroke:'#fff','stroke-width':2});mark(sector,item,index,value);start=end;
+        const sector=add('path',{d:path,fill:pieColor(index),stroke:SURFACE,'stroke-width':2});mark(sector,item,index,value);start=end;
       });
-      if(inner){add('text',{x:cx,y:cy-4,'text-anchor':'middle',fill:'#16324f','font-size':24,'font-weight':700},format(total,language));add('text',{x:cx,y:cy+20,'text-anchor':'middle',class:'erc-axis'},item.label);}
+      if(inner){add('text',{x:cx,y:cy-4,'text-anchor':'middle',fill:TEXT,'font-size':24,'font-weight':700},format(total,language));add('text',{x:cx,y:cy+20,'text-anchor':'middle',class:'erc-axis'},item.label);}
     }else if(kind==='bar'&&options.horizontal){
       const left=118,right=535,top=18,bottom=270,slot=(bottom-top)/Math.max(1,labels.length),barSeries=series;
       const totals=labels.flatMap((_,index)=>options.stacked?[barSeries.reduce((n,item)=>n+Math.min(0,Number(item.values[index])||0),0),barSeries.reduce((n,item)=>n+Math.max(0,Number(item.values[index])||0),0)]:barSeries.map(item=>item.values[index]));
@@ -135,7 +130,7 @@
       if(options.legend===false)return;const list=document.createElement('div');list.className='erc-legend';
       const pie=kind==='pie'||kind==='doughnut',items=pie?labels.map((label,index)=>({label,index})):original.map((item,index)=>({label:item.label,index}));
       items.forEach(item=>{const entry=document.createElement(pie?'span':'button');entry.className='erc-legend-item';if(!pie){entry.type='button';entry.setAttribute('aria-pressed',String(!hidden.has(item.index)));entry.style.opacity=hidden.has(item.index)?'.45':'1';entry.addEventListener('click',()=>{if(hidden.has(item.index))hidden.delete(item.index);else hidden.add(item.index);render(host,data);});}
-        const swatch=document.createElement('span');swatch.className='erc-swatch';swatch.style.background=pie&&data.meta?.other_included&&item.index===labels.length-1?'#a8b5c5':COLORS[item.index%COLORS.length];const text=document.createElement('span');text.textContent=item.label;
+        const swatch=document.createElement('span');swatch.className='erc-swatch';swatch.style.background=pie&&data.meta?.other_included&&item.index===labels.length-1?OTHER:COLORS[item.index%COLORS.length];const text=document.createElement('span');text.textContent=item.label;
         if(pie)text.textContent+=' · '+format(original[0].values[item.index],language);entry.append(swatch,text);list.appendChild(entry);});host.appendChild(list);
     }
   }
