@@ -82,7 +82,7 @@ def _image_content_block(doc_id: str, name: str) -> dict | None:
             from .models import Document
             from .pipeline import _render_page_jpeg
             doc = Document.objects.get(id=doc_id)
-            raw = _render_page_jpeg(Path(doc.file.path), int(name[4:]))
+            raw = _render_page_jpeg(Path(doc.file.path), int(name[4:]) - 1)
             if raw:
                 data, mime = raw, "image/jpeg"
         except Exception:
@@ -93,7 +93,7 @@ def _image_content_block(doc_id: str, name: str) -> dict | None:
             data = p.read_bytes()
         except OSError:
             return None
-        mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+        mime = {'.png': 'image/png', '.webp': 'image/webp'}.get(p.suffix.lower(), 'image/jpeg')
     try:
         from PIL import Image
         with Image.open(_io.BytesIO(data)) as im:
@@ -107,6 +107,49 @@ def _image_content_block(doc_id: str, name: str) -> dict | None:
     return {"type": "image",
             "base64": _b64.b64encode(data).decode(),
             "mime_type": mime}
+
+
+def _text_only_tool_history(messages):
+    """Keep saved captions while omitting pixels unsupported by this model."""
+    from langchain_core.messages import ToolMessage
+
+    def caption_status(text):
+        try:
+            result = json.loads(text)
+        except (TypeError, ValueError):
+            return text
+        if not isinstance(result, dict) or result.get('kind') != 'rag_chunks':
+            return text
+        statuses = result.get('image_inputs')
+        if not isinstance(statuses, list):
+            return text
+        changed = False
+        for item in statuses:
+            if isinstance(item, dict) and item.get('status') in ('delivered', 'already_delivered'):
+                item.update(status='caption_only', reason='vision_disabled')
+                changed = True
+        return json.dumps(result, ensure_ascii=False, separators=(',', ':')) if changed else text
+
+    prepared = []
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            prepared.append(message)
+            continue
+        content = message.content
+        if isinstance(content, str):
+            content = caption_status(content)
+        elif isinstance(content, list):
+            parts = []
+            for part in content:
+                if isinstance(part, dict) and part.get('type') in ('image', 'image_url', 'input_image'):
+                    parts.append({'type': 'text', 'text': 'Image pixels omitted for the current text-only model; only the caption is available.'})
+                elif isinstance(part, dict) and part.get('type') == 'text':
+                    parts.append({**part, 'text': caption_status(part.get('text', ''))})
+                else:
+                    parts.append(part)
+            content = parts
+        prepared.append(message.model_copy(update={'content': content}))
+    return prepared
 
 
 def _softmax_probs(dists: list, temp: float = _IMG_PROB_TEMP) -> list[float]:
@@ -539,14 +582,20 @@ def _image_search_core(query: str, target: str, lane_slugs: list[str],
         if rows:
             directory=json.loads(selection.discover(rows,lane_slugs,query=query,limit=len(rows)))
             ids=[item['candidate_id'] for item in directory.get('candidates',[])]
-            loaded=selection.read(ids,include_images=False) if ids else json.dumps(directory,ensure_ascii=False)
+            loaded=selection.read(ids,include_images=vision_on) if ids else json.dumps(directory,ensure_ascii=False)
+            read_parts=loaded if isinstance(loaded,list) else [{'type':'text','text':loaded}]
             ready={(selection.candidates[cid]['row']['doc_id'],selection.candidates[cid]['row'].get('image'))
                    for cid in ids if cid in selection.loaded}
             shown=[i for i in shown if (str(unique[i]['doc_id']),unique[i]['image']) in ready]
             confirmed=[i for i in confirmed if i in shown]
             text_out=(('已载入图片来源与完整图注，视觉复核状态见下。' if shown else '没有载入可用图片依据，见读取结果。')+
-                '\n'+head.replace('已自动附到回答引用区','将在选定依据后附到回答引用区').replace('已附到回答引用区供用户查看','将在选定依据后附到引用区供用户查看')+
-                '\n'+loaded+'\n调用 kb_select_evidence 选择实际采用的已读 candidate_id，然后回答；不采用的文本候选无需读取。')
+                '\n'+head.replace('已自动附到回答引用区','将在选定依据后附到回答引用区').replace('已附到回答引用区供用户查看','将在选定依据后附到引用区供用户查看'))
+            notice=('以 image_inputs 的 delivered/already_delivered 判断是否已收到图片本体；caption_only 只读到图注，不能声称看过图片。'
+                '\n调用 kb_select_evidence 选择实际采用的已读 candidate_id，然后回答；不采用的文本候选无需读取。')
+            # Use the shared reader for delivery, identity labels and the per-turn
+            # image cap. A relevance judge seeing pixels is not the answer model
+            # receiving those pixels, and must not mark them as delivered.
+            return [{'type':'text','text':text_out}]+read_parts+[{'type':'text','text':notice}]
         else:text_out=head
     # Legacy callers can still collect citations; agent calls use final selection.
     for i in shown if selection is None else []:
@@ -680,10 +729,10 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
 1. **选库**：不确定有哪些文档库时调一次 list_knowledge_bases 查看层级与 slug，之后按需用 kb_slug 定位到具体文档库。不要每次都调。
 2. **检索（两种工具，按需选择）**：
    - **kb_search**：只返回候选目录：各KB/文档的召回数量、candidate_id、章节/页码和短预览；不返回完整正文、不自动引用。先选择正确KB、文档和版本，再调用kb_read_chunks读取所需candidate_id。
-   - **kb_read_chunks**：只把所选候选的完整正文载入上下文。先读少量最相关片段，不为填满额度读全部候选。not_loaded不是已读内容；不得用未读的预览作事实依据。
+   - **kb_read_chunks**：把所选候选的完整正文载入上下文，图片候选按需返回本体。先读少量最相关片段，不为填满额度读全部候选。not_loaded不是已读内容；不得用未读的预览作事实依据。读取文字片段时，linked_images会列出该片段关联图片的独立candidate_id、图注和已有页码；它只是图片目录，不表示你已看到图片，也不自动引用。问题涉及图示、布局、部件外观、图中数据或文字不足以回答时，再用kb_read_chunks读取相关图片candidate_id。
    - **kb_select_evidence**：读取后、回答前，明确选出实际支持回答的已读candidate_id；它替换本轮RAG引用和核对依据，已读但未采用的片段也不引用。可选空数组后澄清歧义或说明不足。补读后必须重新选择最终依据。来源数量仅为本次有界召回统计，不是全库精确命中数。
-   - **多模态检索**：kb_search候选可能包含图片，但目录中的图注不表示已经看到图片。视觉模式下用kb_read_chunks明确选择图片候选，才会收到图片本体；最终用kb_select_evidence采用的图片才附在引用区。不要拼接图片链接，也不暗附其它文档的图片。
-   - **kb_image_search（找一张图时优先用）**：用户明确想【找图/看图】（「有没有……的示意图/布置图/结构图/照片」「找一张……的图」）时用它，不要用 kb_search 凑合。它先用多模态向量召回候选图片并计算相对概率，再把概率排前 3 且≥15% 的候选逐张交给视觉模型复核，只输出确认匹配的图（自动附到引用区）。回答时说明匹配图片的来源文档与页码、复核结论；无确认匹配时如实说明，并建议用户换更具体的描述重试。视觉模式开启时确认图片会以本体附在工具结果里——请依据图片内容本身描述图中细节，不要凭图注想象。若工具报告「均未确认匹配」或「复核未完成」，说明你没有看到图片本体——严禁声称已查看图片或描述图中细节。
+   - **多模态检索与图片引用**：kb_search也可能返回图片候选；目录与图注不表示已经看到图片。读取结果的image_inputs中delivered表示本次已附图片本体，already_delivered表示先前已附；caption_only/not_loaded仅有图注或尚未读到本体，不得凭它描述视觉细节。每张本体前的image_candidate_id、source、page标签说明它的实际来源，不把相邻图片混为一张。linked_images的embedded_reference是原文插图引用，adjacent_reference是片段边界的邻接图片，content_list_sequence是提取顺序关联；position只用于来源定位，不能推断像素坐标或PDF精确版式。只读与问题相关的图片，视觉未开启、文件不可读或限额不足时如实依据文字回答。实际采用图片时，kb_select_evidence同时保留回答使用的文字与图片candidate_id；选中的图片会以可放大的图片卡片显示在对话中，并关联来源引用。相关结论使用真实[N]来源和已有页码，不编造页码或图片URL。
+   - **kb_image_search（找一张图时优先用）**：用户明确想【找图/看图】（「有没有……的示意图/布置图/结构图/照片」「找一张……的图」）时用它，不要用 kb_search 凑合。它先用多模态向量召回候选图片并计算相对概率，再把概率排前 3 且≥15% 的候选逐张交给视觉模型复核。确认匹配仍须kb_select_evidence采用才显示图片卡片。回答时说明匹配图片的来源文档与已有页码；无确认匹配时如实说明，并建议用户换更具体的描述重试。是否实际收到本体以image_inputs为准，不把复核模型看过图片当成你已收到图片。若工具报告「均未确认匹配」或「复核未完成」，不要凭图注想象图片细节。
    - **kb_fetch_doc**：按文档/章节/关键词列出候选，不按相似度排序。需要完整表格时先用表名定位表头，再用实际材料牌号/编号等定位其它候选；必须用kb_read_chunks选择读取正文，再按文档顺序拼表。达到limit不代表已经取全；未读条目不能补写为事实。
    - **kb_neighbor_chunk**：从已读正文原样复制至少6个字符作为anchor，传实际source和kb_slug，direction=prev/next/both；列出原文相邻候选。仍须kb_read_chunks读取、kb_select_evidence确认后才引用。
    - **tracker_preview**：先查看追踪表真实字段、样例、条数，理解数据格式。样例不是全部记录，不能用样例算总数。
@@ -824,10 +873,12 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         return rag_selection.discover(results,scopes,query=query,limit=k)
 
     def kb_read_chunks(candidate_ids: list[str]):
-        """读取本会话候选目录中所选candidate_id的完整正文，最多16个，受本轮正文预算限制。
+        """读取所选candidate_id的完整文字或图片，最多16个，受本轮预算限制。
 
         先按KB、文档和版本选对来源；不要批量读取所有候选。正文不截断，装不下的候选列入not_loaded。
-        必须在读取后调用kb_select_evidence，确认实际支持最终回答的已读编号。
+        文字的linked_images列出关联图片candidate_id；按问题需要再次调用本工具读取图片本体。
+        image_inputs.status为delivered/already_delivered才表示已收到本体，caption_only不能支持视觉描述。
+        读取后用kb_select_evidence选择实际使用的文字和图片编号；所选图片显示为对话中的来源图片卡片。
         """
         return rag_selection.read(candidate_ids)
 
@@ -1454,6 +1505,8 @@ async def run_agent_stream(
                             else convert_to_messages((config or {}).get('published_history', []) if history_allowed else []))
         from .history import remove_legacy_kb_defaults
         history_messages=remove_legacy_kb_defaults(history_messages)
+        if not cfg.get('vision'):
+            history_messages = _text_only_tool_history(history_messages)
         from .manual_overview import is_manual_overview
         overview_target=(config or {}).get('overview_kb_slug') or kb_slug
         overview = bool(overview_target) and is_manual_overview(message) and not history_messages

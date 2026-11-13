@@ -22,6 +22,13 @@ def encode(value):
     return json.dumps(value, ensure_ascii=False, separators=(',', ':'))
 
 
+def _association_key(row):
+    if not row.get('relation'):
+        return ''
+    return digest(encode({key: row.get(key) for key in (
+        'relation', 'position', 'parent_chunk_id', 'parent_chunk_digest', 'page_label', 'image_metadata_digest')}))
+
+
 class RagSelection:
     def __init__(self, allowed, evidence, citations, state=None, image_reader=None, relationship_scope=None, saved=None):
         self.allowed = allowed
@@ -44,15 +51,20 @@ class RagSelection:
         self.candidates = saved.get('candidates', {})
         self.loaded = set(saved.get('loaded', []))
         self.presented = set(saved.get('presented', []))
+        # Reading a caption does not mean the model received the image pixels.
+        # Older saved conversations have no delivery stamp and may upgrade on
+        # their next explicit image read.
+        self.image_inputs = (set(saved.get('image_inputs', [])) & self.loaded) if image_reader else set()
         self.initial_candidates = len(self.candidates)
         for cid, item in self.candidates.items():
             snap = item['snapshot']; row = item['row']
             identity = (snap['doc_id'], snap['document_digest'], snap['chunk_id'] or snap['chunk_digest'],
-                        snap['chunk_digest'], row.get('image', ''))
+                        snap['chunk_digest'], row.get('image', ''), _association_key(row))
             self.identities[identity] = cid
 
     def snapshot(self):
-        return {'candidates': self.candidates, 'loaded': sorted(self.loaded), 'presented': sorted(self.presented)}
+        return {'candidates': self.candidates, 'loaded': sorted(self.loaded), 'presented': sorted(self.presented),
+                'image_inputs': sorted(self.image_inputs)}
 
     @property
     def pending(self):
@@ -82,7 +94,8 @@ class RagSelection:
                     continue
                 text = row.get('text') or ''
                 if doc.pk not in checksums:checksums[doc.pk] = digest(doc.md_content)
-                identity = (str(doc.pk),checksums[doc.pk],row.get('chunk_id') or digest(text),digest(text),row.get('image',''))
+                identity = (str(doc.pk),checksums[doc.pk],row.get('chunk_id') or digest(text),digest(text),
+                            row.get('image',''),_association_key(row))
                 if identity in seen:
                     continue
                 seen.add(identity)
@@ -96,6 +109,8 @@ class RagSelection:
                         'source':doc.original_name,'page':row.get('page_label',''),'text':text,
                         'chunk_id':row.get('chunk_id',''),'doc_id':str(doc.pk),'kb_slug':doc.kb.slug,
                         'document_digest':checksums[doc.pk],'chunk_digest':digest(text),'rag_selected':True}
+                    if row.get('image_metadata_digest'):
+                        snapshot['image_metadata_digest'] = row['image_metadata_digest']
                     self.candidates[cid] = {'row':dict(row,source=doc.original_name,doc_id=str(doc.pk),kb_slug=doc.kb.slug),
                         'snapshot':snapshot,'kb_name':doc.kb.name}
                     self.identities[identity] = cid
@@ -153,64 +168,201 @@ class RagSelection:
         if (not doc or not self.allowed(doc.kb) or doc.kb.slug!=snapshot['kb_slug']
                 or digest(doc.md_content)!=snapshot['document_digest']):
             raise ValueError('文档权限或内容已变化，请重新检索后选择。')
+        row = self.candidates[cid]['row']
+        if row.get('image_metadata_digest'):
+            from .chunk_images import image_metadata_current
+            if not image_metadata_current(doc, row):
+                raise ValueError('The image metadata changed. Read the text chunk again to refresh its image directory.')
+        if snapshot.get('kind') == 'image' and row.get('relation') and row.get('parent_chunk_digest'):
+            # Captions and page labels can come from extraction metadata even
+            # for explicit Markdown refs. Recheck before reading or selecting.
+            from .chunk_images import linked_images
+            parents = [item for item in self.candidates.values()
+                       if item['snapshot']['kind'] == 'text'
+                       and item['snapshot']['doc_id'] == snapshot['doc_id']
+                       and item['snapshot']['chunk_digest'] == row.get('parent_chunk_digest')
+                       and item['snapshot']['chunk_id'] == row.get('parent_chunk_id', '')]
+            if not any(image.get('image') == row.get('image')
+                       and image.get('position') == row.get('position')
+                       and image.get('relation') == row.get('relation')
+                       and image.get('text', '') == snapshot['text']
+                       and image.get('page_label', '') == snapshot['page']
+                       for parent in parents for image in linked_images(doc, parent['row'], limit=8)):
+                raise ValueError('The image association changed. Read the text chunk again to refresh its image directory.')
         if cid in self.loaded and snapshot.get('kind')=='image':
             from .publication import image_source_digest
             if not snapshot.get('image_digest') or image_source_digest(doc,snapshot.get('image'))!=snapshot['image_digest']:
                 raise ValueError('图片文件已变化或不可读，请重新检索后选择。')
         return doc
 
+    def _linked_image_hints(self, result, used, current_docs, *, cap):
+        """Offer associated images as independent, unread candidates, never evidence."""
+        from .chunk_images import linked_images
+
+        associations = []
+        rows = []
+        for parent_id in used:
+            item = self.candidates[parent_id]
+            if item['snapshot']['kind'] != 'text':
+                continue
+            document = current_docs[parent_id]
+            for row in linked_images(document, item['row'], limit=8):
+                # Resolver output remains bound to the exact read document.
+                if str(row.get('doc_id', document.pk)) != str(document.pk):
+                    continue
+                row = dict(row, doc_id=str(document.pk), source=document.original_name,
+                           kb_slug=document.kb.slug, type='image')
+                associations.append((parent_id, row))
+                rows.append(row)
+                if len(rows) >= 16:
+                    break
+            if len(rows) >= 16:
+                break
+        if not rows:
+            return result
+
+        previous_presented = set(self.presented)
+        scopes = list(dict.fromkeys(row['kb_slug'] for row in rows))
+        directory = json.loads(self.discover(rows, scopes, limit=len(rows)))
+        offered = {card['candidate_id'] for card in directory.get('candidates', [])}
+        offered.update(cid for document in directory.get('documents', [])
+                       for cid in document.get('candidate_ids', []))
+        hints = []
+        seen = set()
+        for parent_id, row in associations:
+            cid = next((cid for cid in offered
+                        if self.candidates[cid]['row'].get('image') == row.get('image')
+                        and self.candidates[cid]['snapshot']['doc_id'] == row['doc_id']
+                        and self.candidates[cid]['snapshot']['chunk_digest'] == digest(row.get('text') or '')
+                        and self.candidates[cid]['snapshot']['chunk_id'] == row.get('chunk_id', '')
+                        and _association_key(self.candidates[cid]['row']) == _association_key(row)), None)
+            if cid is None or (parent_id, cid) in seen:
+                continue
+            seen.add((parent_id, cid))
+            hint = {'parent_candidate_id': parent_id, 'candidate_id': cid,
+                    'source': row['source'], 'page': str(row.get('page_label') or '')[:80],
+                    'caption': str(row.get('text') or '')[:240],
+                    'relation': str(row.get('relation') or 'embedded_reference')[:80]}
+            if isinstance(row.get('position'), dict):
+                hint['position'] = row['position']
+            trial = {**result, 'linked_images': hints + [hint]}
+            if len(encode(trial)) <= cap:
+                hints.append(hint)
+        # Unshown identifiers must not become guessable read targets.
+        self.presented = previous_presented | {hint['candidate_id'] for hint in hints}
+        if hints:
+            result['linked_images'] = hints
+        return result
+
     def read(self, candidate_ids, *, include_images=True):
         with self.lock:
             try:
                 ids = self._ids(candidate_ids)
                 if not ids:
-                    raise ValueError('请选择要读取的candidate_id。')
+                    raise ValueError('Choose at least one candidate_id to read.')
                 current_docs = {cid: self._current(cid) for cid in ids}
-                result = {'kind':'rag_chunks','chunks':[],'already_loaded':[],'not_loaded':[],
-                          'notice':'完整正文保留在会话中，可用于后续追问。新增读取后用kb_select_evidence选择实际采用的已读candidate_id。'}
+                cap = min(MAX_RESPONSE_CHARS, MAX_READ_CHARS - self.read_chars)
+                result = {'kind': 'rag_chunks', 'chunks': [], 'already_loaded': [], 'not_loaded': [],
+                          'notice': 'Read text remains in this conversation. linked_images are unread image candidates; '
+                                    'read their candidate_id to inspect pixels. Relation adjacent_reference means near '
+                                    'the chunk boundary; content_list_sequence means extraction order. Select only '
+                                    'evidence actually used with kb_select_evidence. Caption-only images do not '
+                                    'support visual claims.'}
+                image_status = {}
+                labels = {}
+                # Reserve status and identity-label space before accepting text.
+                # Delivery may shorten placeholders but cannot overrun the cap.
+                for cid in ids:
+                    item = self.candidates[cid]
+                    if item['snapshot']['kind'] != 'image':
+                        continue
+                    snap = item['snapshot']
+                    status = {'candidate_id': cid, 'status': 'caption_only', 'reason': 'source_unavailable'}
+                    if cid in self.image_inputs:
+                        status = {'candidate_id': cid, 'status': 'already_delivered'}
+                    elif not include_images:
+                        status['reason'] = 'not_requested'
+                    elif not self.image_reader:
+                        status['reason'] = 'vision_disabled'
+                    image_status[cid] = status
+                    labels[cid] = encode({'image_candidate_id': cid, 'source': snap['source'], 'page': snap['page']})
+                if image_status:
+                    result['image_inputs'] = list(image_status.values())
+                label_reserve = sum(len(labels[cid]) for cid in labels
+                                    if cid not in self.image_inputs and include_images and self.image_reader)
+                text_cap = cap - label_reserve
                 accepted = []
                 for cid in ids:
                     if cid in self.loaded:
                         result['already_loaded'].append(cid)
                         continue
                     snap = self.candidates[cid]['snapshot']
-                    if snap['kind']=='image':
+                    if snap['kind'] == 'image':
                         from .publication import image_source_digest
-                        image=self.candidates[cid]['row'].get('image','')
-                        checksum=image_source_digest(current_docs[cid],image)
+                        image = self.candidates[cid]['row'].get('image', '')
+                        checksum = image_source_digest(current_docs[cid], image)
                         if not checksum:
-                            result['not_loaded'].append(cid);continue
-                        snap.update(image=image,image_digest=checksum,visual_confirmed=bool(self.candidates[cid]['row'].get('visual_confirmed')))
-                    chunk = {'candidate_id':cid,'source':snap['source'],'kb_slug':snap['kb_slug'],
-                             'page':snap['page'],'text':snap['text'],'type':snap['kind']}
-                    trial = {**result,'chunks':result['chunks']+[chunk]}
-                    if len(encode(trial))>min(MAX_RESPONSE_CHARS,MAX_READ_CHARS-self.read_chars)-400:
+                            result['not_loaded'].append(cid)
+                            image_status[cid].update(status='not_loaded', reason='source_unavailable')
+                            continue
+                        snap.update(image=image, image_digest=checksum,
+                                    visual_confirmed=bool(self.candidates[cid]['row'].get('visual_confirmed')))
+                    chunk = {'candidate_id': cid, 'source': snap['source'], 'kb_slug': snap['kb_slug'],
+                             'page': snap['page'], 'text': snap['text'], 'type': snap['kind']}
+                    trial = {**result, 'chunks': result['chunks'] + [chunk]}
+                    if len(encode(trial)) > text_cap - 100:
                         result['not_loaded'].append(cid)
+                        if cid in image_status:
+                            image_status[cid].update(status='not_loaded', reason='response_budget')
                         continue
-                    result['chunks'].append(chunk); accepted.append(cid)
+                    result['chunks'].append(chunk)
+                    accepted.append(cid)
                 used = accepted + result['already_loaded']
+                if len(encode(result)) > text_cap:
+                    return encode({'error': 'The conversation read budget is exhausted. Select already-read evidence.'})
+                # Optional directories fit around accepted body text, never replace it.
+                result = self._linked_image_hints(result, used, current_docs, cap=text_cap)
                 if used:
                     result = self.relationship_scope.attach(result, [current_docs[cid].kb for cid in used],
-                        cap=min(MAX_RESPONSE_CHARS, MAX_READ_CHARS-self.read_chars), establish=True)
-                text = encode(result)
-                if len(text)>MAX_READ_CHARS-self.read_chars:
-                    return encode({'error':'本轮正文读取预算已用完。请根据已读内容选择依据；不要把未读预览当作事实。'})
-                self.loaded.update(accepted)
-                self.read_chars += len(text)
-                if accepted or result['already_loaded']:
-                    self.state.update(pending=True,finalized=False)
-                    self._clear()
-                # 图片只有被明确选中读取后才进入上下文；不额外暗附图片候选。
-                parts = [{'type':'text','text':text}]
-                for cid in accepted:
+                        cap=text_cap, establish=True)
+                image_parts = []
+                delivered = []
+                for cid in used:
+                    if cid not in image_status or cid in self.image_inputs:
+                        continue
+                    status = image_status[cid]
+                    if not include_images or not self.image_reader:
+                        continue
+                    if self.images_read + len(delivered) >= 4:
+                        status['reason'] = 'image_limit'
+                        continue
                     row = self.candidates[cid]['row']
-                    if include_images and row.get('type')=='image' and self.image_reader and self.images_read<4:
-                        image = self.image_reader(row['doc_id'],row.get('image',''))
-                        if image:
-                            parts.append(image); self.images_read += 1
-                return parts if len(parts)>1 else text
+                    try:
+                        image = self.image_reader(row['doc_id'], row.get('image', ''))
+                    except Exception:
+                        image = None
+                    if not image:
+                        status['reason'] = 'image_unavailable'
+                        continue
+                    from .publication import image_source_digest
+                    if image_source_digest(current_docs[cid], row.get('image', '')) != self.candidates[cid]['snapshot']['image_digest']:
+                        status['reason'] = 'source_changed'
+                        continue
+                    status.clear()
+                    status.update(candidate_id=cid, status='delivered')
+                    image_parts.extend([{'type': 'text', 'text': labels[cid]}, image])
+                    delivered.append(cid)
+                text = encode(result)
+                self.loaded.update(accepted)
+                self.image_inputs.update(delivered)
+                self.images_read += len(delivered)
+                self.read_chars += len(text) + sum(len(part['text']) for part in image_parts if part.get('type') == 'text')
+                if used:
+                    self.state.update(pending=True, finalized=False)
+                    self._clear()
+                return [{'type': 'text', 'text': text}] + image_parts if image_parts else text
             except ValueError as exc:
-                return encode({'error':str(exc)})
+                return encode({'error': str(exc)})
 
     def _clear(self):
         self.evidence[:] = [e for e in self.evidence if not e.get('rag_selected')]

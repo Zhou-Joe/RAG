@@ -73,9 +73,13 @@ def image_snapshot_current(snapshot,user):
     from django.core.exceptions import ValidationError
     try:doc=Document.objects.select_related('kb__parent').filter(pk=snapshot.get('doc_id'),status='completed').first()
     except (ValueError,TypeError,ValidationError):return False
-    return bool(doc and kb_accessible(user,doc.kb) and doc.kb.slug==snapshot.get('kb_slug')
+    current = bool(doc and kb_accessible(user,doc.kb) and doc.kb.slug==snapshot.get('kb_slug')
         and digest(doc.md_content)==snapshot.get('document_digest') and snapshot.get('image_digest')
         and image_source_digest(doc,snapshot.get('image'))==snapshot['image_digest'])
+    if current and 'image_metadata_digest' in snapshot:
+        from .chunk_images import image_metadata_current
+        current = image_metadata_current(doc, snapshot)
+    return current
 
 
 def validate_sources(evidence, user_id):
