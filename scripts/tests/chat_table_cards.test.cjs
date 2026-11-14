@@ -35,24 +35,24 @@ function table(h,caption='',cell='123'){const node=h.document.createElement('tab
 const card=h=>h.host.querySelector('.chat-table-card');
 const button=h=>h.host.querySelector('.chat-table-toggle');
 
-test('mount compacts the actual table without parsing or replacing source cells',()=>{
+test('mount expands the actual table without parsing or replacing source cells',()=>{
   const h=setup(),sourceTable=table(h,'Revenue <script>alert(1)</script>','<img src=x onerror=alert(1)>');h.host.appendChild(sourceTable);
   assert.equal(h.api.mount(h.host,{language:'en'}),1);
-  assert.equal(card(h).classList.contains('is-expanded'),false);assert.equal(button(h).getAttribute('aria-expanded'),'false');
-  assert.equal(button(h).textContent,'Expand');assert.equal(h.host.querySelector('table'),sourceTable);
+  assert.equal(card(h).classList.contains('is-expanded'),true);assert.equal(button(h).getAttribute('aria-expanded'),'true');
+  assert.equal(button(h).textContent,'Collapse');assert.equal(h.host.querySelector('table'),sourceTable);
   assert.equal(h.host.querySelector('.chat-table-title').textContent,'Revenue <script>alert(1)</script>');
   assert.equal(sourceTable.querySelector('td').textContent,'<img src=x onerror=alert(1)>');
   assert.equal(h.host.querySelector('script'),null);assert.equal(h.host.querySelector('img'),null);
   assert.equal(button(h).getAttribute('aria-controls'),h.host.querySelector('.chat-table-viewport').id);
 });
 
-test('button and header clicks expand to full width and collapse independently without double toggles',()=>{
+test('button and header clicks collapse and expand independently without double toggles',()=>{
   const h=setup();h.host.appendChild(table(h));h.api.mount(h.host);
-  button(h).emit('click');assert.equal(card(h).classList.contains('is-expanded'),true);
-  assert.equal(button(h).textContent,'Collapse');assert.equal(button(h).getAttribute('aria-expanded'),'true');
-  h.host.querySelector('.chat-table-head').emit('click');assert.equal(card(h).classList.contains('is-expanded'),false);
-  assert.equal(button(h).textContent,'Expand');
-  h.host.querySelector('.chat-table-title').emit('click');assert.equal(card(h).classList.contains('is-expanded'),true);
+  button(h).emit('click');assert.equal(card(h).classList.contains('is-expanded'),false);
+  assert.equal(button(h).textContent,'Expand');assert.equal(button(h).getAttribute('aria-expanded'),'false');
+  h.host.querySelector('.chat-table-head').emit('click');assert.equal(card(h).classList.contains('is-expanded'),true);
+  assert.equal(button(h).textContent,'Collapse');
+  h.host.querySelector('.chat-table-title').emit('click');assert.equal(card(h).classList.contains('is-expanded'),false);
 });
 
 test('mount is idempotent and tables have independent expansion state',()=>{
@@ -60,23 +60,23 @@ test('mount is idempotent and tables have independent expansion state',()=>{
   assert.equal(h.api.mount(h.host),2);assert.equal(h.api.mount(h.host),2);
   const cards=h.host.querySelectorAll('.chat-table-card'),buttons=h.host.querySelectorAll('.chat-table-toggle');
   assert.equal(cards.length,2);assert.equal(buttons[0].listeners.click.length,1);
-  buttons[1].emit('click');assert.equal(cards[0].classList.contains('is-expanded'),false);assert.equal(cards[1].classList.contains('is-expanded'),true);
-  buttons[0].emit('click');buttons[1].emit('click');assert.equal(cards[0].classList.contains('is-expanded'),true);assert.equal(cards[1].classList.contains('is-expanded'),false);
+  buttons[1].emit('click');assert.equal(cards[0].classList.contains('is-expanded'),true);assert.equal(cards[1].classList.contains('is-expanded'),false);
+  buttons[0].emit('click');buttons[1].emit('click');assert.equal(cards[0].classList.contains('is-expanded'),false);assert.equal(cards[1].classList.contains('is-expanded'),true);
 });
 
 test('streaming Markdown replacement retains expansion and does not retain old listeners',()=>{
   const h=setup();h.host.appendChild(table(h,'Quarterly','1'));h.api.mount(h.host);
   const oldButton=button(h);oldButton.emit('click');
   const updated=table(h,'Quarterly','1234');h.host.replaceChildren(updated);h.api.mount(h.host);
-  assert.equal(card(h).classList.contains('is-expanded'),true);assert.equal(button(h).textContent,'Collapse');
+  assert.equal(card(h).classList.contains('is-expanded'),false);assert.equal(button(h).textContent,'Expand');
   assert.equal(h.host.querySelector('td').textContent,'1234');assert.equal(oldButton.listeners.click.length,0);
   button(h).emit('click');h.host.replaceChildren(table(h,'Quarterly','5678'));h.api.mount(h.host);
-  assert.equal(card(h).classList.contains('is-expanded'),false);
+  assert.equal(card(h).classList.contains('is-expanded'),true);
 });
 
 test('language switching changes system controls while preserving source captions and expanded state',()=>{
   const h=setup();h.host.appendChild(table(h,'Expand <设备>'));h.host.appendChild(table(h));h.api.mount(h.host,{language:'en'});
-  button(h).emit('click');h.document.emit('fos:languagechange',{detail:{language:'zh-hans'}});
+  h.host.querySelectorAll('.chat-table-toggle')[1].emit('click');h.document.emit('fos:languagechange',{detail:{language:'zh-hans'}});
   const titles=h.host.querySelectorAll('.chat-table-title'),buttons=h.host.querySelectorAll('.chat-table-toggle');
   assert.equal(titles[0].textContent,'Expand <设备>');assert.equal(titles[1].textContent,'表格');
   assert.equal(buttons[0].textContent,'收起');assert.equal(buttons[0].getAttribute('aria-label'),'收起表格');assert.equal(buttons[1].textContent,'展开');
@@ -89,10 +89,10 @@ test('ancestor cleanup unwraps exact original tables and releases table control 
   const control=child.querySelector('.chat-table-toggle');h.api.destroy(h.host);
   assert.equal(child.querySelector('.chat-table-card'),null);assert.equal(child.querySelector('table'),original);assert.equal(control.listeners.click.length,0);
   h.document.emit('fos:languagechange',{detail:{language:'zh-hans'}});assert.equal(child.querySelector('.chat-table-card'),null);
-  assert.equal(h.api.mount(child),1);assert.equal(child.querySelector('.chat-table-toggle').getAttribute('aria-expanded'),'false');
+  assert.equal(h.api.mount(child),1);assert.equal(child.querySelector('.chat-table-toggle').getAttribute('aria-expanded'),'true');
 });
 
-test('nested source tables remain intact inside one compact outer card',()=>{
+test('nested source tables remain intact inside one expanded outer card',()=>{
   const h=setup(),outer=table(h,'Outer'),nested=table(h,'Nested');outer.querySelector('td').appendChild(nested);h.host.appendChild(outer);
   assert.equal(h.api.mount(h.host),1);assert.equal(h.host.querySelectorAll('.chat-table-card').length,1);assert.equal(outer.querySelector('table'),nested);
 });
@@ -132,7 +132,7 @@ test('image and table cards coexist idempotently and image expansion survives re
   assert.equal(h.host.querySelector('.chat-image-card').classList.contains('is-expanded'),true);assert.equal(oldControl.listeners.click.length,0);assert.equal(generated.image.listeners.click.length,0);
   assert.equal(h.host.querySelectorAll('.chat-table-card').length,2);
   const plainTableCard=h.host.querySelectorAll('.chat-table-card').find(node=>!node.classList.contains('chat-image-card'));
-  assert.equal(plainTableCard.classList.contains('is-expanded'),true);
+  assert.equal(plainTableCard.classList.contains('is-expanded'),false);
 });
 
 test('image controls localize without rewriting filenames and cleanup restores source figures',()=>{

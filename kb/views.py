@@ -1834,6 +1834,23 @@ def conversation_stop(request, thread_id):
 
 @login_required
 @require_http_methods(["POST"])
+def conversation_clear(request):
+    """Clear all of the signed-in user's conversations, including hidden legacy chats."""
+    from .answer_tasks import ACTIVE, stop
+
+    with transaction.atomic():
+        conversations = Conversation.objects.filter(user=request.user)
+        active_ids = Message.objects.filter(
+            conversation__in=conversations, completion_status__in=ACTIVE,
+        ).values_list('pk', flat=True)
+        for answer_id in active_ids:
+            stop(answer_id)
+        _, deleted = conversations.delete()
+    return JsonResponse({"ok": True, "deleted": deleted.get(Conversation._meta.label, 0)})
+
+
+@login_required
+@require_http_methods(["POST"])
 def conversation_delete(request, thread_id):
     """删除某会话（仅元数据 + 消息；checkpointer 数据保留无妨）。
 

@@ -149,7 +149,7 @@
     const document = container.ownerDocument || root.document;
     const region = document.createElement('section');
     region.className = 'chat-chart-grid'; region.setAttribute('aria-label', options.language === 'zh-hans' ? '交互图表' : 'Interactive Charts');
-    const expanded = sizes.get(container) || new Set(); sizes.set(container, expanded);
+    const expanded = sizes.get(container) || new Map(); sizes.set(container, expanded);
     const state = {container, region, canvases: [], charts: items, options: {...options}};
     let count = 0;
     for (const [index, item] of items.entries()) {
@@ -164,15 +164,16 @@
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'chat-chart-size';
       const key = index + ':' + data.type + ':' + data.title;
       function setExpanded(value) {
-        if (value) { expanded.add(key); card.classList.add('is-expanded'); }
-        else { expanded.delete(key); card.classList.remove('is-expanded'); }
+        expanded.set(key, value);
+        if (value) card.classList.add('is-expanded');
+        else card.classList.remove('is-expanded');
         const label = data.language === 'zh-hans' ? (value ? '收起' : '展开') : (value ? 'Collapse' : 'Expand');
         toggle.textContent = label; toggle.setAttribute('aria-label', label + (data.title ? ': ' + data.title : ''));
         toggle.setAttribute('aria-expanded', String(value));
         canvas._ercTooltip?.hide?.();
       }
-      toggle.addEventListener('click', event => { event.stopPropagation?.(); setExpanded(!expanded.has(key)); });
-      header.addEventListener('click', event => { if (event.target !== toggle) setExpanded(!expanded.has(key)); });
+      toggle.addEventListener('click', event => { event.stopPropagation?.(); setExpanded(!expanded.get(key)); });
+      header.addEventListener('click', event => { if (event.target !== toggle) setExpanded(!expanded.get(key)); });
       header.appendChild(toggle); card.appendChild(header);
       const canvas = document.createElement('div'); canvas.className = 'chat-chart-canvas';
       if (data.type === 'table') {
@@ -181,7 +182,7 @@
         if (previous) canvas._eitState = {...previous};
       }
       card.appendChild(canvas); region.appendChild(card); state.canvases.push(canvas);
-      setExpanded(expanded.has(key));
+      setExpanded(expanded.has(key) ? expanded.get(key) : data.type === 'table');
       try { root.EnGenieReportCharts.render(canvas, data); } catch (_error) {
         canvas._ercTooltip?.destroy(); canvas._ercCleanup?.(); card.remove(); state.canvases.pop(); continue;
       }

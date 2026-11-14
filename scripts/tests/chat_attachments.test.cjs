@@ -259,7 +259,7 @@ function submitFixture(run) {
   const attachmentUI = {...f.queue, showError:message=>errors.push(message),
     renderMessage:(container,items,options)=>attachments.renderMessage(container,items,{...options,document:dom})};
   const context = {input, sendBtn:{}, stopBtn, messages, attachmentUI, FosChatAttachments:attachments,
-    busy:false, currentThreadId:'t_attachment-test', recovery:null, historyRevision:0, activeTurn:null,
+    busy:false, clearingChatHistory:false, currentThreadId:'t_attachment-test', recovery:null, historyRevision:0, activeTurn:null,
     recoveryKey:'unit', genThreadId:()=> 'generated', getCSRFToken:()=> 'csrf', AI_WHO:'', document:dom,
     FosAnswerRecovery:{remember(){}}, window:{}, URLSearchParams, Event, sessionTokens:{in:0,out:0},sessionMax:{in:0,out:0},
     FosToolActivity:{create:()=>({update(){},finish(){}})}, addConvItem(){throw new Error('Unexpected phantom conversation');},

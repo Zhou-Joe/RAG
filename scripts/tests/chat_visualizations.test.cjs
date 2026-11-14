@@ -47,7 +47,7 @@ test('value cards and the shared visual row stay above the answer across redraws
   visuals.destroy(row);
 });
 
-test('all six extended views normalize and mount through the actual compact chat bridge',()=>{
+test('tables start expanded while all other extended views start compact',()=>{
   const h=environment(),specs=[
     {type:'progress',title:'Goal',value:125,target:100,unit:'min'},
     {type:'sparkline',title:'Daily',labels:['Mon','Wed'],series:[{label:'Count',values:[0,3]}],x_values:[0,2000]},
@@ -59,10 +59,11 @@ test('all six extended views normalize and mount through the actual compact chat
   assert.equal(visuals.mount(h.host,specs),6);
   for(const spec of specs){
     const card=h.host.all().find(node=>node.className.split(' ').includes('chat-chart-'+spec.type));
-    assert.ok(card,spec.type);assert.ok(!card.className.includes('is-expanded'));
+    const initiallyExpanded=spec.type==='table';
+    assert.ok(card,spec.type);assert.equal(card.className.includes('is-expanded'),initiallyExpanded);
     const toggle=card.all().find(node=>node.className==='chat-chart-size');toggle.emit('click');
-    assert.equal(toggle.getAttribute('aria-expanded'),'true');toggle.emit('click');
-    assert.equal(toggle.getAttribute('aria-expanded'),'false');
+    assert.equal(toggle.getAttribute('aria-expanded'),String(!initiallyExpanded));toggle.emit('click');
+    assert.equal(toggle.getAttribute('aria-expanded'),String(initiallyExpanded));
   }
   assert.ok(h.host.textContent.includes('125 min'));
   visuals.destroy(h.host);
@@ -70,16 +71,17 @@ test('all six extended views normalize and mount through the actual compact chat
   assert.equal(h.document.body.all().filter(node=>node.className==='erc-tooltip').length,0);
 });
 
-test('interactive table preferences survive chat redraw and language changes while old handlers are released',()=>{
+test('interactive table preferences and explicit collapse survive chat redraw and language changes',()=>{
   const h=environment(),spec={type:'table',title:'Records',columns:[{key:'Name',label:'Name'}],
     rows:[{Name:'Alpha'},{Name:'Beta'}],total_rows:2,truncated:false};
   assert.equal(visuals.mount(h.host,[spec]),1);
   const search=h.host.all().find(node=>node.className==='eit-search');search.value='Beta';search.emit('input');
-  const toggle=h.host.all().find(node=>node.className==='chat-chart-size');toggle.emit('click');
+  const toggle=h.host.all().find(node=>node.className==='chat-chart-size');
+  assert.equal(toggle.getAttribute('aria-expanded'),'true');toggle.emit('click');
   assert.equal(visuals.mount(h.host,[spec],{language:'zh-hans'}),1);
   const replacement=h.host.all().find(node=>node.className==='eit-search');
   assert.equal(replacement.value,'Beta');assert.equal((search.events.input||[]).length,0);
-  assert.equal(h.host.all().find(node=>node.className==='chat-chart-size').getAttribute('aria-expanded'),'true');
+  assert.equal(h.host.all().find(node=>node.className==='chat-chart-size').getAttribute('aria-expanded'),'false');
   const preferences=h.host.all().find(node=>node._eitState)?._eitState;
   assert.ok(preferences);assert.equal(preferences.query,'Beta');assert.equal(preferences.rows,undefined);
   visuals.destroy(h.host);assert.equal((replacement.events.input||[]).length,0);

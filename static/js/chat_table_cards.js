@@ -1,4 +1,4 @@
-/* Compact, expandable cards around sanitized chat tables and generated images. */
+/* Expandable cards around sanitized chat tables and generated images. */
 (function(root) {
   'use strict';
   const states = new WeakMap(), active = new Set();
@@ -38,6 +38,7 @@
   }
 
   function wrap(state, content, caption, key, kind, image) {
+    if (!state.expanded.has(key)) state.expanded.set(key, kind === 'table');
     const document = state.container.ownerDocument || root.document;
     const card = document.createElement('figure');
     card.className = 'chat-table-card notranslate' + (kind === 'image' ? ' chat-image-card' : '');

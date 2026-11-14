@@ -14,6 +14,7 @@
 .conv-item.is-generating .conv-title, .answer.thinking {animation:answerPulse 1.6s ease-in-out infinite}
 .conv-state {display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--brand);min-height:14px}
 .conv-unread-dot {display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--brand)}
+.conv-sidebar .conv-clear {flex-shrink:0;justify-content:center;margin-top:12px;width:100%}
 @media (prefers-reduced-motion:reduce) {.conv-item.is-generating .conv-title,.answer.thinking {animation:none}}
 </style>
 {{ pyodide_index_url|json_script:"pyodideIndexURL" }}
@@ -46,6 +47,7 @@
       <div class="conv-empty">还没有会话</div>
       {% endfor %}
     </div>
+    <button class="btn outline sm conv-clear" id="clearChatHistoryBtn" type="button">清空所有聊天记录</button>
   </aside>
 
   <!-- 右侧：对话区 -->
@@ -87,8 +89,8 @@
 <script src="{% static 'js/interactive_table.js' %}?v=1"></script>
 <script src="{% static 'js/extended_visualizations.js' %}?v=1"></script>
 <script src="{% static 'js/report_chart_runtime.js' %}?v=5-extended"></script>
-<script src="{% static 'js/chat_visualizations.js' %}?v=5-value-first"></script>
-<script src="{% static 'js/chat_table_cards.js' %}?v=1"></script>
+<script src="{% static 'js/chat_visualizations.js' %}?v=7-expanded-tables"></script>
+<script src="{% static 'js/chat_table_cards.js' %}?v=2-expanded-tables"></script>
 <script src="{% static 'js/chat_citations.js' %}?v=4-value-only"></script>
 <script src="{% static 'js/chat_attachments.js' %}?v=1"></script>
 <script src="{% static 'js/chat_stream.js' %}?v=20261113-attachments"></script>
@@ -647,6 +649,7 @@ except ImportError:
   let currentThreadId = '';   // 当前会话的 thread_id；空表示新对话（首次发送时生成）
   let activeTurn = null;
   let historyRevision = 0;
+  let clearingChatHistory = false;
   const badges = FosConversationBadges.create({csrf:getCSRFToken, onState(row) {
     const item = Array.from(document.querySelectorAll('.conv-item')).find(el => el.dataset.thread === row.thread_id);
     if (!item) return;
@@ -725,6 +728,7 @@ except ImportError:
 
   function genThreadId(){ return 't_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
   function newConversation(){
+    if (clearingChatHistory) return;
     cancelCurrentTurn();
     window.EnGenieChatVisualizations?.destroy(messages);
     window.EnGenieChatTableCards?.destroy(messages);
@@ -753,8 +757,56 @@ except ImportError:
     return m ? decodeURIComponent(m[1]) : '';
   }
 
+  function chatHistoryText(text) { return window.FOSI18n?.t(text) || text; }
+
+  async function clearChatHistory(){
+    const btn = document.getElementById('clearChatHistoryBtn');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    let suspended = false, cleared = false;
+    try {
+      if (!(await fosConfirm({
+        title: chatHistoryText('清空所有聊天记录'),
+        confirmText: chatHistoryText('全部清空'), danger: true,
+        message: chatHistoryText('确定删除你的所有聊天记录？正在生成的回答也会停止，此操作不可撤销。'),
+      }))) return;
+      clearingChatHistory = true;
+      cancelCurrentTurn();
+      busy = true; sendBtn.disabled = true; suspended = true;
+      btn.textContent = chatHistoryText('正在清空…');
+      const resp = await fetch('{% url "kb:conv_clear" %}', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCSRFToken(), 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.ok !== true) throw new Error(data.message || ('HTTP ' + resp.status));
+      const empty = document.createElement('div');
+      empty.className = 'conv-empty'; empty.textContent = chatHistoryText('还没有会话');
+      document.getElementById('convList').replaceChildren(empty);
+      clearingChatHistory = false;
+      newConversation();
+      const url = new URL(window.location.href);
+      url.searchParams.delete('conv');
+      window.history.replaceState(null, '', url);
+      cleared = true;
+      if (window.parent !== window) window.parent.postMessage({type:'rag-chat:history-cleared'}, window.location.origin);
+      closeDrawer(); input.focus();
+    } catch(error) {
+      alert(chatHistoryText('清空失败：') + (error.message || error));
+    } finally {
+      clearingChatHistory = false;
+      btn.disabled = false; btn.textContent = chatHistoryText('清空所有聊天记录');
+      if (suspended && !cleared) {
+        const saved = Array.from(document.querySelectorAll('.conv-item')).some(item => item.dataset.thread === currentThreadId);
+        if (saved) restoreConversation(currentThreadId);
+        else { busy = false; sendBtn.disabled = false; }
+      }
+    }
+  }
+  document.getElementById('clearChatHistoryBtn').addEventListener('click', clearChatHistory);
+
   async function deleteConversation(btn){
-    if (btn.dataset.deleting) return;  // 防重复点击
+    if (clearingChatHistory || btn.dataset.deleting) return;  // 防重复点击
     const thread = btn.dataset.thread;
     const title = (btn.dataset.title || '该会话');
     if (!(await fosConfirm({
@@ -802,6 +854,7 @@ except ImportError:
   bindConvDeleteButtons();
 
   function restoreConversation(thread) {
+    if (clearingChatHistory) return;
     cancelCurrentTurn();
     if (thread !== currentThreadId) attachmentUI.clear();
     const revision = ++historyRevision;
@@ -1003,7 +1056,7 @@ except ImportError:
   /* ---------- 提交问答 ---------- */
   async function submit() {
     const typedText = input.value.trim();
-    if ((!typedText && !attachmentUI.hasFiles()) || busy || attachmentUI.isUploading()) return;
+    if ((!typedText && !attachmentUI.hasFiles()) || busy || clearingChatHistory || attachmentUI.isUploading()) return;
     const uploadBatch = attachmentUI.beginUpload();
     if (!uploadBatch) return;
     const hasAttachments = uploadBatch.entries.length > 0;

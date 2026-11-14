@@ -80,6 +80,7 @@ urlpatterns = [
     path("conv/<str:thread_id>/read/", views.conversation_read, name="conv_read"),
 
     # 会话历史
+    path("conv/clear/", views.conversation_clear, name="conv_clear"),
     path("conv/<str:thread_id>/messages/", views.conversation_messages, name="conv_messages"),
     path("conv/<str:thread_id>/delete/", views.conversation_delete, name="conv_delete"),
 

@@ -61,6 +61,11 @@
    ready=true;loading.hidden=true;theme();layout();if(pendingNew){tell({type:'rag-chat:new'});pendingNew=false;}if(pendingThread){tell({type:'rag-chat:thread',thread:pendingThread});pendingThread='';}if(opened&&!mobile())tell({type:'rag-chat:focus'});
   }else if(data.type==='rag-chat:state'){
    if(typeof data.busy!=='boolean')return;const was=busy;busy=data.busy;if(was&&!busy&&!opened){unread=true;live.textContent='EnGenie 已完成回答';}signal();
+  }else if(data.type==='rag-chat:history-cleared'){
+   pendingThread='';root.dataset.thread='';busy=false;unread=false;live.textContent='';
+   const url=new URL(location.href),chat=new URL(root.dataset.chatUrl,location.origin);
+   if(url.pathname===chat.pathname){url.searchParams.delete('conv');history.replaceState(null,'',url);}
+   signal();
   }else if(data.type==='rag-chat:close')setOpen(false);
   else if(data.type==='rag-chat:evidence')openEvidence(data);
   else if(data.type==='rag-chat:focus-header'&&opened&&modal()){
