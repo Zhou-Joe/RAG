@@ -2,7 +2,9 @@
 
 Audience: senior leadership. English narration (Kokoro `af_heart`) with burned-in captions. Every on-screen question or request is also read aloud by a second voice (Kokoro `am_michael`) while it is typed, so the audience hears what is being asked. Format: 1920 × 1080, 60 fps, AAC 48 kHz, −16 LUFS.
 
-Output: `presentation_video/EnGenie_V2_85s_1080p60.mp4`. Source code: `presentation_video/v2/`.
+Revision 2: the opening adds **And more · Emails · images**. The male prompt voice uses speed `1.2` (previously `1.1`, about 9% faster), with matching typing and sound-effect timing. At about 0:32 the C-frame question is submitted by clicking the large En-Genie icon on the left. The automation bridge now reads **With En-Genie, no code, no setup, just ask**. It keeps the original centered No code / No setup words and surrounding black script cards. The cards fade out as the words appear, then the genie + Just ask fade in underneath No setup on the same page. Quieter chimes soften the sequence. The following requests are retimed within the same scene. The film stays 85 seconds; all scene boundaries stay fixed.
+
+Output: `presentation_video/EnGenie_V2_85s_1080p60_R2.mp4`. Source code: `presentation_video/v2/`.
 
 ## Story in one line
 
@@ -18,27 +20,27 @@ A storm of real documents collapses into one answer with its proof. The film the
 
 | Time | Scene | Voice (prompt voice in *italics*) |
 |---|---|---|
-| 0:00–0:12.9 | 1 · Wow opening | "Manuals. Standards. Drawings. Lab reports. Years of knowledge, scattered everywhere." / *"Which attraction needs immediate attention? Show me the proof."* / "One question. One answer, with the proof." |
+| 0:00–0:12.9 | 1 · Wow opening | "Manuals. Standards. Drawings. Lab reports. And more. Years of knowledge, scattered everywhere." / *"Which attraction needs immediate attention? Show me the proof."* / "One question. One answer, with the proof." |
 | 0:12.9–0:19 | 2 · Introducing En-Genie | "Introducing En-Genie, your one-stop AI assistant to find, verify and deliver knowledge." |
 | 0:19–0:25.6 | 3 · Any file becomes knowledge | "Give it any file." / "A manual with hundreds of pages." / "A spreadsheet with thousands of rows." |
 | 0:25.6–0:36.9 | 4 · Cross-check | *"What's the C-frame drawing number at Mine Train, its NDT requirement, and any MRB records?"* / "One question. Three sources, cross-checked." |
 | 0:36.9–0:40.9 | 4b · 3D part view | "And it pinpoints the exact part on the 3D model." |
 | 0:40.9–0:45.6 | 5 · Scanned reports become a tracker | "A pile of scanned lab reports? One clean tracker, built automatically." |
 | 0:45.6–0:53.4 | 6 · Picture search | *"Find the Mine Train and Tron layouts, and photos of the real trains."* / "It even searches pictures." |
-| 0:53.4–1:14.2 | 7 · Automation: just ask | "Normally, live data needs engineers, code and setup." / "No code. No setup. Just ask." (big on-screen words) / *"Every day, tell my team in Teams which trains are out of service or on standby."* / "Done. The alert lands in Teams, every day." / *"Every week, email the ride downtime report to Mickey, Minnie, Donald and Goofy."* |
+| 0:53.4–1:14.2 | 7 · Automation: just ask | "Normally, live data needs engineers, code and setup." / "With En-Genie, no code, no setup, just ask." (gentle on-screen reveal) / *"Every day, tell my team in Teams which trains are out of service or on standby."* / "Done. The alert lands in Teams, every day." / *"Every week, email the ride downtime report to Mickey, Minnie, Donald and Goofy."* |
 | 1:14.2–1:18 | 8 · Weekly email, to everyone | "Every week, on time, with the summary built in." |
 | 1:18–1:21.7 | 9 · Built for every team | "Built for every team, with one shared source of knowledge." |
 | 1:21.7–1:25 | End card (V22 footage) | "En-Genie. Engineering the magic." |
 
 ## Scenes
 
-**1 · Wow opening (dark).** The real Mine Train manual cover sits in a spotlight. The camera pulls back into a storm of real files, with four labels in time with the narration: Manuals · Standards · Drawings · Lab reports. At 5.7 s everything freezes and the music drops out. The question is typed **and read aloud**. On Enter the storm spirals into the search bar, there's a flash, and the answer appears: Slinky Dog Spin · Kicker Wheel #1 gearbox oil · RED · 4,215 ppm water, beside the original SGS scan and its trend graph.
+**1 · Wow opening (dark).** The real Mine Train manual cover sits in a spotlight. The camera pulls back into a storm of real files, with five labels in time with the narration: Manuals · Standards · Drawings · Lab reports · And more. The fifth label says **Emails · images** underneath. All five fit in one row. At 6.0 s everything freezes and the music drops out. The question begins at 6.25 s and is typed **and read aloud**. On Enter the storm spirals into the search bar, there's a flash, and the answer appears: Slinky Dog Spin · Kicker Wheel #1 gearbox oil · RED · 4,215 ppm water, beside the original SGS scan and its trend graph.
 
 **2 · Introducing En-Genie.** The V22 lockup animates in, then lifts up while three capability cards pop in on the spoken words: **Find** (any file, any format), **Verify** (cross-checked, with sources) and **Deliver** (reports and alerts, on time).
 
 **3 · Any file (pillar 01 · VERSATILITY).** Five real file cards drop into one knowledge base. The manual flips to page 390, where the C-Frame row is magnified. The Atlas spreadsheet scrolls to row 2,620 (C-FRAME · SDLDWARMV0217).
 
-**4 · Cross-check.** The question is typed and read aloud. Three sources light up and agree (Atlas spreadsheet, manual p.390, QA repair records). Three answer rows follow: drawing SDLDWARMV0217; crack test every 240,000 laps; 3 MRB records, all closed. Then the cursor clicks **View in 3D** on the drawing row.
+**4 · Cross-check.** The question is typed and read aloud. The cursor clicks the large En-Genie icon on the left; the icon responds with a small bounce. Three sources light up and agree (Atlas spreadsheet, manual p.390, QA repair records). Three answer rows follow: drawing SDLDWARMV0217; crack test every 240,000 laps; 3 MRB records, all closed. Then the cursor clicks **View in 3D** on the drawing row.
 
 **4b · 3D part view.** This uses the app's own Equipment Models 3D model, rendered from `RAG/static/vehicle_tracker`. The camera flies from the whole Mine Train down to the coach 1 left-front wheel carrier while the coach shells fade away. The C-Frame turns teal and everything around it ghosts out. A part locator panel steps through Seven Dwarfs Mine Train → Coach 1 → Left-front wheel carrier → C-Frame. A details card shows SDLDWARMV0217, crack test every 240,000 laps and 3 MRB records, all closed.
 
@@ -47,7 +49,7 @@ A storm of real documents collapses into one answer with its proof. The film the
 **6 · Picture search.** The question is typed and read aloud. Manual figures turn into dot patterns, and four real results appear: the Mine Train top view, the Tron track layout and the two real train photos.
 
 **7 · Automation (pillar 02).**
-- **Bridge.** "Normally, it takes…" with three cards, Engineers · Code · Setup, timed to the narration over generic code clutter. "No code. No setup." then a sweep, then "Just ask."
+- **Bridge.** "Normally, it takes…" with three cards, Engineers · Code · Setup, timed to the narration over generic code clutter. A small **With En-Genie** lead-in appears above the original centered **No code / No setup** text, surrounded by the original black script cards. As the words appear, the black cards fade out. The words remain in place while the genie and **Just ask** fade in underneath **No setup** on the same page. The combined composition holds briefly before the live-data chat. Quiet chimes follow the words.
 - **Teams alert.** The "Automated data engine" chat sits next to the team's Teams channel (FOS · Ride status). The first request is typed and read aloud, and En-Genie answers ✓ Lightboard connected · ✓ Every day · ✓ Teams alert on. The Teams alert then arrives, built from the real lightboard snapshot of Sat 11/14 at 15:30:
   - **Out of service** (red light, 0 laps): Seven Dwarfs Mine Train · Train 01; TRON Lightcycle Power Run · Train 03.
   - **On standby** (green light, only 1 lap): Seven Dwarfs Mine Train · Train 03; TRON Lightcycle Power Run · Train 08.

@@ -2,14 +2,14 @@
   {
     "key": "archive",
     "voice": "af_heart",
-    "duration": 5.304,
-    "caption": "Manuals. Standards. Drawings. Lab reports.\nYears of knowledge, scattered everywhere.",
+    "duration": 5.803,
+    "caption": "Manuals. Standards. Drawings. Lab reports. And more.\nYears of knowledge, scattered everywhere.",
     "file": "vo/archive.wav"
   },
   {
     "key": "q_wow",
     "voice": "am_michael",
-    "duration": 3.36,
+    "duration": 2.988,
     "caption": "Which attraction needs immediate attention? Show me the proof.",
     "file": "vo/q_wow.wav"
   },
@@ -51,7 +51,7 @@
   {
     "key": "q_cross",
     "voice": "am_michael",
-    "duration": 6.798,
+    "duration": 6.314,
     "caption": "What's the C-frame drawing number at Mine Train,\nits NDT requirement, and any MRB records?",
     "file": "vo/q_cross.wav"
   },
@@ -79,7 +79,7 @@
   {
     "key": "q_pics",
     "voice": "am_michael",
-    "duration": 4.418,
+    "duration": 4.026,
     "caption": "Find the Mine Train and Tron layouts,\nand photos of the real trains.",
     "file": "vo/q_pics.wav"
   },
@@ -100,14 +100,14 @@
   {
     "key": "justask",
     "voice": "af_heart",
-    "duration": 2.129,
-    "caption": "No code. No setup. Just ask.",
+    "duration": 2.765,
+    "caption": "With En-Genie, no code, no setup, just ask.",
     "file": "vo/justask.wav"
   },
   {
     "key": "q_teams",
     "voice": "am_michael",
-    "duration": 4.96,
+    "duration": 4.63,
     "caption": "Every day, tell my team in Teams which trains\nare out of service or on standby.",
     "file": "vo/q_teams.wav"
   },
@@ -121,7 +121,7 @@
   {
     "key": "q_report",
     "voice": "am_michael",
-    "duration": 4.972,
+    "duration": 4.668,
     "caption": "Every week, email the ride downtime report\nto Mickey, Minnie, Donald and Goofy.",
     "file": "vo/q_report.wav"
   },

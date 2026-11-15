@@ -5,6 +5,14 @@ scene order and narration are in [v2_script.md](v2_script.md). The starting cut 
 identified by [BASELINE.json](BASELINE.json), including its video checksum and
 the hashes of the original source files.
 
+Current review cut: **R2** adds **And more · Emails · images**, speeds up the male
+prompt voice from 1.1 to 1.2, and moves the C-frame prompt click to the large
+En-Genie icon at 0:32.4. At 0:57, **With En-Genie, no code, no setup, just ask**
+keeps the original centered large words and the surrounding black code cards.
+As the words appear, the cards fade away and the genie + Just ask fade in below
+No setup on the same page. Quieter sound effects ease the transition. The film
+remains 85 seconds long.
+
 ## What to edit
 
 | File | Responsibility |
@@ -33,10 +41,10 @@ python3.12 -m venv v2_env
 v2_env/bin/python -m pip install -r requirements.txt
 ```
 
-Ask the video owner for `video_collaboration_assets.tar.gz` and extract it here:
+Ask the video owner for the matching `video_collaboration_assets_R2.tar.gz` and extract it here:
 
 ```sh
-tar -xzf /path/to/video_collaboration_assets.tar.gz
+tar -xzf /path/to/video_collaboration_assets_R2.tar.gz
 ```
 
 The bundle supplies `v2/assets/` (including `assets.json` and 3D frames),

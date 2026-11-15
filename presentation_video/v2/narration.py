@@ -16,12 +16,12 @@ from kokoro_onnx import Kokoro
 HERE = Path(__file__).resolve().parent
 MODELS = HERE.parent / 'v2_deps/tts_models'
 OUT = HERE / 'audio/vo'
-NARRATOR, ASKER = ('af_heart', 1.0), ('am_michael', 1.1)
+NARRATOR, ASKER = ('af_heart', 1.0), ('am_michael', 1.2)
 
 # key, voice, caption text, spoken text
 LINES = [
-    ('archive', NARRATOR, 'Manuals. Standards. Drawings. Lab reports.\nYears of knowledge, scattered everywhere.',
-     'Manuals. Standards. Drawings. Lab reports. Years of knowledge, scattered everywhere.'),
+    ('archive', NARRATOR, 'Manuals. Standards. Drawings. Lab reports. And more.\nYears of knowledge, scattered everywhere.',
+     'Manuals. Standards. Drawings. Lab reports. And more. Years of knowledge, scattered everywhere.'),
     ('q_wow', ASKER, 'Which attraction needs immediate attention? Show me the proof.',
      'Which attraction needs immediate attention? Show me the proof.'),
     ('proof', NARRATOR, 'One question. One answer, with the proof.', 'One question. One answer, with the proof.'),
@@ -44,8 +44,8 @@ LINES = [
      'It even searches pictures.'),
     ('bridge', NARRATOR, 'Normally, live data needs engineers, code and setup.',
      'Normally, live data needs engineers, code, and setup.'),
-    ('justask', NARRATOR, 'No code. No setup. Just ask.',
-     'No code. No setup. Just ask.'),
+    ('justask', NARRATOR, 'With En-Genie, no code, no setup, just ask.',
+     'With En Genie, no code, no setup, just ask.'),
     ('q_teams', ASKER, 'Every day, tell my team in Teams which trains\nare out of service or on standby.',
      'Every day, tell my team in Teams which trains are out of service, or on standby.'),
     ('teams', NARRATOR, 'Done. The alert lands in Teams, every day.',
@@ -86,7 +86,7 @@ def main(keys):
         rows.append({'key': key, 'voice': voice, 'duration': round(dur, 3), 'caption': caption,
                      'file': path.relative_to(HERE / 'audio').as_posix()})
         print(f'{key:10s} {voice:10s} {dur:5.2f}s')
-    (HERE / 'audio/vo_cues.json').write_text(json.dumps(rows, indent=1, ensure_ascii=False))
+    (HERE / 'audio/vo_cues.json').write_text(json.dumps(rows, indent=2, ensure_ascii=False) + '\n')
 
 
 if __name__ == '__main__':

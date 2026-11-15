@@ -28,10 +28,10 @@ OUT = HERE / 'out'
 PREVIEW = HERE / 'preview'
 
 VO_START = {
-    'archive': 0.30, 'q_wow': 5.95, 'proof': 10.35, 'brand': 13.0,
+    'archive': 0.30, 'q_wow': 6.25, 'proof': 10.35, 'brand': 13.0,
     'anyfile': 19.14, 'manual': 20.47, 'sheet': 23.13, 'q_cross': 25.85, 'cross': 33.15, 'part3d': 37.1,
     'tracker': 41.05, 'q_pics': 45.8, 'pictures': 51.55,
-    'bridge': 53.6, 'justask': 57.2, 'q_teams': 59.6, 'teams': 65.15, 'q_report': 68.1, 'weekly': 74.5,
+    'bridge': 53.6, 'justask': 57.15, 'q_teams': 60.35, 'teams': 65.6, 'q_report': 68.4, 'weekly': 74.5,
     'everyteam': 78.2, 'signature': 82.0,
 }
 NO_CAPTION = {'justask', 'signature', 'q_wow', 'q_cross', 'q_pics', 'q_teams', 'q_report'}
@@ -40,11 +40,11 @@ VO = {c['key']: c for c in json.loads((HERE / 'audio/vo_cues.json').read_text())
 # Scenes built on the 75 s clock are re-timed with piecewise-linear (new, old) maps: typing stretches
 # to match the spoken prompt, everything else keeps its pace.
 WARPS = {
-    's1': [(0.0, 0.0), (5.95, 5.95), (9.10, 7.05), (9.37, 7.12), (12.85, 10.6)],
+    's1': [(0.0, 0.0), (6.25, 5.95), (9.14, 7.05), (9.37, 7.12), (12.85, 10.6)],
     's3': [(19.0, 13.0), (25.6, 20.2)],
-    's4': [(25.6, 20.2), (25.85, 20.45), (32.4, 22.35), (32.8, 22.5), (36.85, 26.55)],
+    's4': [(25.6, 20.2), (25.85, 20.45), (31.85, 22.35), (32.4, 22.5), (36.85, 26.55)],
     's5': [(40.85, 27.9), (45.55, 32.6)],
-    's6': [(45.55, 32.6), (45.8, 32.85), (50.0, 34.3), (50.35, 34.4), (53.4, 37.45)],
+    's6': [(45.55, 32.6), (45.8, 32.85), (49.65, 34.3), (50.05, 34.4), (53.4, 37.45)],
     's11': [(78.0, 62.8), (81.7, 66.5)],
 }
 
@@ -155,6 +155,8 @@ def captions(img, t):
         if key in NO_CAPTION or key not in VO:
             continue
         end = start + VO[key]['duration']
+        if key == 'archive':
+            end = min(end, VO_START['q_wow'] - .32)
         if start - .1 <= t <= end + .32:
             a = smooth(prog(t, start - .1, start + .06)) * (1 - smooth(prog(t, end + .12, end + .32)))
             spr = caption_sprite(key)

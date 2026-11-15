@@ -106,7 +106,8 @@ def caption_safe():
 
 # ================================================================== S1 · wow opening
 LABELS = [(0.32, 'PDF', 'Manuals', 'Ride maintenance'), (0.92, 'PDF', 'Standards', 'Disney · Vekoma'),
-          (1.72, 'XLSX', 'Drawings', 'Component lists'), (2.42, 'SCAN', 'Lab reports', 'Scanned oil tests')]
+          (1.72, 'XLSX', 'Drawings', 'Component lists'), (2.42, 'SCAN', 'Lab reports', 'Scanned oil tests'),
+          (3.15, 'MORE', 'And more', 'Emails · images')]
 SEARCH_Q = 'Which attraction needs immediate attention? Show me the proof.'
 STORM_C = (960, 520)
 RX, RY = 1010, 560
@@ -114,12 +115,17 @@ RX, RY = 1010, 560
 
 @lru_cache(maxsize=8)
 def label_sprite(kind, word, sub):
-    w, h = 372, 132
+    w, h = 330, 132
     spr, pad = card_sprite(w, h, 28, (10, 22, 42), 222, 1.4, ((90, 190, 196), 2))
     spr = spr.copy()
-    put(spr, file_badge(kind, 58), pad + 26, pad + (h - 58) // 2)
-    text(spr, word, pad + 104, pad + 22, 44, 'heavy', WHITE)
-    text(spr, sub, pad + 106, pad + 80, 22, 'demi', (150, 212, 220))
+    bx, by = pad + 22, pad + (h - 54) // 2
+    if kind == 'MORE':
+        put(spr, rrect(54, 54, 12, PURPLE), bx, by)
+        putc(spr, icon('mail', 34, WHITE), bx + 27, by + 27)
+    else:
+        put(spr, file_badge(kind, 54), bx, by)
+    text(spr, word, pad + 92, pad + 28, 36, 'heavy', WHITE)
+    text(spr, sub, pad + 94, pad + 80, 20, 'demi', (150, 212, 220))
     return spr
 
 
@@ -238,7 +244,7 @@ def s1(t):
             if t < t0 or out <= 0:
                 continue
             a, sc = pop(t, t0, .4)
-            cx = 960 + (i - 1.5) * 410
+            cx = 960 + (i - (len(LABELS) - 1) / 2) * 356
             putc(base, label_sprite(kind, word, sub), cx, 560, a * out, sc)
         # search bar
         if t >= 5.72:
@@ -581,13 +587,13 @@ VIEW3D_T, VIEW3D_CLICK = 25.55, 26.2
 def s4(t):
     base = bg_light().copy()
     header(base, t, 20.2, '01', 'VERSATILITY', 'Ask once. It cross-checks everything.')
-    genie_card(base, t, 20.25, bounce=22.55)
+    genie_card(base, t, 20.25, bounce=22.5)
     a = chat_shell(base, t, 20.3, tag='Cross-check')
     user_bubble(base, t, Q_CFRAME, 1770, 216, 20.45, 22.35, alpha=a)
-    # cursor -> send
+    # Submit the question by clicking the large En-Genie icon at the left.
     if 21.9 <= t < 23.0:
         u = ease_in_out(prog(t, 21.95, 22.4))
-        cx, cy = lerp(1480, 1752, u), lerp(700, 316, u)
+        cx, cy = lerp(470, 225, u), lerp(700, 380, u)
         cursor(base, cx, cy, smooth(prog(t, 21.9, 22.05)) * (1 - smooth(prog(t, 22.75, 23.0))),
                click=(t - 22.5) if t >= 22.5 else None)
     # three sources

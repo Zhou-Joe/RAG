@@ -23,6 +23,8 @@ RNG = np.random.default_rng(5)
 import sys  # noqa: E402
 sys.path.insert(0, str(HERE))
 from film import VO_START, to_new  # noqa: E402
+from scenes_a import LABELS  # noqa: E402
+from scenes_b import BIG_WORDS, BUILDER_T, CODE_FADE, JUST_ASK_T, MSGS, REPORT_CLICK, TEAMS_T, WITH_GENIE_T  # noqa: E402
 
 VO_GAIN_TARGET = .12   # median short-term RMS of speech
 DUCK = .5
@@ -147,11 +149,11 @@ def sfx_track():
     # S1 · opening (old clock until the question is typed)
     o = w('s1')
     add(0.02, impact(.07))
-    for k, t in enumerate([0.32, 0.92, 1.72, 2.42]):
-        add(t, chime([(0, [659, 784, 880, 1047][k])], .022, .2), pan=-.5 + k * .33)
+    for k, (t, *_) in enumerate(LABELS):
+        add(o(t), chime([(0, [659, 784, 880, 1047, 1175][k])], .022, .2), pan=-.6 + k * .3)
     add(1.0, whoosh(1.4, .045, 200, 2500, .3))
-    add(3.7, riser(2.0, .05))
-    for t in typing(5.95, 9.05, 20):
+    add(o(3.7), riser(o(5.7) - o(3.7), .05))
+    for t in typing(VO_START['q_wow'], o(7.05), 20):
         add(t, tick(.9), pan=RNG.uniform(-.2, .2))
     add(o(7.15), click(1.3, 760))
     add(o(7.27), swell(.7, .07))
@@ -183,7 +185,7 @@ def sfx_track():
     add(o(20.03), click(.7))
     # S4 · cross-check -> 3D
     o = w('s4')
-    for t in typing(25.85, 32.4, 14):
+    for t in typing(VO_START['q_cross'], o(22.35), 14):
         add(t, tick(.85), pan=.3)
     add(o(22.5), click(1.1))
     for i in range(3):
@@ -212,7 +214,7 @@ def sfx_track():
     add(o(31.3), chime([(0, 740), (.12, 740)], .028, .12))
     # S6 · pictures
     o = w('s6')
-    for t in typing(45.8, 50.0, 16):
+    for t in typing(VO_START['q_pics'], o(34.3), 16):
         add(t, tick(.85), pan=.3)
     add(o(34.4), click(1.1))
     add(o(34.45), whoosh(.95, .03, 1000, 9000, .5), pan=0)
@@ -223,21 +225,22 @@ def sfx_track():
         add(53.7 + i * .3, click(.45, 520 + i * 30), pan=RNG.uniform(-.7, .7))
     for k, t in enumerate([55.05, 55.92, 56.45]):
         add(t, click(.9, 640 + k * 60))
-    for t in (57.2, 57.75):
-        add(t, chime([(0, 330), (.02, 659)], .03, .1))
-    add(58.13, whoosh(.75, .05, 300, 4000, .5))
-    add(58.66, chime([(0, 784), (.08, 1047), (.16, 1319), (.24, 1568)], .024, .22))
-    add(59.1, whoosh(.45, .03))
-    for t in typing(59.6, 64.3, 16):
+    add(WITH_GENIE_T, chime([(0, 784), (.14, 988)], .012, .28))
+    for k, (_, t) in enumerate(BIG_WORDS):
+        add(t, chime([(0, [880, 988][k])], .009, .24))
+    add(CODE_FADE[0], whoosh(.9, .012, 300, 3000, .5))
+    add(JUST_ASK_T, chime([(0, 784), (.14, 1047), (.28, 1319)], .015, .28))
+    add(BUILDER_T, whoosh(.65, .018, 400, 3500, .5))
+    for t in typing(MSGS[0][2], MSGS[0][3], 16):
         add(t, tick(.75), pan=-.2)
     for k in range(3):
-        add(64.65 + k * .15, chime([(0, 1175 + k * 196)], .014, .09), pan=-.3)
-    add(65.0, chime([(0, 1047), (.1, 1397), (.2, 1047)], .03, .15), pan=.35)
-    for t in typing(68.1, 72.8, 16):
+        add(MSGS[1][2] + k * .15, chime([(0, 1175 + k * 196)], .014, .09), pan=-.3)
+    add(TEAMS_T, chime([(0, 1047), (.1, 1397), (.2, 1047)], .03, .15), pan=.35)
+    for t in typing(MSGS[2][2], MSGS[2][3], 16):
         add(t, tick(.75), pan=-.2)
-    add(72.95, click(.6))
-    add(73.55, click(1.1))
-    add(73.59, chime([(0, 1047), (.08, 1319), (.16, 1568)], .026, .2))
+    add(MSGS[3][2], click(.6))
+    add(REPORT_CLICK, click(1.1))
+    add(REPORT_CLICK + .04, chime([(0, 1047), (.08, 1319), (.16, 1568)], .026, .2))
     # S8 · weekly email to everyone
     add(74.15, whoosh(.5, .03))
     add(74.3, chime([(0, 1319), (.11, 988)], .028, .18))

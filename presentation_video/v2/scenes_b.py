@@ -63,19 +63,20 @@ def code_card(i):
 
 
 COSTS = [('Engineers', 'person', 55.15), ('Code', 'doc', 56.02), ('Setup', 'clock', 56.55)]
-BIG_WORDS = [('No code.', 57.2), ('No setup.', 57.75)]
-S7_T0, WIPE, JUST_ASK_T, BUILDER_T = 53.4, (58.15, 58.8), 58.66, 59.1
+BIG_WORDS = [('No code.', 57.8), ('No setup.', 58.35)]
+S7_T0, WITH_GENIE_T, JUST_ASK_T, BUILDER_T = 53.4, 57.05, 59.1, 59.85
+CODE_FADE = (58.0, 58.95)
 
 BUILDER = (110, 110, 1000, 790)
 MSGS = [
-    ('user', ['Every day, tell my team in Teams which trains', 'are out of service or on standby.'], 59.6, 64.3),
-    ('ok', ['Lightboard connected', 'Every day', 'Teams alert on'], 64.65, None),
-    ('user', ['Every week, email the ride downtime report', 'to Mickey, Minnie, Donald and Goofy.'], 68.1, 72.8),
-    ('report', None, 72.95, None),
+    ('user', ['Every day, tell my team in Teams which trains', 'are out of service or on standby.'], 60.35, 64.66),
+    ('ok', ['Lightboard connected', 'Every day', 'Teams alert on'], 65.15, None),
+    ('user', ['Every week, email the ride downtime report', 'to Mickey, Minnie, Donald and Goofy.'], 68.4, 72.71),
+    ('report', None, 73.2, None),
 ]
-REPORT_CLICK = 73.55
+REPORT_CLICK = 73.8
 TEAMS_WIN = (1150, 110, 660, 790)
-TEAMS_T = 65.0
+TEAMS_T = 65.45
 # lightboard snapshot 2026-11-14 15:30: red light = out of service, green light with 1 lap = standby
 ALERT = [('OUT OF SERVICE', RED, ['Seven Dwarfs Mine Train · Train 01', 'TRON Lightcycle Power Run · Train 03']),
          ('ON STANDBY', AMBER, ['Seven Dwarfs Mine Train · Train 03', 'TRON Lightcycle Power Run · Train 08'])]
@@ -105,18 +106,16 @@ def s7(t):
     base = bg_light().copy()
     header(base, t, S7_T0 + .05, '02', 'AUTOMATION', 'Live data and reports, on autopilot')
     # ---- what it normally takes
-    if t < BUILDER_T + .4:
-        band = lerp(-500, 2500, ease_in_out(prog(t, *WIPE)))
+    if t < BUILDER_T + .55:
+        gone = smooth(prog(t, *CODE_FADE))
         for i, (lines, x, y, rot) in enumerate(CODE):
             a, sc = pop(t, 53.7 + i * .3, .35)
             spr = code_card(i)
             cx = x + spr.width / 2
-            gone = clamp((band - cx) / 300)
             if gone >= 1:
                 continue
-            putc(base, spr, cx + 120 * gone, y + spr.height / 2 - 60 * gone, a * (1 - gone),
-                 sc * (1 - .2 * gone), rot)
-        out_c = smooth(prog(t, 57.0, 57.25))
+            putc(base, spr, cx, y + spr.height / 2 - 12 * gone, a * (1 - gone), sc, rot)
+        out_c = smooth(prog(t, 57.0, 57.3))
         if out_c < 1:
             text(base, 'Normally, it takes', 960, 392, 30, 'demi', MUTED,
                  smooth(prog(t, 54.0, 54.3)) * (1 - out_c), anchor='c')
@@ -126,18 +125,22 @@ def s7(t):
                 a, sc = pop(t, t0 - .1, .4)
                 putc(base, spr, cx + spr.width / 2, 510, a * (1 - out_c), sc)
                 cx += spr.width + 30
-        if WIPE[0] - .05 < t < WIPE[1] + .15:
-            put(base, rrect(220, 1200, 110, TEAL, 70).rotate(-12, expand=True), band - 160, -80)
-        out = smooth(prog(t, WIPE[1] - .25, WIPE[1]))
+        # Keep the original centered words, then reveal the genie and Just ask below them.
+        hold = 1 - smooth(prog(t, BUILDER_T, BUILDER_T + .55))
+        intro = smooth(prog(t, WITH_GENIE_T, WITH_GENIE_T + .55))
+        if intro > 0 and hold > 0:
+            text(base, 'With En-Genie', 960, 280, 36, 'demi', INK2, intro * hold, anchor='c')
         for k, (word, t0) in enumerate(BIG_WORDS):
-            a, sc = pop(t, t0, .35)
-            if a > 0 and out < 1:
-                putc(base, txt(word, 104, 'heavy', INK), 960, 410 + k * 130, a * (1 - out), sc)
-        ja, js = pop(t, JUST_ASK_T, .45)
-        jo = smooth(prog(t, BUILDER_T, BUILDER_T + .3))
+            a = smooth(prog(t, t0, t0 + .45))
+            if a > 0 and hold > 0:
+                putc(base, txt(word, 104, 'heavy', INK), 960, 410 + k * 130, a * hold,
+                     lerp(.98, 1.0, a))
+        ja = smooth(prog(t, JUST_ASK_T, JUST_ASK_T + .5))
+        jo = smooth(prog(t, BUILDER_T, BUILDER_T + .55))
         if ja > 0 and jo < 1:
-            putc(base, genie('look-up', 250), 640, 520 - 30 * jo, ja * (1 - jo), js)
-            putc(base, txt('Just ask.', 130, 'heavy', TEAL), 1090, 520 - 30 * jo, ja * (1 - jo), js)
+            scale = lerp(.98, 1.0, ja)
+            putc(base, genie('look-up', 250), 640, 750 + 12 * (1 - ja), ja * (1 - jo), scale)
+            putc(base, txt('Just ask.', 130, 'heavy', TEAL), 1090, 750 + 12 * (1 - ja), ja * (1 - jo), scale)
     # ---- the automated data engine + the team's Teams channel
     if t >= BUILDER_T:
         s7_builder(base, t)
@@ -147,8 +150,8 @@ def s7(t):
 
 def s7_builder(base, t):
     x, y, w, h = BUILDER
-    a = smooth(prog(t, BUILDER_T, BUILDER_T + .35))
-    dy = 40 * (1 - ease_out(prog(t, BUILDER_T, BUILDER_T + .45)))
+    a = smooth(prog(t, BUILDER_T, BUILDER_T + .5))
+    dy = 24 * (1 - ease_out(prog(t, BUILDER_T, BUILDER_T + .55)))
     card(base, x, y + dy, w, h, 32, alpha=a)
     put(base, circle(52, TEAL_L), x + 34, y + 24 + dy, a)
     putc(base, icon('db', 28, TEAL), x + 60, y + 50 + dy, a)
@@ -184,8 +187,8 @@ def s7_builder(base, t):
 
 def teams_panel(base, t):
     tx, ty, tw_, th = TEAMS_WIN
-    a = smooth(prog(t, BUILDER_T + .1, BUILDER_T + .45))
-    dx = 40 * (1 - ease_out(prog(t, BUILDER_T + .1, BUILDER_T + .55)))
+    a = smooth(prog(t, BUILDER_T + .1, BUILDER_T + .6))
+    dx = 24 * (1 - ease_out(prog(t, BUILDER_T + .1, BUILDER_T + .65)))
     tx += dx
     card(base, tx, ty, tw_, th, 26, alpha=a)
     put(base, rrect(tw_, 90, 26, PURPLE).crop((0, 0, tw_, 64)), tx, ty, a)
