@@ -1,0 +1,25 @@
+{
+  "description": "Original 85-second cut before collaboration packaging; source hashes precede path-only adjustments.",
+  "date": "2026-11-15",
+  "duration_seconds": 85,
+  "width": 1920,
+  "height": 1080,
+  "fps": 60,
+  "audio_hz": 48000,
+  "video_file": "EnGenie_V2_85s_1080p60.mp4",
+  "video_sha256": "0de3bb5420e0b7f69c9223611dd35fcc7f20dc7955ae1ff7ce3ef9f1466c07b0",
+  "original_source_sha256": {
+    "v2/assets.py": "3675150c9956be342cad7c16066fbc659834b4885796abd51f1e9efeeffa4885",
+    "v2/common.py": "4a7b659382b589859925bc554e4206d319b371ae2032f7a0466fb962468675e3",
+    "v2/film.py": "0997027ac772d5784b81da22f7397986a299e47fb884e4375525ee269295bb63",
+    "v2/mix.py": "f6e89dede74a604d2adfa7f58ffb8669191f85608edf6a7f8530fcd50705dd40",
+    "v2/music.py": "a7e255105cdf99a730dee556ef000e95de105f0f91cc83a2edc0513d156b7ca5",
+    "v2/narration.py": "7ae5b39e394bdca2da13dded824c0a04b7dedfecac7f1fc22c89b17e309d7716",
+    "v2/scenes_a.py": "d8232adee59716d403cd75e9efa9889ca33414867c422f4ccbb0218573d0cf99",
+    "v2/scenes_b.py": "e322017d83d9728317669cfc7adabba7d3a15cbde14cce9bce8df845a8ebae86",
+    "v2/scenes_c.py": "c0f01c1170577bca8b205f40530fd61786cee41f96551ae7d89c02d0e0c57fce",
+    "v2/model3d/capture.py": "752bdd327e25be56795ae8fa5b6f803df43772386292d750d872d7b1ff82a714",
+    "v2/model3d/harness.html": "3245f7ba54f551a743fb26b2cb7e4f3206acd33302d4c4a1cde7e8cb65a05a17",
+    "v2/model3d/harness.mjs": "b851387eccf5a5bef25282b4a478e485f995f9ced6f30dbda79a9d2c78f65955"
+  }
+}

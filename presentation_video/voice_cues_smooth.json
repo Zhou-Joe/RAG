@@ -1,0 +1,132 @@
+[
+  {
+    "start": 0.14,
+    "end": 2.8,
+    "audible_end": 2.69
+  },
+  {
+    "start": 2.8,
+    "end": 4.725,
+    "audible_end": 4.6
+  },
+  {
+    "start": 5.35,
+    "end": 7.975,
+    "audible_end": 7.85
+  },
+  {
+    "start": 9.33,
+    "end": 10.955,
+    "audible_end": 10.83
+  },
+  {
+    "start": 11.2,
+    "end": 13.675,
+    "audible_end": 13.55
+  },
+  {
+    "start": 15.88,
+    "end": 18.82,
+    "audible_end": 18.7
+  },
+  {
+    "start": 19.62,
+    "end": 21.31,
+    "audible_end": 21.21
+  },
+  {
+    "start": 22.16,
+    "end": 24.225,
+    "audible_end": 24.1
+  },
+  {
+    "start": 26.54,
+    "end": 29.585,
+    "audible_end": 29.46
+  },
+  {
+    "start": 30.61,
+    "end": 33.13,
+    "audible_end": 33.02
+  },
+  {
+    "start": 33.82,
+    "end": 36.155,
+    "audible_end": 36.03
+  },
+  {
+    "start": 36.89,
+    "end": 38.705,
+    "audible_end": 38.58
+  },
+  {
+    "start": 39.5,
+    "end": 41.435,
+    "audible_end": 41.31
+  },
+  {
+    "start": 44.52,
+    "end": 48.705,
+    "audible_end": 48.58
+  },
+  {
+    "start": 49.0,
+    "end": 51.7,
+    "audible_end": 51.63
+  },
+  {
+    "start": 52.5,
+    "end": 56.415,
+    "audible_end": 56.29
+  },
+  {
+    "start": 56.95,
+    "end": 58.055,
+    "audible_end": 57.93
+  },
+  {
+    "start": 59.5,
+    "end": 62.315,
+    "audible_end": 62.19
+  },
+  {
+    "start": 66.7,
+    "end": 70.155,
+    "audible_end": 70.03
+  },
+  {
+    "start": 71.7,
+    "end": 75.195,
+    "audible_end": 75.07
+  },
+  {
+    "start": 76.3,
+    "end": 79.445,
+    "audible_end": 79.32
+  },
+  {
+    "start": 80.7,
+    "end": 84.145,
+    "audible_end": 84.02
+  },
+  {
+    "start": 85.3,
+    "end": 89.6,
+    "audible_end": 89.52
+  },
+  {
+    "start": 90.1,
+    "end": 93.485,
+    "audible_end": 93.36
+  },
+  {
+    "start": 96.0,
+    "end": 97.655,
+    "audible_end": 97.53
+  },
+  {
+    "start": 99.75,
+    "end": 101.243583,
+    "audible_end": 101.12
+  }
+]

@@ -1,0 +1,25 @@
+# Render inputs and outputs are shared separately from the public source repository.
+/v2/assets
+/v2/audio/*
+!/v2/audio/vo_cues.json
+/v2/out/
+/v2/preview/
+/v2/qa/
+/v2_source_review/
+/v2_deps/
+/v2_env/
+/.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.png
+*.jpg
+*.jpeg
+*.pdf
+*.xlsx
+*.zip
+*.tar.gz
