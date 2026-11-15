@@ -116,7 +116,7 @@ class RagSelectionTests(RagFixture, TestCase):
         self.assertFalse(self.state.get('used'))
 
     def test_large_chunks_are_not_silently_truncated_and_already_read_text_is_not_replayed(self):
-        self.rows[0]['text']='x'*11000
+        self.rows[0]['text']='x'*(MAX_RESPONSE_CHARS+1000)
         self.rows[1]['text']='y'*2000
         self.discover()
         result=json.loads(self.session.read(['C1','C2']))
@@ -149,15 +149,31 @@ class RagSelectionTests(RagFixture, TestCase):
         tools['kb_select_evidence'](['C2'])
         self.assertEqual(len(self.citations),1)
 
-    def test_middleware_reserves_final_selection_even_after_retrieval_round_limit(self):
+    def test_middleware_reserves_final_selection_inside_the_tool_round_limit(self):
         self.discover();self.session.read(['C1'])
         request=ModelRequest(model=None,messages=[HumanMessage(content='问题')],
             tools=[{'name':'kb_search'},{'name':'kb_select_evidence'}],system_message=SystemMessage(content='规则'))
-        result=RetrievalBudget(max_rounds=0,selection=self.session).prepare(request)
+        result=RetrievalBudget(max_rounds=1,selection=self.session).prepare(request)
         self.assertEqual(result.tools,[{'name':'kb_select_evidence'}])
         self.assertEqual(result.tool_choice['function']['name'],'kb_select_evidence')
         self.session.select(['C1'])
-        self.assertEqual(RetrievalBudget(max_rounds=0,selection=self.session).prepare(request).tools,[])
+        request.messages.append(AIMessage(content='',tool_calls=[{'id':'final-selection',
+            'name':'kb_select_evidence','args':{'candidate_ids':['C1']}}]))
+        self.assertEqual(RetrievalBudget(max_rounds=1,selection=self.session).prepare(request).tools,[])
+
+    def test_reading_one_library_keeps_other_retrieval_tools_available_until_final_selection(self):
+        self.discover();self.session.read(['C1'])
+        tools=[{'name':'kb_search'},{'name':'kb_read_chunks'},{'name':'tracker_lookup'},{'name':'kb_select_evidence'}]
+        request=ModelRequest(model=None,messages=[HumanMessage(content='Compare both manuals')],
+            tools=tools,system_message=SystemMessage(content='Rules'))
+        prepared=RetrievalBudget(selection=self.session).prepare(request)
+        self.assertEqual(prepared.tools,tools)
+        self.assertNotEqual(prepared.tool_choice,{'type':'function','function':{'name':'kb_select_evidence'}})
+        self.assertEqual(self.citations,[])
+        self.session.read(['C2'])
+        selected=json.loads(self.session.select(['C1','C2']))
+        self.assertEqual(selected['documents'],2)
+        self.assertEqual({citation['kb_slug'] for citation in self.citations},{kb.slug for kb in self.kbs})
 
     def test_context_caps_apply_across_multiple_discoveries(self):
         self.rows[0]['text']='检索内容'*2000

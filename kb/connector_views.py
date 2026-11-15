@@ -381,7 +381,7 @@ def package(spec: dict, resource=None) -> bytes:
     """只打包可信运行时和校验后的配置；无用户文件、密钥或任意生成代码。"""
     data = io.BytesIO()
     source = 'from __future__ import annotations\nimport json\nfrom connector_runtime import main\nSPEC = json.loads('+repr(json.dumps(spec,ensure_ascii=False))+')\nif __name__ == "__main__":\n    main(SPEC)\n'
-    profiles=export_profiles(resource) if resource is not None else []
+    profiles=export_profiles(resource,include_single_login=spec.get('method')=='POST') if resource is not None else []
     variables=({name for profile in profiles for key in ('header_env','login_env') for name in profile[key].values()}
                if profiles else set(spec.get('header_env',{}).values()))
     environment = '\n'.join(name+'=' for name in sorted(variables))
@@ -417,7 +417,7 @@ Windows 可用任务计划运行同一命令。请避免并行运行同一脚本
 也可在网页审核后启用内置定时拉取，无需部署脚本。两种运行方式请选一种，避免重复数据源。
 API每次仅请求一页；单批最多{MAX_ITEMS}条/{MAX_BYTES // 1_000_000}MB，网页列表最多100页。发布成功后提交游标。写入模式：{spec.get('write_mode','append')}。
 append每次采集追加保留历史，upsert按稳定ID覆盖当前行；在推送数据源页面选择对应模式。缺席项与历史快照保留。
-{'来源为动态网页，程序会重放已验证的浏览器动作，采集DOM/网络响应及详情页。' if browser else '来源为GET JSON接口。'}采集步骤和字段映射见connector.json。
+{'来源为动态网页，程序会重放已验证的浏览器动作，采集DOM/网络响应及详情页。' if browser else '来源为'+spec.get('method','GET')+' JSON接口；按配置重放查询参数和JSON/表单请求体。'}采集步骤和字段映射见connector.json。
 ''')
     return data.getvalue()
 

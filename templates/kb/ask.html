@@ -4,18 +4,17 @@
 {% block content %}
 <link rel="stylesheet" href="{% static 'css/assistant_activity.css' %}?v=1">
 <link rel="stylesheet" href="{% static 'css/chat_attachments.css' %}?v=1">
-<link rel="stylesheet" href="{% static 'css/chat_visualizations.css' %}?v=4-dark-mode">
+<link rel="stylesheet" href="{% static 'css/chat_visualizations.css' %}?v=20261115-presentation">
 <link rel="stylesheet" href="{% static 'css/chat_table_cards.css' %}?v=2-dark-mode">
 <link rel="stylesheet" href="{% static 'css/chat_citations.css' %}?v=4-dark-mode">
 <link rel="stylesheet" href="{% static 'css/extended_visualizations.css' %}?v=1">
 <link rel="stylesheet" href="{% static 'css/interactive_table.css' %}?v=1">
+<link rel="stylesheet" href="{% static 'css/conversation_list.css' %}?v=1">
 <style>
 @keyframes answerPulse { 0%,100% {opacity:1} 50% {opacity:.38} }
-.conv-item.is-generating .conv-title, .answer.thinking {animation:answerPulse 1.6s ease-in-out infinite}
-.conv-state {display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--brand);min-height:14px}
-.conv-unread-dot {display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--brand)}
+.answer.thinking {animation:answerPulse 1.6s ease-in-out infinite}
 .conv-sidebar .conv-clear {flex-shrink:0;justify-content:center;margin-top:12px;width:100%}
-@media (prefers-reduced-motion:reduce) {.conv-item.is-generating .conv-title,.answer.thinking {animation:none}}
+@media (prefers-reduced-motion:reduce) {.answer.thinking {animation:none}}
 </style>
 {{ pyodide_index_url|json_script:"pyodideIndexURL" }}
 <template id="engGenieAvatarTemplate">{% include 'kb/_assistant_avatar.html' %}</template>
@@ -38,7 +37,8 @@
       {% for c in conversations %}
       <a class="conv-item{% if c.thread_id == active_thread %} active{% endif %}" href="?conv={{ c.thread_id }}"
          data-thread="{{ c.thread_id }}" data-title="{{ c.title }}">
-        <span class="conv-title">{{ c.title }}</span>
+        <span class="conv-title" title="{{ c.title }}">{{ c.title }}</span>
+        <span class="conv-state"></span>
         <span class="conv-meta">{{ c.updated_at|date:"m-d H:i" }}</span>
         <button class="conv-del" type="button" title="删除此会话"
                 data-thread="{{ c.thread_id }}" data-title="{{ c.title }}" aria-label="删除会话">×</button>
@@ -88,13 +88,13 @@
 <script src="{% static 'js/chat_input.js' %}"></script>
 <script src="{% static 'js/interactive_table.js' %}?v=1"></script>
 <script src="{% static 'js/extended_visualizations.js' %}?v=1"></script>
-<script src="{% static 'js/report_chart_runtime.js' %}?v=5-extended"></script>
-<script src="{% static 'js/chat_visualizations.js' %}?v=7-expanded-tables"></script>
+<script src="{% static 'js/report_chart_runtime.js' %}?v=20261115-presentation"></script>
+<script src="{% static 'js/chat_visualizations.js' %}?v=20261115-presentation"></script>
 <script src="{% static 'js/chat_table_cards.js' %}?v=2-expanded-tables"></script>
 <script src="{% static 'js/chat_citations.js' %}?v=4-value-only"></script>
 <script src="{% static 'js/chat_attachments.js' %}?v=1"></script>
 <script src="{% static 'js/chat_stream.js' %}?v=20261113-attachments"></script>
-<script src="{% static 'js/tool_disclosure.js' %}?v=4-extended-visuals"></script>
+<script src="{% static 'js/tool_disclosure.js' %}?v=20261115-presentation"></script>
 <script src="{% static 'js/assistant_activity.js' %}?v=5-extended-visuals"></script>
 <script src="{% static 'js/chat_recovery.js' %}?v=20260921"></script>
 <script src="{% static 'js/conversation_badges.js' %}?v=1"></script>
@@ -654,10 +654,16 @@ except ImportError:
     const item = Array.from(document.querySelectorAll('.conv-item')).find(el => el.dataset.thread === row.thread_id);
     if (!item) return;
     item.classList.toggle('is-generating', row.running);
+    item.classList.toggle('has-unread', !!row.unread && !row.running);
     let indicator = item.querySelector('.conv-state');
     if (!indicator) { indicator = document.createElement('span'); indicator.className = 'conv-state'; item.querySelector('.conv-title').after(indicator); }
     indicator.replaceChildren();
-    if (row.running) indicator.textContent = '正在思考 / 生成…';
+    indicator.removeAttribute('title');
+    if (row.running) {
+      const spinner = document.createElement('span'); spinner.className = 'conv-generating-dot';
+      spinner.setAttribute('role','img'); spinner.setAttribute('aria-label','正在思考 / 生成…');
+      indicator.title = '正在思考 / 生成…'; indicator.appendChild(spinner);
+    }
     else if (row.unread) {
       const dot = document.createElement('span'); dot.className = 'conv-unread-dot';
       dot.setAttribute('role','img'); dot.setAttribute('aria-label','新回答未读');
@@ -1252,11 +1258,17 @@ except ImportError:
     a.className = 'conv-item active';
     a.href = '?conv=' + thread;
     a.dataset.thread = thread; a.dataset.title = title;
-    a.innerHTML = '<span class="conv-title">' + title.replace(/</g,'&lt;') + '</span>' +
-                  '<span class="conv-meta">' + kbName + ' · 刚刚</span>' +
-                  '<button class="conv-del" type="button" title="删除此会话" ' +
-                  'data-thread="' + thread + '" data-title="' + title.replace(/"/g,'&quot;') + '" ' +
-                  'aria-label="删除会话">×</button>';
+    const caption = document.createElement('span'); caption.className = 'conv-title';
+    caption.textContent = title; caption.title = title;
+    const state = document.createElement('span'); state.className = 'conv-state';
+    const meta = document.createElement('span'); meta.className = 'conv-meta';
+    meta.dataset.relativeTime = 'now'; meta.dataset.kbName = kbName;
+    const justNow = window.FOSI18n?.t('刚刚') || '刚刚';
+    meta.textContent = (kbName ? kbName + ' · ' : '') + justNow;
+    const remove = document.createElement('button'); remove.className = 'conv-del'; remove.type = 'button';
+    remove.title = '删除此会话'; remove.setAttribute('aria-label','删除会话'); remove.textContent = '×';
+    remove.dataset.thread = thread; remove.dataset.title = title;
+    a.append(caption,state,meta,remove);
     document.querySelectorAll('.conv-item').forEach(x => x.classList.remove('active'));
     a.addEventListener('click', (e) => {
       if (e.target.closest('.conv-del')) return;
@@ -1265,6 +1277,12 @@ except ImportError:
     list.insertBefore(a, list.firstChild);
     bindConvDeleteButtons();
   }
+  document.addEventListener('fos:languagechange', () => {
+    const justNow = window.FOSI18n?.t('刚刚') || '刚刚';
+    document.querySelectorAll('.conv-meta[data-relative-time="now"]').forEach(meta => {
+      meta.textContent = (meta.dataset.kbName ? meta.dataset.kbName + ' · ' : '') + justNow;
+    });
+  });
 })();
 </script>
 {% if chat_embedded %}<script src="{% static 'js/assistant_embedded.js' %}?v=20261107-arrival" data-user="{{ user.pk }}" defer></script>{% endif %}

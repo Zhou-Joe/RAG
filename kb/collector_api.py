@@ -124,7 +124,10 @@ def create_draft(*, user, requirement, api_url="", authentication=_UNSET, creden
         raise ValueError("请在「实际 API 地址」填写接收凭据的接口地址。")
     if sample is not None and len(json.dumps(sample, ensure_ascii=False, allow_nan=False)) > 40000:
         raise ValueError("请提供不超过40000字符的脱敏 JSON 样例。")
-    # 先建凭据再脱敏：用户原话里的密钥会被替换为 [REDACTED]，模型改用已绑定的凭据取数。
+    from .connector_inputs import protect_inputs
+    from .connector_storage import save_input_secrets
+    requirement, inputs = protect_inputs(requirement, urls=[api_url])
+    # Capture new secret input before masking, so tools can resolve its reference.
     secrets = secret_values(type("Auth", (), {"credential": credential, "header_env": headers})())
     with transaction.atomic():
         job = ConnectorDraft.objects.create(
@@ -132,6 +135,7 @@ def create_draft(*, user, requirement, api_url="", authentication=_UNSET, creden
             credential=credential, header_env=headers, allow_private=private,
             sample=redact(sample, secrets), created_via=created_via,
             response_language=normalize_response_language(response_language))
+        save_input_secrets(job, inputs)
     start_async(job.pk)
     return job
 
@@ -167,6 +171,11 @@ def refine_draft(*, user, job, requirement, api_url=_UNSET, credential=_UNSET, h
             headers = job.header_env if header_env is _UNSET else header_env
         private = resolve_private(user, allow_private, inherited=job.allow_private)
         holder = type("Auth", (), {"credential": credential, "header_env": headers})()
+        from .connector_inputs import protect_inputs
+        from .connector_storage import save_input_secrets
+        from .connector_tools import declared_urls
+        feedback, inputs = protect_inputs(feedback, fields=job.preview.get('question_fields',[]),
+            answers=question_answers, urls=[url, *declared_urls(job)])
         feedback = redact(feedback, (*secret_values(job), *secret_values(holder)))
         if job.status == "enabled":
             if not job.feed_id:
@@ -182,6 +191,7 @@ def refine_draft(*, user, job, requirement, api_url=_UNSET, credential=_UNSET, h
             sample=job.sample if url==job.api_url and credential==job.credential and headers==job.header_env else None,
             retain_context=job.retain_context or bool(job.feed_id), created_via=job.created_via,
             response_language=normalize_response_language(response_language))
+        save_input_secrets(child, inputs)
     start_async(child.pk)
     return child
 

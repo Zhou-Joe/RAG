@@ -1,0 +1,21 @@
+/* Stable title/status and time/action rows in the chat history sidebar. */
+.conv-list{gap:7px;padding:2px 2px 8px;scrollbar-width:thin}
+.conv-list .conv-item{display:grid;grid-template-columns:minmax(0,1fr) 24px;grid-template-rows:auto auto;align-items:center;gap:2px 8px;min-width:0;padding:10px 11px;border:1px solid var(--rule-soft);border-radius:11px;text-decoration:none;transition:background .15s,border-color .15s,box-shadow .15s}
+.conv-list .conv-item:hover{background:var(--surface-2);border-color:var(--rule)}
+.conv-list .conv-item.active{border:1px solid var(--brand);background:var(--brand-soft);box-shadow:inset 3px 0 0 var(--brand)}
+.conv-list .conv-item:focus-visible{outline:2px solid var(--brand);outline-offset:1px}
+.conv-list .conv-title{grid-column:1;grid-row:1;min-width:0;margin:0;font-size:13px;line-height:20px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-list .conv-item.active .conv-title,.conv-list .conv-item.has-unread .conv-title{font-weight:650}
+.conv-list .conv-meta{grid-column:1;grid-row:2;min-width:0;margin:0;color:var(--mute);font:10px/16px var(--fb);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-state{grid-column:2;grid-row:1;display:flex;align-items:center;justify-content:center;justify-self:center;width:14px;height:14px;color:var(--brand)}
+.conv-state:empty{visibility:hidden}
+.conv-unread-dot{display:block;width:7px;height:7px;flex:none;border-radius:50%;background:var(--brand)}
+.conv-generating-dot{display:block;box-sizing:border-box;width:12px;height:12px;flex:none;border:2px solid var(--rule);border-top-color:var(--brand);border-radius:50%;animation:convGenerating .8s linear infinite}
+.conv-list .conv-del{position:static;grid-column:2;grid-row:2;justify-self:center;display:grid;place-items:center;width:24px;height:24px;padding:0;margin:0;border-radius:7px;font-size:17px;line-height:1;opacity:0}
+.conv-list .conv-item:hover .conv-del,.conv-list .conv-item:focus-within .conv-del{opacity:1}
+.conv-list .conv-del:hover{background:var(--danger);color:#fff}
+.conv-list .conv-del:focus-visible{opacity:1;outline:2px solid var(--brand);outline-offset:1px}
+.conv-list .conv-del:disabled{opacity:.45}
+@keyframes convGenerating{to{transform:rotate(360deg)}}
+@media(hover:none),(pointer:coarse){.conv-list .conv-item{grid-template-columns:minmax(0,1fr) 32px}.conv-list .conv-del{width:32px;height:32px;opacity:.75}}
+@media(prefers-reduced-motion:reduce){.conv-generating-dot{animation:none}.conv-list .conv-item{transition:none}}

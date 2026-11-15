@@ -39,15 +39,16 @@ def resolve_target(url,allow_private=False):
 
 def fetch_batch(feed):
     if getattr(feed,'adapter_spec',None):
-        from .connector_runtime import request_url,build_batch
+        from .connector_runtime import request_url,request_options,build_batch
         spec=feed.adapter_spec
         if spec.get('source_type')=='browser':
             from .connector_browser import collect
             from .feed_protocol import validate_batch
             return validate_batch(build_batch(spec,collect(spec,feed,checkpoint=getattr(feed,'_run_checkpoint',None)))),''
-        from .feed_credentials import request_headers
+        from .feed_credentials import request_headers,credential_profiles
         target=request_url(spec,feed.cursor)
-        status,headers,raw=read_url(target,allow_private=feed.allow_private,headers=request_headers(feed,target))
+        status,headers,raw=read_url(target,allow_private=feed.allow_private,headers=request_headers(feed,target),
+            **request_options(spec,feed.cursor,profiles=credential_profiles(feed)))
         if status in (401,403):raise ValueError('API 认证失败或权限不足（HTTP '+str(status)+'），请在页面更新凭据；原有数据保留。')
         if status!=200:raise ValueError('原始 API 返回 HTTP '+str(status)+'，本次未更新数据。')
         if 'json' not in headers.get('content-type','').lower():raise ValueError('原始 API 必须返回 JSON。')
@@ -105,14 +106,16 @@ def environment_headers(mapping):
     return result
 
 
-def read_url(url,*,allow_private=False,headers=None,method='GET',json_body=None,limit=MAX_BYTES):
+def read_url(url,*,allow_private=False,headers=None,method='GET',json_body=None,form_body=None,limit=MAX_BYTES):
     """供连接器工具使用的有限请求，复用地址校验与固定 DNS 连接。"""
     host,address=resolve_target(url,allow_private);original=httpx.URL(url)
     values={'Accept-Encoding':'identity','User-Agent':'FOS-Connector-Agent/1',**(headers or {}),'Host':original.netloc.decode('ascii')}
     start=time.monotonic();data=bytearray()
+    if json_body is not None and form_body is not None:raise ValueError('请求体不能同时使用 JSON 和表单。')
+    body={'data':form_body} if form_body is not None else {'json':json_body}
     try:
         with httpx.Client(timeout=httpx.Timeout(20,connect=5),follow_redirects=False,trust_env=False) as client:
-            with client.stream(method,original.copy_with(host=address),headers=values,json=json_body,extensions={'sni_hostname':host}) as response:
+            with client.stream(method,original.copy_with(host=address),headers=values,**body,extensions={'sni_hostname':host}) as response:
                 if response.headers.get('content-encoding','identity').lower() not in ('','identity'):raise ValueError('服务返回压缩内容，无法进行有界采样。')
                 for chunk in response.iter_raw():
                     if time.monotonic()-start>30:raise ValueError('工具请求超过30秒。')

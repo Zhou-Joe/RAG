@@ -58,7 +58,10 @@
       metric.setAttribute('aria-label',data.title||(zh?'指标':'Metric'));
       const main=document.createElement('div');main.className='erc-metric-main';
       const value=document.createElement('span');value.className='erc-metric-value';
-      const formatted=typeof data.value==='number'&&Number.isFinite(data.value)?format(data.value,language):'—';
+      const isText=data.value_type==='text';
+      if(isText)metric.setAttribute('data-value-type','text');
+      const formatted=isText?(typeof data.value==='string'&&data.value.trim()&&data.value.length<=600&&Array.from(data.value).length<=300?data.value:'—'):
+        typeof data.value==='number'&&Number.isFinite(data.value)?format(data.value,language):'—';
       const unit=typeof data.unit==='string'?data.unit.trim():'';
       value.textContent=formatted+(unit?(unit==='%'?'':' ')+unit:'');main.appendChild(value);
       metric.appendChild(main);

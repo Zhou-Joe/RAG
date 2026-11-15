@@ -166,9 +166,9 @@ class TrackerQueryTests(TrackerFixture, TestCase):
             self.assertNotIn('secret-value',result)
 
     def test_response_and_shared_turn_budgets_do_not_depend_on_row_count(self):
-        for _ in range(20):self.row(原文='原文'*3900)
+        for _ in range(60):self.row(原文='原文'*3900)
         outputs = []; chars = 0
-        for _ in range(12):
+        for _ in range(TURN_CHARS // (RESPONSE_CHARS-1200) + 4):
             text = self.service.call('lookup',kb_slug=self.kb.slug,columns=['原文'],limit=100)
             self.assertLessEqual(len(text),RESPONSE_CHARS)
             chars += len(text)
@@ -179,6 +179,25 @@ class TrackerQueryTests(TrackerFixture, TestCase):
         self.assertTrue(outputs[-1]['budget_exhausted'])
         self.assertLessEqual(chars,TURN_CHARS)
         self.assertLessEqual(sum(len(ev['text']) for ev in self.service.evidence),TURN_CHARS)
+
+    def test_pagination_can_exceed_the_old_turn_limit_and_then_read_another_library(self):
+        expected={self.row(原文='Record '+str(index)+' '+('text '*115)).pk for index in range(45)}
+        offset=0;seen=set();output_chars=0
+        while True:
+            text=self.service.call('lookup',kb_slug=self.kb.slug,columns=['原文'],limit=5,offset=offset)
+            result=json.loads(text)
+            self.assertNotIn('error',result)
+            seen.update(row['row_id'] for row in result['rows']);output_chars+=len(text)
+            if not result['has_more']:break
+            self.assertGreater(result['next_offset'],offset);offset=result['next_offset']
+        self.assertEqual(seen,expected)
+        self.assertGreater(output_chars,20000)
+        other=KnowledgeBase.objects.create(name='Second business library',slug='second-budget-library',category='business',is_folder=True)
+        tracker=KbTracker.objects.create(kb=other,fields=[{'label':'Status'}])
+        TrackerRow.objects.create(tracker=tracker,status='done',values={'Status':'Open'})
+        result=json.loads(self.service.call('lookup',kb_slug=other.slug,columns=['Status']))
+        self.assertNotIn('error',result)
+        self.assertEqual(result['rows'][0]['values']['Status'],'Open')
 
     def test_bad_fields_and_operators_cannot_turn_into_sql_or_unbounded_requests(self):
         for params in ({'columns':['values__password']},{'limit':1000},{'offset':-1},
@@ -227,11 +246,11 @@ class TrackerQueryTests(TrackerFixture, TestCase):
 
 class TrackerAgentExecutionTests(TrackerFixture, TransactionTestCase):
     def test_parallel_tool_calls_share_one_hard_character_budget(self):
-        for _ in range(20):self.row(原文='原文'*3900)
+        for _ in range(60):self.row(原文='原文'*3900)
         def lookup(_):
             return self.service.call('lookup',kb_slug=self.kb.slug,columns=['原文'],limit=100)
         with ThreadPoolExecutor(max_workers=4) as executor:
-            responses=list(executor.map(lookup,range(8)))
+            responses=list(executor.map(lookup,range(TURN_CHARS // (RESPONSE_CHARS-1200) + 4)))
         self.assertLessEqual(sum(map(len,responses)),TURN_CHARS)
         self.assertTrue(any(json.loads(text).get('budget_exhausted') for text in responses if text))
 

@@ -242,7 +242,7 @@ class AgentTests(TestCase):
         self.assertIn('/device',[row['path'] for row in tools[0]['record_arrays'][0]['item_fields']])
         self.assertEqual(tools[1]['selected_path'],'/data/0')
         self.assertIn('/device',[row['path'] for row in tools[1]['observed_paths']])
-        self.assertIn('URL 或 query 与已读取样例不一致',tools[2]['error'])
+        self.assertIn('URL、query、请求方式或请求体与已读取样例不一致',tools[2]['error'])
 
     def test_source_change_drops_inherited_api_sample(self):
         from kb.collector_api import refine_draft

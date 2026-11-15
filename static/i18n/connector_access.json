@@ -1,0 +1,27 @@
+{
+  "messages": {
+    "请填写实际凭据，不要填写脱敏占位符。": "Enter the actual credential, not a redacted placeholder.",
+    "访问凭据为空或过长，请重新填写。": "The access credential is empty or too long. Enter it again.",
+    "这项凭据引用不属于当前对话或接收服务，请重新提供对应服务的访问凭据。": "This credential reference does not belong to this conversation or service. Provide access credentials for the intended service.",
+    "API method 仅支持 GET 或 POST。": "The API method must be GET or POST.",
+    "POST 只能选择 json_body 或 form_body，不能同时设置。": "Choose either json_body or form_body for POST, not both.",
+    "请求体仅用于 POST；GET 参数请放入 query。": "Request bodies are supported for POST. Put GET parameters in query.",
+    "网页请求由 browser.actions 控制，不设置 API method 或请求体。": "Browser requests are controlled by browser.actions. Do not set an API method or request body.",
+    "cursor_location 仅支持 query 或 body。": "cursor_location must be query or body.",
+    "body 游标需要 POST 对象请求体。": "A body cursor requires an object body in a POST request.",
+    "json_body 必须是 JSON 对象或数组，form_body 必须是对象。": "json_body must be a JSON object or array. form_body must be an object.",
+    "请求体嵌套不能超过20层。": "Request bodies cannot exceed 20 levels of nesting.",
+    "请求体字段名必须是字符串。": "Request body field names must be strings.",
+    "请求体认证字段请引用已保存凭据，如 {\"credential\":\"password\"}，不要填写明文或脱敏占位符。": "Reference saved credentials in authentication fields, for example {\"credential\":\"password\"}. Do not enter plaintext secrets or redacted placeholders.",
+    "请求体只支持 JSON 数据。": "Request bodies support JSON data only.",
+    "请先保存访问凭据，再在请求体使用 credential 引用。": "Save the access credentials first, then use credential references in the request body.",
+    "form_body 的值须为字符串、字符串数组或 credential 引用。": "form_body values must be strings, arrays of strings, or credential references.",
+    "请求体必须是有限有效 JSON。": "The request body must be valid JSON with finite numbers.",
+    "请求体不能超过40000字节。": "The request body cannot exceed 40000 bytes.",
+    "请求体不能同时使用 JSON 和表单。": "A request body cannot use JSON and form encoding at the same time.",
+    "credential 须为 username/password 或 名称.username/名称.password。": "credential must be username/password or name.username/name.password.",
+    "当前 API 配置的 URL、query、请求方式或请求体与已读取样例不一致。先用 probe_api 探测这组实际请求，再验证映射；不要用旧响应证明新请求。": "The API URL, query, method, or body differs from the sampled request. Probe the actual request again before validating its mapping.",
+    "API 请求未成功；核对文档中的端点、请求方式、查询参数与请求体，不要猜测": "The API request failed. Check the documented endpoint, method, query parameters, and request body. Do not guess."
+  },
+  "patterns": []
+}

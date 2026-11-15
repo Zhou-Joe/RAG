@@ -14,7 +14,9 @@ The normal chat retrieval workflow is:
    Empty selection is allowed for clarification or reporting insufficient evidence. Reading again requires
    confirming the final selection again.
 
-The agent middleware reserves an evidence-selection step after reading. If a model ignores this and tries
+Reading one library leaves the other retrieval tools available. The agent can search or read additional
+permitted libraries and page through business data before making its final evidence selection. The middleware
+reserves that selection when retrieval finishes or reaches its allowance. If a model ignores this and tries
 to answer directly from candidate previews without confirming evidence, its unselected answer is not streamed.
 The final selection is still the model's choice, not proof that its reasoning is correct; enhanced mode
 continues to verify the answer against the selected original text and current source permissions.
@@ -29,9 +31,9 @@ cache/directory omissions. Document groups include candidate IDs even when some 
 
 ## Context limits
 
-- Candidate cache: up to 120 distinct candidates / 300,000 text characters on the server.
-- Candidate directory: up to 10,000 characters per response / 12,000 across this answer.
-- Full-text reads: up to 10,000 characters per response / 18,000 across this answer, including text-response metadata.
+- Candidate cache: up to 240 distinct candidates / 1,000,000 text characters on the server.
+- Candidate directory: up to 24,000 characters per response / 60,000 across this answer.
+- Full-text reads: up to 24,000 characters per response / 120,000 across this answer, including text-response metadata.
 - Up to 16 candidate IDs per read or final selection. A chunk is returned whole or listed under `not_loaded`;
   numbers, conditions and table rows are never silently clipped halfway through a chunk.
 - Reading an already loaded chunk returns an `already_loaded` notice rather than replaying its full text.
@@ -40,6 +42,13 @@ cache/directory omissions. Document groups include candidate IDs even when some 
   remains available for explicit image-finding questions.
 
 These are character bounds for RAG tool payloads, not a token budget for the entire model request.
+The agent allows up to 12 tool rounds per user turn. The last three rounds are reserved for final evidence
+selection and presentation, including charts, value cards and exports; they are part of the 12-round total.
+Presentation tools can also run earlier, and several independent views can be requested in one round.
+Additional graph steps leave room for answering and evidence-selection recovery.
+Three consecutive identical tool rounds trigger an early finish; an isolated retry or revisiting a previous
+query does not disable the other tools. Relationship-navigation origins do not restrict which permitted
+libraries may be explicitly queried.
 Other tools, conversation memory and images have separate limits. Fewer full-text chunks can reduce context
 use, although the selection steps add model calls; latency improvements depend on the model and question.
 

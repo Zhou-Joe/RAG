@@ -300,9 +300,9 @@ def build_visualization(user, allowed, service, slug, params):
 def agent_visualization(user, allowed, service, kb_slug, params):
     """Publish a typed result, keeping its bounded chart data out of LLM context."""
     with service.lock:
-        cap = min(RESPONSE_CHARS, service.remaining)
+        cap = min(RESPONSE_CHARS, service.presentation_remaining)
         if cap < 1200:
-            return service._budget_notice()
+            return service._budget_notice(presentation=True)
         chart, facts, normalized = build_visualization(user, allowed, service, kb_slug, params)
         text = encode(facts)
         if len(text) > cap:
@@ -321,7 +321,7 @@ def agent_visualization(user, allowed, service, kb_slug, params):
             raise ValueError('Visualization summary exceeds the available context budget.')
         if snapshot not in service.evidence:
             service.evidence.append(snapshot)
-        service.remaining -= len(result)
+        service.presentation_remaining -= len(result)
         return result
 
 

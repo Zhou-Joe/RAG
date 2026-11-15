@@ -11,11 +11,11 @@ from django.core.exceptions import ValidationError
 from .models import Document
 from .publication import digest
 
-MAX_CANDIDATES = 120
-MAX_CACHED_CHARS = 300000
-MAX_DISCOVERY_CHARS = 12000
-MAX_READ_CHARS = 18000
-MAX_RESPONSE_CHARS = 10000
+MAX_CANDIDATES = 240
+MAX_CACHED_CHARS = 1000000
+MAX_DISCOVERY_CHARS = 60000
+MAX_READ_CHARS = 120000
+MAX_RESPONSE_CHARS = 24000
 
 
 def encode(value):
@@ -375,6 +375,7 @@ class RagSelection:
                 selected = self.state.get('selected_ids', [])
                 if candidate_id not in selected or not self.state.get('finalized'):
                     raise ValueError('Select the supporting passage with kb_select_evidence first.')
+                self._current(candidate_id)
                 for selected_id in selected:
                     self._current(selected_id)
                 from .value_cards import grounded_value_card

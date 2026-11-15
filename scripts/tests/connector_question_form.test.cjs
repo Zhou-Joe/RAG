@@ -10,7 +10,7 @@ function submit(fields,draft=''){
   const elements={connectorPage:{},connectorMessages:messages,composerForm:composer,connectorPrompt:prompt,connectorSend:{disabled:false},connectorHint:hint};
   const scope={document:{getElementById:id=>elements[id]},window:{},Event:class Event{constructor(type){this.type=type;}}};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../../static/js/connector_reports.js'),'utf8'),scope);
-  const form={dataset:{builderQuestionForm:'current-job'},querySelectorAll(){return fields.map(field=>({name:field.key,value:field.value,dataset:{questionLabel:field.label}}));}};
+  const form={dataset:{builderQuestionForm:'current-job'},querySelectorAll(){return fields.map(field=>({name:field.key,type:field.type,value:field.value,dataset:{questionLabel:field.label,questionSecret:field.secret?'true':undefined}}));}};
   events.submit({target:{closest(){return form;}},preventDefault(){}});
   return {composer,prompt,hint};
 }
@@ -35,4 +35,12 @@ test('overlong answers do not discard the existing draft or submit a partial URL
   const {composer,prompt,hint}=submit([{key:'details',label:'Details',value:'x'.repeat(5000)}], 'Existing draft');
   assert.equal(composer.submitted,0);assert.equal(prompt.value,'Existing draft');
   assert.match(hint.textContent,/4000/);
+});
+
+test('secret answers are sent intact in structured input without echoing into the visible prompt',()=>{
+  const password='  synthetic password with spaces  ';
+  const {composer,prompt}=submit([{key:'password',label:'Password',value:password,type:'password',secret:true}]);
+  assert.equal(composer.submitted,1);assert.ok(!prompt.value.includes(password));
+  assert.match(prompt.value,/已提供访问凭据/);
+  assert.equal(composer.questionAnswers.answers[0].value,password);
 });

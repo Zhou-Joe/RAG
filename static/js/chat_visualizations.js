@@ -27,8 +27,14 @@
       return root.EnGenieInteractiveTable.normalize(value, language);
     }
     if (value.type === 'metric') {
-      const metric = {type: 'metric', title: text(value.title || '', 1200), value: number(value.value),
+      if (value.value_type !== undefined && !['number', 'text'].includes(value.value_type))
+        throw new TypeError('Invalid metric value type');
+      const isText = value.value_type === 'text';
+      const scalar = isText ? text(value.value, 600) : number(value.value);
+      if (isText && (!scalar.trim() || Array.from(scalar).length > 300)) throw new TypeError('Invalid text metric value');
+      const metric = {type: 'metric', title: text(value.title || '', 1200), value: scalar,
         language: (language || value.language) === 'zh-hans' ? 'zh-hans' : 'en'};
+      if (isText) metric.value_type = 'text';
       for (const [key, limit] of [['unit', 80], ['subtitle', 500]])
         if (value[key] !== undefined) metric[key] = text(value[key], limit);
       if (value.quality !== undefined) {

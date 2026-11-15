@@ -134,8 +134,11 @@ def _answer_with_value_cards(answer, evidence):
     if not re.fullmatch(r'(?:\s*\[[1-9][0-9]*\])+\s*', answer or ''):
         return answer
     cards = []
+    selected_sources = {item.get('presentation_query', {}).get('source_result_digest') for item in evidence
+                        if isinstance(item.get('presentation_query'), dict)}
     for item in evidence:
-        charts = ([item['chart']] if isinstance(item.get('chart'), dict) else [])
+        charts = ([item['chart']] if isinstance(item.get('chart'), dict)
+                  and item.get('result_digest') not in selected_sources else [])
         charts.extend(card['chart'] for card in item.get('value_cards', [])
                       if isinstance(card, dict) and isinstance(card.get('chart'), dict))
         for chart in charts:

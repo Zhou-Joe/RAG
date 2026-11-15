@@ -293,9 +293,9 @@ def upsert_access(resource,user,url,auth,*,name=''):
     return _store_profiles(user,primary,profiles)
 
 
-def export_profiles(resource):
+def export_profiles(resource,*,include_single_login=False):
     credential=getattr(resource,'credential',None)
-    if not credential or credential.kind!='multiple':return []
+    if not credential or not (credential.kind=='multiple' or include_single_login and credential.kind=='login'):return []
     result=[]
     for index,profile in enumerate(credential_profiles(resource)):
         prefix='FOS_FEED_CREDENTIAL_'+credential.pk.hex.upper()+'_'+str(index)

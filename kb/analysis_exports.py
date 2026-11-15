@@ -438,9 +438,11 @@ def agent_analysis(user, allowed, service, slug, params, output):
     if target is None or not allowed(target):
         raise ValueError('知识库不存在或无权访问。')
     with service.lock:
-        cap = min(RESPONSE_CHARS, service.remaining)
+        presentation = output != 'preview'
+        budget = 'presentation_remaining' if presentation else 'remaining'
+        cap = min(RESPONSE_CHARS, getattr(service, budget))
         if cap < 2500:
-            return service._budget_notice()
+            return service._budget_notice(presentation=presentation)
         kb, data = query_analysis(user, slug, params)
         params = dict(params)
         if data['kind'] == 'trend':
@@ -477,7 +479,7 @@ def agent_analysis(user, allowed, service, slug, params, output):
                 snapshot['chart'] = chart
             if snapshot not in service.evidence:
                 service.evidence.append(snapshot)
-        service.remaining -= len(text)
+        setattr(service, budget, getattr(service, budget) - len(text))
         return text
 
 

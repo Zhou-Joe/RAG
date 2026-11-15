@@ -140,6 +140,35 @@ test('metric cards distinguish missing values from zero and keep signed percenta
   assert.equal(h.host.all().find(n=>n.className==='erc-metric-quality'),undefined);
 });
 
+test('text metric values retain their exact source string and render markup as literal text',()=>{
+  const h=environment();
+  for(const value of ['09:00–18:00','Closed','00042','Status <img src=x onerror=alert(1)>','🌡'.repeat(300)]){
+    charts.render(h.host,{type:'metric',title:'Source value',value,value_type:'text'});
+    assert.equal(h.host.all().find(node=>node.className==='erc-metric-value').textContent,value);
+    const metric=h.host.all().find(node=>node.className==='erc-metric');
+    assert.equal(metric.getAttribute('data-value-type'),'text');
+    assert.equal(metric.getAttribute('translate'),'no');
+    assert.equal(h.host.all().filter(node=>['img','script','svg'].includes(node.tagName)).length,0);
+  }
+  for(const invalid of [null,undefined,false,0,'','   ','x'.repeat(301),'🌡'.repeat(301)]){
+    charts.render(h.host,{type:'metric',title:'Invalid source',value:invalid,value_type:'text'});
+    assert.equal(h.host.all().find(node=>node.className==='erc-metric-value').textContent,'—');
+  }
+  charts.render(h.host,{type:'metric',title:'Zero',value:0});
+  assert.equal(h.host.all().find(node=>node.className==='erc-metric-value').textContent,'0');
+  assert.equal(h.host.all().find(node=>node.className==='erc-metric').getAttribute('data-value-type'),null);
+});
+
+test('inert report JSON uses the same explicit text-card renderer without altering numeric charts',()=>{
+  const h=environment(),payload=h.document.createElement('script');
+  payload.setAttribute('id','engenie-chart-data');
+  payload.textContent=JSON.stringify([{type:'metric',title:'Opening hours',value:'09:00–18:00',value_type:'text'}]);
+  h.document.body.append(payload);h.host.setAttribute('data-engenie-chart','0');charts.mount(h.document);
+  assert.equal(h.host.all().find(node=>node.className==='erc-metric-value').textContent,'09:00–18:00');
+  charts.render(h.host,data());
+  assert.ok(h.host.all().some(node=>node.tagName==='svg'));
+});
+
 test('switching between charts and scalar cards removes old tooltip resources and supports inert report JSON',()=>{
   const h=environment();charts.render(h.host,data());
   assert.equal((h.window.events.scroll||[]).length,1);

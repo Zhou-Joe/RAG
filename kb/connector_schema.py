@@ -64,6 +64,7 @@ def normalize_spec(spec):
     from copy import deepcopy
     value=deepcopy(spec)
     if not isinstance(value,dict):return value
+    if isinstance(value.get('method'),str):value['method']=value['method'].upper()
     browser=value.get('browser')
     if isinstance(browser,dict):
         value.setdefault('source_type','browser');value.setdefault('records_path','records')
@@ -87,7 +88,11 @@ def model_tools(tools):
                     'ingest_mode':{'type':'string','enum':['tracker','documents'],'description':'默认 tracker 直接写追踪表；documents 将每条采集记录作为文档入库，供后续追踪表 AI 抽取长文本。'},
                     'records_path':{'type':'string','description':'从 probe_api.record_arrays 选真实数组的 records_path；根数组为 ""，可用 JSON Pointer。'},
                     'single_record':{'type':'boolean','description':'只有真实响应在 records_path 处是单个对象时才设 true。'},
-                    'query':{'type':'object','description':'只填用户或上游文档确认的 GET 查询参数；变更后重新 probe_api。'},
+                    'query':{'type':'object','description':'用户或文档确认的 URL 查询参数，GET/POST均可；变更后重新 probe_api。'},
+                    'method':{'type':'string','enum':['GET','POST'],'default':'GET','description':'保留probe_api实际验证的请求方式。POST只用于用户要求的数据查询。'},
+                    'json_body':{'type':['object','array'],'description':'POST JSON请求体，与form_body互斥。登录字段使用 {"credential":"username"} / {"credential":"名称.password"}，不保存明文或SOURCE_SECRET输入引用。'},
+                    'form_body':{'type':'object','description':'POST application/x-www-form-urlencoded表单，值为字符串或字符串数组，与json_body互斥；登录字段可用credential引用。'},
+                    'cursor_location':{'type':'string','enum':['query','body'],'default':'query','description':'已确认的cursor_param在URL查询参数或POST对象请求体中。'},
                     'title_path':{'type':'string','description':'相对单条记录的已观察字段路径。'},
                     'id_paths':{'type':'array','minItems':1,'maxItems':4,'items':{'type':'string'},'description':'相对单条记录的真实稳定 ID 路径，从 probe_api.item_fields 选择。'},
                     'body_fields':{'type':'array','minItems':1,'items':{'type':'object','required':['label'],'properties':{'label':{'type':'string'},'path':{'type':'string','description':'相对单条记录的已观察路径；不要猜 API 字段。'},'computed':{'type':'object','required':['op','start','end'],'properties':{'op':{'enum':['duration']},'start':{'type':'string'},'end':{'type':'string'},'format':{'enum':['hhmm','iso8601','unix_seconds','unix_millis']},'unit':{'enum':['hours','minutes','seconds']}}}}}},
@@ -102,7 +107,7 @@ def model_tools(tools):
             field_props['source']={'type':'string','enum':['today','now'],'description':'由系统生成采集日期或采集时间，所有模式都支持；不从网站取值，不再询问日期来源。'}
             props['spec']['properties']['on_error']={'type':'string','enum':['raw','fail'],'default':'raw','description':'raw保留真实原文与解析提示；fail才对格式问题失败。'}
             props['spec']['properties']['write_mode']={'type':'string','enum':['append','upsert'],'default':'append','description':'默认append：每次采集追加新行，保留历史，适合运营时间、价格、指标、同比环比。仅用户明确只要最新状态/覆盖时用upsert，按稳定ID更新；切换不删除历史。'}
-            props['spec']['properties']['url']['description']='API 使用已探测的准确 GET 端点；浏览器使用真实起始 URL 并保留单页应用的完整 #/... 路由。'
+            props['spec']['properties']['url']['description']='API 使用已探测的准确 GET/POST 端点；浏览器使用真实起始 URL 并保留单页应用的完整 #/... 路由。'
             props['spec']['properties']['browser']['properties']['output']['description']='network读取实际JSON数组，支持fields注入today/now及detail.url_field逐条取详情；dom通过rows和fields取数。'
             detail=props['spec']['properties']['browser']['properties']['output']['properties']['detail']
             detail['properties']={'url_field':{'type':'string'},'click_selector':{'type':'string'},'fields':{'type':'object'},'render':{'type':'string','enum':['browser','html'],'description':'已确认HTML有完整数据时选html；动态数据用browser。'}}

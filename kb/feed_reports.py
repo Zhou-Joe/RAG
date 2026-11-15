@@ -907,7 +907,8 @@ def capture_question_answers(user,job,feedback,answers):
         if not isinstance(answer,dict) or answer.get('key') not in fields or answer['key'] in seen:raise ValueError('回答字段不属于当前问题或重复。')
         seen.add(answer['key']);field=fields[answer['key']];value=answer.get('value')
         if not isinstance(value,str) or len(value)>8000:raise ValueError('回答内容过长或格式无效。')
-        value=value.strip()
+        from .connector_inputs import secret_field
+        if not secret_field(field):value=value.strip()
         if field.get('required',True) and not value:raise ValueError('请填写：'+field['label'])
         safe=value
         if value and is_workflow_question(field):
@@ -963,8 +964,12 @@ def question_fields(questions):
         key=item.get('key','answer_'+str(index));label=item.get('label');kind=item.get('type','text')
         if not isinstance(key,str) or not re.fullmatch(r'[a-zA-Z][a-zA-Z0-9_]{0,39}',key) or key in keys:raise ValueError('问题字段名无效或重复。')
         if not isinstance(label,str) or not 1<=len(label.strip())<=200:raise ValueError('请提供简短明确的问题。')
-        if kind not in ('text','email','url','date','number','select','textarea'):raise ValueError('问题输入类型无效。')
+        if kind not in ('text','password','email','url','date','number','select','textarea'):raise ValueError('问题输入类型无效。')
         field={'key':key,'label':label.strip(),'type':kind,'required':item.get('required',True) is not False}
+        from .connector_inputs import secret_field
+        if secret_field(field):
+            field['secret']=True
+            if kind=='text' and not re.search(r'username|user_name|account|账号|帐号|账户|用户名',key+' '+label,re.I):field['type']='password'
         if item.get('workflow_kind') in ('email','teams'):field['workflow_kind']=item['workflow_kind']
         if kind=='select':
             options=item.get('options')

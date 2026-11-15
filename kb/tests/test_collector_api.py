@@ -65,7 +65,7 @@ class CollectorDraftTests(TestCase):
         self.assertEqual(job.header_env, {name: f"FOS_FEED_CREDENTIAL_{job.credential_id.hex.upper()}_0"
                                           for name in job.credential.header_names})
         self.assertNotIn(SECRET, job.prompt)
-        self.assertIn("[REDACTED]", job.prompt)   # 模型看不到明文，只能用已绑定的凭据取数
+        self.assertRegex(job.prompt,r'\[SOURCE_SECRET:[0-9a-f]{32}\]')  # 明文留在加密存储，工具可解析该引用。
         self.assertEqual(self.start.call_args.args, (job.pk,))
 
     def test_intranet_source_open_by_default(self):

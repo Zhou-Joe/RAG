@@ -1134,7 +1134,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         """
         return _fetch_doc_context(kb_slug,source,section,contains,limit,overview=False)
 
-    from .tracker_query import TrackerQuery
+    from .tracker_query import TrackerQuery, RESPONSE_CHARS, TURN_CHARS
     tracker_query = TrackerQuery(_dept_allowed, evidence_sink, relationship_scope=relationship_scope)
 
     def tracker_preview(kb_slug: str = "", offset: int = 0, field_offset: int = 0) -> str:
@@ -1206,7 +1206,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         try:
             text = agent_analysis(actor, _dept_allowed, tracker_query, kb_slug, params, output)
         except (TypeError, ValueError, OverflowError) as exc:
-            return tracker_query.error(exc)
+            return tracker_query.error(exc, presentation=output != 'preview')
         _tracker_citations()
         return text
 
@@ -1254,7 +1254,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         try:
             text = agent_visualization(actor, _dept_allowed, tracker_query, kb_slug, params)
         except (TypeError, ValueError, OverflowError) as exc:
-            return tracker_query.error(exc)
+            return tracker_query.error(exc, presentation=True)
         _tracker_citations()
         return text
 
@@ -1262,7 +1262,8 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
                        filters: list[TrackerFilter] | None = None, order_by: list[TrackerOrder] | None = None,
                        metrics: list[TrackerMetric] | None = None, group_by: list[TrackerGroup] | None = None,
                        limit: int = 20, offset: int = 0, status: str = "done", cell_chars: int = 800,
-                       presentation: Literal['auto', 'text'] = 'auto', card_title: str = '', unit: str = '') -> str:
+                       presentation: Literal['auto', 'text'] = 'auto', card_title: str = '', unit: str = '',
+                       card_field: str = '', card_row_id: int | None = None) -> str:
         """在数据库查询追踪表；字段已知时直接查询，不清楚结构才用 tracker_preview。明确指定库，默认已完成记录。
 
         query: 文档名、来源ID或已配置字段值中的关键词；筛选覆盖全部历史，不限最近200条。
@@ -1281,17 +1282,50 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         limit/offset: 每页1至100条，依据next_offset翻页；has_more表示还有记录/分组。
         status: 默认done，可显式选择proposed/pending/running/failed/all；待确认值不当作已批准事实。
         cell_chars: 单元格最多80至8000字符，默认800；长文本应按$row_id精确过滤并只选一列，再提高本值。
-        presentation=auto默认自动显示单值卡片：一个无分组指标，或明确只选一列且结果唯一的数值。
-            查询最新值时按真实业务时间order_by排序并limit=1；不要用总和替代当前值。
+        presentation=auto会把明确的数值答案自动显示为卡片；名称、对象和日期等上下文列可以一起查询。
+            card_field指定本次问题关注的已返回字段或metrics别名，card_row_id指定实际返回的row_id。
+            明确选中的值也可为营业时间、状态等简短原文，或本身包含单位的原始值；文本已有单位时不要重复附加unit。
+            已知用户关注的字段时在查询中明确设置card_field；需要先检查多个可能答案时，可暂用presentation=text检索，再用tracker_show_value选择相关值。
+            可先获取多列、多条候选，匹配用户对象/日期后用tracker_show_value选择所需字段和记录生成卡片，无需重新查成单列。
+            查询最新值时按真实业务时间order_by排序且limit=1，或根据已返回的业务日期选定对应row_id；不要用总和替代当前值。
             card_title用简短业务标题，unit仅用资料中已知单位。卡片在回答顶部，只显示标题和值（含单位）。
             简单问题的精确答案已由卡片显示时，最终仅输出真实[N]引用，不重复数值、不补洞察或免责声明。
             用户明确要求纯文字时传presentation=text；需解释、比较或分析时按用户需要补充，不能凭样例推断。
-        返回JSON；单元格truncated表示省略，需缩小columns/过滤或用metrics，不把省略文本当完整数据。
+        返回JSON和可供tracker_show_value复用的result_id；单元格truncated表示省略，需缩小columns/过滤或用metrics，不把省略文本当完整数据。
         """
         if not kb_slug:return '请明确提供本次选择的 kb_slug；需要选库时调用 list_knowledge_bases。'
         text = tracker_query.call('lookup', kb_slug=kb_slug, query=query, columns=columns,
             filters=filters, order_by=order_by, metrics=metrics, group_by=group_by, limit=limit, offset=offset,
-            status=status, cell_chars=cell_chars, presentation=presentation, card_title=card_title, unit=unit)
+            status=status, cell_chars=cell_chars, presentation=presentation, card_title=card_title, unit=unit,
+            card_field=card_field, card_row_id=card_row_id, presentation_version=2)
+        _tracker_citations()
+        return text
+
+    def tracker_show_value(field: str, row_id: int | None = None, title: str = '', unit: str = '',
+                           result_id: str = '', group: dict | None = None) -> str:
+        """Display the relevant verified value from an already retrieved tracker result.
+
+        Retrieve the columns needed to identify the requested object, business date
+        and measures with tracker_lookup, then choose the value that answers the
+        user's question. Context columns and other candidate rows can stay in the
+        source result; a one-column query is not required. This tool accepts no
+        model-authored value: field must be a returned value column or metric
+        alias. Numeric values and exact short source text, such as opening hours,
+        status or a value with its original unit, can be selected. Keep that text
+        intact, and do not add a duplicate unit already present in the value.
+        For raw rows, use the actual returned row_id when choosing among records.
+        For a grouped metric, supply its exact returned by-values in group.
+        result_id identifies the lookup result; omit it to use the latest lookup.
+        title is a short business label, and unit must come from verified data.
+        A broad lookup followed by this tool completes the visualization in the
+        same response; do not ask the user to request a card again. Multiple
+        independent requested values may use separate calls. For comparisons,
+        trends or detailed lists, choose tracker_analyze or tracker_visualize.
+        The card appears above the answer with its assigned [N] citation. For a
+        simple exact answer, return only that citation after displaying the card.
+        """
+        text = tracker_query.show_value(field=field, row_id=row_id, title=title, unit=unit,
+                                        result_id=result_id, group=group)
         _tracker_citations()
         return text
 
@@ -1402,7 +1436,7 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         return rag_selection.discover(results,[doc.kb.slug],limit=2)
 
     # The caller supplies the completed transcript; graph runs remain independent.
-    from .agent_budget import RetrievalBudget
+    from .agent_budget import DEFAULT_MAX_ROUNDS, PRESENTATION_RESERVE_ROUNDS, RetrievalBudget
     if overview and overview_kb_slug:
         from .models import KnowledgeBase
         target = KnowledgeBase.objects.get(slug=overview_kb_slug)
@@ -1432,8 +1466,15 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         '统计、趋势、比较优先用metrics或tracker_analyze，不逐页拉明细到上下文自己计算；'
         '需要明细时只选必要columns，先取5至20条，不因has_more就自动遍历全表。'
         '仅当用户需要更多具体明细、当前结果不足且输出预算允许时继续精确查询。'
-        '业务工具每次最多返回10000字符，本轮共用20000字符；预算不足直接基于已有材料回答或询问范围，'
-        '不要重复调用同一查询。大量完整结果通过导出文件交付，只把摘要和下载链接留在会话中。'
+        f'业务查询每次最多返回{RESPONSE_CHARS}字符，本轮查询输出共用{TURN_CHARS}字符；'
+        '用户需要更多明细或跨库比较时，可以继续使用next_offset分页、选取必要字段或查询其他有权限的知识库。'
+        '读取一个知识库后仍可继续选择其他库；不要把待选择证据或关联导航起点误认为不能跨库。'
+        '已取得的同一页无需重复读取；统计和完整导出仍优先使用数据库汇总或导出工具。'
+        f'每轮用户问题最多{DEFAULT_MAX_ROUNDS}轮工具调用；最后{PRESENTATION_RESERVE_ROUNDS}轮预留给证据选择、图表、值卡片、分析及导出。'
+        '所需字段与范围已知时尽早直接调用图表工具；多个独立图表可以在同一轮并行调用，无需等到最后。'
+        '达到查询输出预算后，tracker_show_value、tracker_visualize和tracker_analyze的图表/文件输出仍使用独立呈现额度，无需复制整批数据；'
+        '不能因为原始查询输出预算用完就省略所需卡片或退回纯文字。只有现有资料确实不足以判断业务答案时才说明缺失或询问范围。'
+        '大量完整结果通过导出文件交付，只把摘要和下载链接留在会话中。'
         '\n追踪表汇总/周期比较及Excel、图表优先使用 tracker_analyze：直接查询完整数据库，'
         'output=excel/plot/both 返回真正生成的文件链接，普通与增强模式都支持。'
         '按已有真实字段选择分组、数值字段、时间范围和对象；mode=options可识别数值字段/查对象值。'
@@ -1448,13 +1489,23 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
         '优先用现有可视化工具直接回答，不要求用户再说“画图”或确认一次。'
         '简单或随口的精确数值问题（如“现在多少度”“这个项目要等多久”“一共多少”）也默认用单值卡片，'
         '不能因为问题简单、口语化或没有要求画图而只给文字。卡片显示在回答最上方。'
+        '营业时间、状态或带单位的原始值等精确简短答案，也可明确选择对应字段用卡片展示，保持原文及含义。'
         '简单查询已有精确答案时，卡片和真实引用就是完整回答：最终仅输出分配的[N]引用，'
         '不要加开场白、重复数值、解释、洞察、建议、免责声明或泛泛的“以现场为准”等附言。'
         '用户要求原因、解读、对比或有必须澄清的歧义时才补必要说明；没有可靠答案时明确说明不足。'
-        '复杂问题按需要配1至2个紧凑卡片或图表，并在相关结论旁保留真实[N]来源标注。'
-        '查询当前值、最新值或某条记录的具体指标，使用tracker_lookup并显式columns=[实际指标字段]；'
-        '需要最新记录时按实际业务时间排序且limit=1，给出简短card_title及已知unit。'
-        '默认presentation=auto自动把精确单值变成卡片，无需额外绘图调用。'
+        '复杂问题按用户所需指标、对象和比较提供多个紧凑卡片、图表或表格，并在相关结论旁保留真实[N]来源标注。'
+        '检索和呈现分开考虑：tracker_lookup可以同时查询名称、对象、业务日期和多个数值字段，先匹配用户请求再选择要显示的答案。'
+        '名称、日期或其它上下文列不能成为不显示卡片的理由，也不必为了卡片把检索压成一列。'
+        '已知用户关注的目标字段时，在tracker_lookup中设置card_field，已知所需记录时用card_row_id；默认presentation=auto会把明确的单值答案自动呈现。'
+        '探索查询中有多个可能答案、需要先看上下文再决定时，可用presentation=text取数，再用tracker_show_value选出相关答案；这不要求单列查询。'
+        '用户明确只要文字时遵从其偏好，不调用选卡工具；探索阶段暂不自动出卡不代表用户要求纯文字。'
+        '首次查询返回普通行集或多个指标时，在同一次回答结束前调用tracker_show_value，给已返回的result_id、实际field和需要的row_id，'
+        '从已取回结果中选出与问题对应的数值或简短原文；分组指标用实际指标别名及返回的by值作为group。无需重新查询或等待用户要求画卡片。'
+        '根据名称、业务日期、状态等上下文判断哪个结果符合需求；不能任取首行，也不能把一页样例汇总成全量统计。'
+        '用户需要几个独立指标就按需分别选卡；对比、趋势或清单使用相应图表或表格。'
+        '只有对象、时间或业务口径确有歧义且现有数据不足以判断时才澄清。可视化字段选择和工具调用由你完成，'
+        '不要以查询返回了几列、自动卡片未触发等内部展示规则作为拒绝，也不要让用户再次要求可视化。'
+        '查询当前值或最新值时保留真实业务日期依据，可在查询中按该字段排序且limit=1，或从结果中选择对应row_id，给简短标题及已知unit。'
         '简单问题的数值来自文档原文时，读取并用kb_select_evidence选定后调用kb_show_value，'
         '给实际candidate_id、简短title、原文value和unit及原样quote；不要为了卡片生成Python脚本。'
         '卡片必须保留用户指定对象、口径与必要条件，不拿另一对象或另一个日期的精确数值冒充答案。'
@@ -1496,11 +1547,11 @@ def _build_agent(kb_slug: str, thread_id: str, llm_cfg: dict, top_k: int, checkp
     if retrieval_state is not None:
         retrieval_state['citation_guide'] = citation_guide
     return create_agent(
-        middleware=[citation_guide, RetrievalBudget(max_rounds=7,selection=rag_selection)],
+        middleware=[citation_guide, RetrievalBudget(selection=rag_selection)],
         model=_get_llm(llm_cfg),
-        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_show_value, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, tracker_visualize, request_verified_export]
+        tools=([list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_show_value, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_show_value, tracker_analyze, tracker_visualize, request_verified_export]
                if llm_cfg.get("qa_enhance") else
-               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_show_value, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_analyze, tracker_visualize, write_analysis, check_analysis, request_verified_export]),
+               [list_knowledge_bases, kb_relationships, kb_graph_search, kb_search, kb_read_chunks, kb_select_evidence, kb_show_value, kb_image_search, kb_fetch_doc, kb_neighbor_chunk, tracker_preview, tracker_lookup, tracker_show_value, tracker_analyze, tracker_visualize, write_analysis, check_analysis, request_verified_export]),
         system_prompt=system_prompt + ("\n增强模式：可直接复用会话中已有的原文、工具结果或已核对的图谱事实，不要求每轮重新检索。历史回答可帮助理解，但核实时使用保存的原文依据。精确单值问题仅显示卡片与引用；其它问题按需展示有出处的文本或 Markdown 表格。台账Excel和图表使用tracker_analyze返回真实下载链接；来源数据在发布前复核。其它已核对Markdown表格可调用request_verified_export生成CSV。此模式不执行自由生成脚本。" if llm_cfg.get("qa_enhance") else ""),
         checkpointer=checkpointer,
         name="engenie",
@@ -1611,13 +1662,11 @@ async def run_agent_stream(
             known = {item.get('attachment_id') for item in evidence if item.get('kind') == 'chat_attachment'}
             evidence.extend(item for item in snapshots if item['attachment_id'] not in known)
         completed_messages = None
-        # recursion_limit 是顶层 key（不在 configurable 内）。
-        # 每次工具调用 ≈ 2 个节点（agent + tool）。取完整表格时可能用到
-        # list_kb + kb_search×2 + kb_fetch_doc×4 + write_analysis ≈ 8 次调用，
-        # 故设 25（≈12 次调用）留余量。工具结果有 limit 上限，不会无限堆积。
+        # Leave enough graph steps for the retrieval allowance and final selection.
+        from .agent_budget import GRAPH_RECURSION_LIMIT
         thread_config = {
             "configurable": {"thread_id": thread_id},
-            "recursion_limit": 25,
+            "recursion_limit": GRAPH_RECURSION_LIMIT,
         }
 
         from .answer_text import AnswerText
@@ -1763,7 +1812,7 @@ async def run_agent_stream(
 
             elif etype == "on_tool_end":
                 output = data.get("output")
-                if name in ('kb_read_chunks','kb_select_evidence','kb_show_value'):
+                if name in ('kb_read_chunks','kb_select_evidence','kb_show_value','tracker_show_value'):
                     yield SSE_CITATIONS, {'citations':public_citations(),'replace':True}
                 # write_analysis 结束 → 发出 code_run，前端在 Pyodide 沙箱执行
                 if name == "write_analysis" and run_id in pending_code:
@@ -1904,7 +1953,7 @@ def _reason_from_tool_calls(tool_calls: list) -> str:
             parts.append('正在读取所选文档的原文片段。')
         elif name == 'kb_select_evidence':
             parts.append('正在确认本次回答实际采用的原文依据。')
-        elif name == 'kb_show_value':
+        elif name in ('kb_show_value', 'tracker_show_value'):
             parts.append('正在展示答案卡片。')
         elif name == "kb_fetch_doc":
             c = args.get("contains") or args.get("section") or ""
@@ -1927,6 +1976,7 @@ def _tool_label(name: str) -> str:
         "kb_graph_search": "查询已核对的图谱关系…",
         "tracker_preview": "查看追踪表字段与样例…",
         "tracker_lookup": "筛选或统计追踪表…",
+        "tracker_show_value": "展示答案卡片…",
         "tracker_analyze": "分析台账并生成报告…",
         "tracker_visualize": "创建交互式数据视图…",
         "kb_fetch_doc": "提取文档片段…",

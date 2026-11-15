@@ -16,13 +16,17 @@ SENSITIVE={'authorization','password','passwd','api_key','apikey','secret','acce
 
 def redact(value,secrets=()):
     if isinstance(value,dict):
-        return {key:('[REDACTED]' if str(key).lower().replace('-','_') in SENSITIVE
+        return {key:(item if isinstance(item,dict) and set(item)=={'credential'} and isinstance(item['credential'],str)
+            and re.fullmatch(r'(?:[A-Za-z][A-Za-z0-9_-]{0,39}\.)?(?:username|password)',item['credential']) else '[REDACTED]' if str(key).lower().replace('-','_') in SENSITIVE
             and not (isinstance(item,str) and re.fullmatch(r'FOS_FEED_[A-Z0-9_]+',item)) else redact(item,secrets)) for key,item in value.items()}
     if isinstance(value,list):return [redact(item,secrets) for item in value]
     if isinstance(value,str):
-        for secret in secrets:
-            if secret:value=value.replace(secret,'[REDACTED]')
-        value=re.sub(r'(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+','Bearer [REDACTED]',value)
+        parts=re.split(r'(\[SOURCE_SECRET:[0-9a-f]{32}\])',value)
+        for index in range(0,len(parts),2):
+            for secret in secrets:
+                if secret:parts[index]=parts[index].replace(secret,'[REDACTED]')
+            parts[index]=re.sub(r'(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+','Bearer [REDACTED]',parts[index])
+        value=''.join(parts)
     return value
 
 

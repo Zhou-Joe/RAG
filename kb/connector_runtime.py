@@ -91,11 +91,80 @@ def field_exempt(record,field):
     return isinstance(value,str) and bool(re.search(rule['regex'],value,re.I))
 
 
+def validate_request(spec):
+    """Validate replayable GET/POST input independently of the output mapping."""
+    method=spec.get('method','GET')
+    if method not in ('GET','POST'):raise ValueError('API method 仅支持 GET 或 POST。')
+    bodies=[key for key in ('json_body','form_body') if key in spec]
+    if len(bodies)>1:raise ValueError('POST 只能选择 json_body 或 form_body，不能同时设置。')
+    if bodies and method!='POST':raise ValueError('请求体仅用于 POST；GET 参数请放入 query。')
+    if spec.get('source_type')=='browser' and (method!='GET' or bodies):raise ValueError('网页请求由 browser.actions 控制，不设置 API method 或请求体。')
+    location=spec.get('cursor_location','query')
+    if location not in ('query','body'):raise ValueError('cursor_location 仅支持 query 或 body。')
+    if location=='body' and (method!='POST' or len(bodies)!=1 or not isinstance(spec[bodies[0]],dict)):
+        raise ValueError('body 游标需要 POST 对象请求体。')
+    if not bodies:return spec
+    key=bodies[0];body=spec[key]
+    if not isinstance(body,dict) and not (key=='json_body' and isinstance(body,list)):
+        raise ValueError('json_body 必须是 JSON 对象或数组，form_body 必须是对象。')
+    sensitive={'authorization','password','passwd','api_key','apikey','secret','access_token','refresh_token','token','cookie'}
+    def credential(value):
+        return (isinstance(value,dict) and set(value)=={'credential'} and isinstance(value['credential'],str)
+            and re.fullmatch(r'(?:[A-Za-z][A-Za-z0-9_-]{0,39}\.)?(?:username|password)',value['credential']))
+    def check(value,depth=0):
+        if depth>20:raise ValueError('请求体嵌套不能超过20层。')
+        if credential(value):return
+        if isinstance(value,dict):
+            if set(value)=={'credential'}:raise ValueError('credential 须为 username/password 或 名称.username/名称.password。')
+            for name,item in value.items():
+                if not isinstance(name,str):raise ValueError('请求体字段名必须是字符串。')
+                if name.lower().replace('-','_') in sensitive and not credential(item):
+                    raise ValueError('请求体认证字段请引用已保存凭据，如 {"credential":"password"}，不要填写明文或脱敏占位符。')
+                check(item,depth+1)
+        elif isinstance(value,list):
+            for item in value:check(item,depth+1)
+        elif not isinstance(value,(str,int,float,bool,type(None))):raise ValueError('请求体只支持 JSON 数据。')
+        elif isinstance(value,str) and ('[SOURCE_SECRET:' in value or value=='[REDACTED]'):
+            raise ValueError('请先保存访问凭据，再在请求体使用 credential 引用。')
+    check(body)
+    if key=='form_body':
+        for value in body.values():
+            if credential(value):continue
+            if not isinstance(value,str) and not (isinstance(value,list) and all(isinstance(item,str) for item in value)):
+                raise ValueError('form_body 的值须为字符串、字符串数组或 credential 引用。')
+    try:size=len(json.dumps(body,ensure_ascii=False,allow_nan=False).encode())
+    except (TypeError,ValueError,OverflowError,RecursionError) as exc:raise ValueError('请求体必须是有限有效 JSON。') from exc
+    if size>40000:raise ValueError('请求体不能超过40000字节。')
+    return spec
+
+
+def request_options(spec,cursor='',*,profiles=()):
+    """Share request semantics between probes, managed cron and exported scripts."""
+    validate_request(spec)
+    options={'method':spec['method']} if spec.get('method','GET')!='GET' else {}
+    def resolve(value):
+        if isinstance(value,dict):
+            if set(value)=={'credential'}:
+                try:from .credential_routing import login_value
+                except ImportError:from credential_routing import login_value
+                return login_value(profiles,spec['url'],value['credential'])
+            return {key:resolve(item) for key,item in value.items()}
+        if isinstance(value,list):return [resolve(item) for item in value]
+        return value
+    for key in ('json_body','form_body'):
+        if key not in spec:continue
+        body=resolve(spec[key])
+        if cursor and spec.get('cursor_param') and spec.get('cursor_location')=='body':body[spec['cursor_param']]=cursor
+        options[key]=body
+    return options
+
+
 def validate_spec(spec):
-    allowed={'name','url','query','records_path','single_record','id_paths','title_path','title_prefix','body_fields','metadata_paths','ingest_mode',
+    allowed={'name','url','query','method','json_body','form_body','cursor_location','records_path','single_record','id_paths','title_path','title_prefix','body_fields','metadata_paths','ingest_mode',
              'updated_at_path','updated_at_format','source_url_path','deleted_path','next_cursor_path','cursor_param','cron','timezone','header_env',
              'source_type','browser','on_error','write_mode'}
     if not isinstance(spec,dict) or not spec.keys()<=allowed:raise ValueError('连接器配置包含不支持的字段。')
+    validate_request(spec)
     if not isinstance(spec.get('name'),str) or not spec['name'].strip() or len(spec['name'])>100:raise ValueError('请提供连接器名称。')
     if spec.get('source_type','api') not in ('api','browser'):raise ValueError('source_type 仅支持 api 或 browser。')
     if spec.get('ingest_mode','tracker') not in ('tracker','documents'):raise ValueError('ingest_mode 仅支持 tracker（结构化记录）或 documents（每条记录一份文档）。')
@@ -151,7 +220,7 @@ def validate_spec(spec):
 
 def request_url(spec,cursor=''):
     parts=urlsplit(spec['url']);query=dict(parse_qsl(parts.query,keep_blank_values=True));query.update(spec.get('query',{}))
-    if cursor and spec.get('cursor_param'):query[spec['cursor_param']]=cursor
+    if cursor and spec.get('cursor_param') and spec.get('cursor_location','query')=='query':query[spec['cursor_param']]=cursor
     return urlunsplit((parts.scheme,parts.netloc,parts.path,urlencode(query),''))
 
 
@@ -296,7 +365,16 @@ def main(spec):
         try:data=browser.call('collect',spec=spec)
         finally:browser.close()
     else:
-        with build_opener(NoRedirect()).open(Request(request_url(spec,state.get('cursor','')),headers={'Accept':'application/json','Accept-Encoding':'identity',**headers}),timeout=30) as response:raw=response.read(MAX_BYTES+1)
+        options=request_options(spec,state.get('cursor',''),profiles=profiles)
+        body=None;request_headers={'Accept':'application/json','Accept-Encoding':'identity',**headers}
+        if 'json_body' in options:
+            body=json.dumps(options['json_body'],ensure_ascii=False,allow_nan=False).encode()
+            request_headers.setdefault('Content-Type','application/json')
+        elif 'form_body' in options:
+            body=urlencode(options['form_body'],doseq=True).encode()
+            request_headers.setdefault('Content-Type','application/x-www-form-urlencoded')
+        request=Request(request_url(spec,state.get('cursor','')),data=body,headers=request_headers,method=options.get('method','GET'))
+        with build_opener(NoRedirect()).open(request,timeout=30) as response:raw=response.read(MAX_BYTES+1)
         if len(raw)>MAX_BYTES:raise ValueError('API response exceeds 500MB.')
         data=json.loads(raw)
     payload=build_batch(spec,data)

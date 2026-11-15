@@ -219,8 +219,9 @@
           const row=el('div','cx-question-field'),label=el('label',null,field.label),input=el(field.type==='select'?'select':field.type==='textarea'?'textarea':'input');
           input.id='cx-question-'+job.id+'-'+field.key;label.htmlFor=input.id;
           input.name=field.key;input.dataset.questionLabel=field.label;input.required=field.required!==false;
+          if(field.secret||field.type==='password')input.dataset.questionSecret='true';
           if(input.tagName==='INPUT'){input.type=field.type||'text';if(field.type==='number')input.step='any';}
-          if(!['select','number','date'].includes(field.type))input.maxLength=4000;
+          if(!['select','number','date'].includes(field.type))input.maxLength=field.type==='password'?8000:4000;
           if(field.type==='select'){const empty=el('option',null,'请选择');empty.value='';input.append(empty);for(const value of field.options||[]){const option=el('option',null,value);option.value=value;input.append(option);}}
           row.append(label,input);form.append(row);
         }

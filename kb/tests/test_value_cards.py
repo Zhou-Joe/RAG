@@ -59,12 +59,23 @@ class ValueCardTests(ValueCardFixture, TestCase):
                        dict(query='NO_MATCH', metrics=[{'op': 'count', 'as': 'Matches'}])):
             self.assertEqual(json.loads(tools['tracker_lookup'](kb_slug=self.kb.slug, **params))['chart']['value'], 0)
 
-    def test_explicit_text_multi_value_and_grouped_queries_do_not_get_a_card(self):
+    def test_explicit_text_non_numeric_and_grouped_queries_do_not_get_an_automatic_card(self):
         tools, _, _, _ = self.tools()
         for params in (dict(columns=['Temperature'], presentation='text'),
-                       dict(columns=['Temperature', 'Location']), dict(columns=['Location']),
+                       dict(columns=['Location']),
                        dict(metrics=[{'op': 'count', 'as': 'Count'}], group_by=[{'field': 'Location'}])):
             self.assertNotIn('chart', json.loads(tools['tracker_lookup'](kb_slug=self.kb.slug, **params)))
+
+    def test_context_columns_do_not_prevent_an_exact_numeric_answer_card(self):
+        for enhanced in (False, True):
+            tools, citations, evidence, _ = self.tools(enhanced)
+            result = json.loads(tools['tracker_lookup'](kb_slug=self.kb.slug,
+                columns=['Temperature', 'Date', 'Location']))
+            self.assertEqual(result['chart']['value'], 0)
+            self.assertEqual(result['chart']['title'], 'Temperature')
+            self.assertEqual(result['rows'][0]['values']['Location'], 'Shanghai')
+            self.assertEqual(citations[0]['tracker_snapshot']['chart'], result['chart'])
+            self.assertTrue(validate_sources(evidence, self.user.pk))
 
     def test_missing_or_boolean_values_are_not_zero(self):
         for value in (None, False, 'N/A', 'NaN', 'Infinity', {'value': 42}):

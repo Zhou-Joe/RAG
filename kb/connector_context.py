@@ -39,12 +39,12 @@ def normalize_arguments(arguments):
     """兼容本地模型将对象参数二次JSON编码的常见格式，不执行任何代码。"""
     if not isinstance(arguments,dict):return arguments
     result=dict(arguments)
-    for key in ('spec','report','digest','query','fields','computed','record'):
+    for key in ('spec','report','digest','query','json_body','form_body','authentication','fields','computed','record'):
         value=result.get(key)
-        if isinstance(value,str) and value.lstrip().startswith('{'):
+        if isinstance(value,str) and (value.lstrip().startswith('{') or key=='json_body' and value.lstrip().startswith('[')):
             try:parsed=json.loads(value)
             except (ValueError,TypeError):continue
-            if isinstance(parsed,dict):result[key]=parsed
+            if isinstance(parsed,dict) or key=='json_body' and isinstance(parsed,list):result[key]=parsed
     return result
 
 

@@ -269,10 +269,23 @@ class TrackerVisualizationTests(TestCase):
         self.assertNotIn('99999', json.dumps(table))
 
     def test_budget_exhaustion_is_bounded_and_adds_no_unpublished_chart(self):
-        service = TrackerQuery(lambda kb: True); service.remaining = 1000
+        service = TrackerQuery(lambda kb: True); service.presentation_remaining = 1000
+        remaining = service.remaining
         text = agent_visualization(self.user, lambda kb: True, service, self.kb.slug,
                                   {'kind': 'progress', 'target': 10})
         self.assertTrue(json.loads(text)['budget_exhausted'])
         self.assertLessEqual(len(text), 1000)
-        self.assertGreaterEqual(service.remaining, 0)
+        self.assertGreaterEqual(service.presentation_remaining, 0)
+        self.assertEqual(service.remaining, remaining)
         self.assertEqual(service.evidence, [])
+
+    def test_query_preview_exhaustion_still_allows_multiple_verified_charts(self):
+        service = TrackerQuery(lambda kb: True); service.remaining = 0
+        for kind,params in [('progress',{'target':20,'measure':'Amount','operation':'sum'}),
+                            ('table',{'columns':['Name','Amount']}),
+                            ('pareto',{'x_field':'Category','measure':'Amount','operation':'sum'})]:
+            chart,snapshot,_=self.visualize(kind,service=service,**params)
+            self.assertEqual(chart['type'],kind)
+            self.assertTrue(validate_visualization_snapshot(snapshot,self.user))
+        self.assertEqual(service.remaining,0)
+        self.assertTrue(validate_sources(service.evidence,self.user.pk))

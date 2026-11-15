@@ -60,6 +60,11 @@ analysis settings. Changing settings disables it until the new analysis is appli
 
 ## Preview
 
+Tracker tool output is limited to 24,000 characters per response and 240,000 characters per user turn.
+Follow `next_offset` when the requested detail needs more pages; pages and different permitted KBs share
+the turn allowance. Reading one KB does not close access to another. Aggregates and file exports remain
+the appropriate way to process or deliver a complete large dataset.
+
 ```json
 {"kb_slug":"park-hours"}
 ```

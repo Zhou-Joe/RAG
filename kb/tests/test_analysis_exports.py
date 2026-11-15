@@ -420,6 +420,28 @@ class AnalysisExportTests(TestCase):
         self.assertLessEqual(service.remaining, 1)  # One char cannot hold another valid JSON result.
         self.assertGreaterEqual(service.remaining, 0)
 
+    def test_charts_and_exports_can_finish_after_query_preview_output_is_exhausted(self):
+        self.row('A','7')
+        service=TrackerQuery(lambda kb: True)
+        service.remaining=0
+        for output in ('plot','excel'):
+            result=json.loads(agent_analysis(self.owner,lambda kb: True,service,self.kb.slug,self.params,output))
+            self.assertEqual(result['analysis']['total_matched'],1)
+            self.assertTrue(result['files'])
+        self.assertEqual(service.remaining,0)
+        self.assertTrue(validate_sources(service.evidence,self.owner.pk))
+
+    def test_presentation_exhaustion_does_not_consume_query_preview_output(self):
+        service=TrackerQuery(lambda kb: True)
+        service.presentation_remaining=100
+        before=service.remaining
+        with patch('kb.analysis_exports.query_analysis') as query:
+            results=[agent_analysis(self.owner,lambda kb: True,service,self.kb.slug,self.params,'plot') for _ in range(8)]
+        query.assert_not_called()
+        self.assertLessEqual(sum(map(len,results)),100)
+        self.assertGreaterEqual(service.presentation_remaining,0)
+        self.assertEqual(service.remaining,before)
+
     def test_file_fingerprint_is_verified_and_links_expire(self):
         self.row()
         service = TrackerQuery(lambda kb: True)
